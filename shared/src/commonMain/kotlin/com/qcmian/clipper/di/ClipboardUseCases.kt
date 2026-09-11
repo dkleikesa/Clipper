@@ -15,12 +15,11 @@ import com.qcmian.clipper.domain.usecase.UpdateSettingsUseCase
 import com.qcmian.clipper.domain.usecase.UpdateTitleUseCase
 
 /**
- * The domain use cases the history screen drives, bundled into a single dependency.
+ * 历史界面所驱动的领域用例，打包成单个依赖。
  *
- * The state holder used to take thirteen separate use case parameters; grouping them keeps the
- * constructor about the three things it actually owns — the repository, the platform and the
- * actions — instead of reading like the dependency graph itself. Defined in the DI layer
- * because bundling is a wiring concern, not a domain one.
+ * 状态持有者过去要接收十三个独立的用例参数；把它们分组后，构造函数只关心它真正拥有的三样
+ * 东西——仓库、平台与动作——而不是把整张依赖图摊开。定义在 DI 层，因为「打包」是装配问题，
+ * 不是领域问题。
  */
 data class ClipboardUseCases(
     val captureClipboard: CaptureClipboardUseCase,

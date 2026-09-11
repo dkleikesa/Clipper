@@ -1,14 +1,14 @@
 package com.qcmian.clipper.domain.search
 
 import com.qcmian.clipper.domain.model.ClipItem
-import com.qcmian.clipper.domain.model.SearchMode
+import com.qcmian.clipper.settings.SearchMode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * `ClipSearch` is a pure function of (query, items, mode), so it is the cheapest place to
- * start building the regression net the architecture refactor was missing.
+ * `ClipSearch` 是 (query, items, mode) 的纯函数，
+ * 因此是开始构建架构重构所缺失的回归防线成本最低的地方。
  */
 class ClipSearchTest {
 

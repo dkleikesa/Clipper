@@ -38,22 +38,21 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.domain.model.ClipItem
-import com.qcmian.clipper.domain.model.ShortcutSpec
+import com.qcmian.clipper.settings.ShortcutSpec
 import com.qcmian.clipper.ui.components.rememberImageBitmap
 import com.qcmian.clipper.ui.icons.ClipperIcon
 import com.qcmian.clipper.ui.icons.ClipperIconKind
 
 /**
- * The reusable rows of the preferences dialog.
+ * 偏好设置对话框中可复用的各种行。
  *
- * They used to live at the bottom of `PreferencesDialog.kt`, which made that file 1 100 lines
- * long; they are the same rows, just in their own file so the dialog only has to describe the
- * six panes.
+ * 它们原先放在 `PreferencesDialog.kt` 末尾，使那个文件长达 1 100 行；现在还是同样的行，
+ * 只是单独成文件，好让对话框只需描述那六个分区。
  */
 
 /**
- * One row of Maccy's `IgnoreApplicationsSettingsView`: the application icon, the resolved
- * application name and the button that removes it from the ignore list.
+ * Maccy `IgnoreApplicationsSettingsView` 中的一行：应用图标、解析出的应用名，
+ * 以及把它从忽略列表中移除的按钮。
  */
 @Composable
 internal fun IgnoredApplicationRow(
@@ -110,15 +109,14 @@ internal fun PinRow(
     val colors = MaterialTheme.colorScheme
     var expanded by remember { mutableStateOf(false) }
     var title by remember(item.id, item.title) { mutableStateOf(item.title) }
-    // `PinValueView`: only plain text entries expose an editable content field.
+    // `PinValueView`：只有纯文本条目才提供可编辑的内容字段。
     val editable = item.text != null && item.imageBase64 == null && item.files.isEmpty()
     var content by remember(item.id, item.text) { mutableStateOf(item.text.orEmpty()) }
 
     Column(
         Modifier
             .fillMaxWidth()
-            // `PinsSettingsPane`'s table selection: clicking the row makes it the target of
-            // the Delete key.
+            // `PinsSettingsPane` 的表格选中：点击该行会让它成为 Delete 键的作用目标。
             .clickable(onClick = onSelect)
             .background(
                 if (isSelected) colors.primary.copy(alpha = 0.10f) else Color.Transparent,
@@ -131,7 +129,7 @@ internal fun PinRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Key picker
+            // 快捷键选择器
             Box {
                 Box(
                     modifier = Modifier
@@ -161,7 +159,7 @@ internal fun PinRow(
                 }
             }
 
-            // Alias
+            // 别名
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -235,7 +233,7 @@ internal fun PinRow(
     }
 }
 
-/** Port of Maccy's `KeyboardShortcuts.Recorder` row. */
+/** 对应 Maccy 的 `KeyboardShortcuts.Recorder` 行。 */
 @Composable
 internal fun ShortcutRow(
     title: String,

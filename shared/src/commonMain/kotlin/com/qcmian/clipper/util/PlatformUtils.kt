@@ -3,10 +3,10 @@ package com.qcmian.clipper.util
 import kotlin.random.Random
 import kotlin.time.Clock
 
-/** Wall clock in milliseconds since the epoch. */
+/** 自纪元以来的墙钟毫秒数。 */
 fun currentTimeMillis(): Long = Clock.System.now().toEpochMilliseconds()
 
-/** A random, collision resistant identifier. */
+/** 一个随机的、不易碰撞的标识符。 */
 fun randomId(): String {
     val alphabet = "0123456789abcdef"
     return buildString(32) {
@@ -21,10 +21,9 @@ private val BASE64_DECODE_TABLE = IntArray(128) { -1 }.also { table ->
 }
 
 /**
- * Standard base64 (with padding) encoding.
+ * 标准 base64（带填充）编码。
  *
- * Implemented in pure Kotlin so every target behaves identically without any
- * platform specific helper.
+ * 用纯 Kotlin 实现，因此各平台行为完全一致，无需任何平台专属辅助函数。
  */
 fun encodeBase64(bytes: ByteArray): String {
     if (bytes.isEmpty()) return ""
@@ -63,7 +62,7 @@ fun encodeBase64(bytes: ByteArray): String {
     return output.toString()
 }
 
-/** Standard base64 decoding, returns `null` when the input is not valid base64. */
+/** 标准 base64 解码；输入不是合法 base64 时返回 `null`。 */
 fun decodeBase64(value: String): ByteArray? {
     val cleaned = value.filterNot { it.isWhitespace() }
     if (cleaned.isEmpty()) return ByteArray(0)

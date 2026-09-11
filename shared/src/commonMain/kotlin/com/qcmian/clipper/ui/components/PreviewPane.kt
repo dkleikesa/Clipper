@@ -35,24 +35,23 @@ import com.qcmian.clipper.ui.icons.ClipperIconKind
 import com.qcmian.clipper.util.formatDateTime
 
 /**
- * Maccy's `PreviewItemView.largeTextThreshold` is 1 000 characters; Compose cannot lay out
- * only the visible part of a string, so this replica additionally caps how much of a very
- * long entry is rendered at all.
+ * Maccy 的 `PreviewItemView.largeTextThreshold` 是 1 000 个字符；Compose 无法只布局字符串的
+ * 可见部分，因此本复刻版额外限制了超长条目实际渲染的长度。
  */
 private const val LARGE_TEXT_LIMIT = 20_000
 
 /**
- * Port of Maccy's `SlideoutContentView` + `PreviewItemView`: the toolbar with the pin and
- * delete actions, the content itself, then the metadata block.
+ * 对应 Maccy 的 `SlideoutContentView` + `PreviewItemView`：带置顶与删除操作的工具栏、
+ * 内容本身，然后是元信息区块。
  */
 @Composable
 fun PreviewPane(
     item: ClipItem?,
-    /** Base64 PNG of the source application icon, `null` when unknown. */
+    /** 来源应用图标的 base64 PNG；未知时为 `null`。 */
     appIconBase64: String?,
     onTogglePin: () -> Unit,
     onDelete: () -> Unit,
-    /** Port of `ToolbarView`'s `text.viewfinder` button, shown for images with OCR text. */
+    /** 对应 `ToolbarView` 的 `text.viewfinder` 按钮，对带 OCR 文字的图片显示。 */
     onCopyExtractedText: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -69,8 +68,8 @@ fun PreviewPane(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (item != null) {
-                // `ToolbarView.selectedImageText`: only offered when an image has recognised
-                // text and the host wired the action up.
+                // `ToolbarView.selectedImageText`：仅当图片有识别出的文字、
+                // 且宿主接上了该动作时才提供。
                 if (onCopyExtractedText != null && item.imageBase64 != null && item.title.isNotBlank()) {
                     ToolbarIconButton(
                         kind = ClipperIconKind.TEXT_VIEWFINDER,
@@ -102,10 +101,9 @@ fun PreviewPane(
                         .clip(RoundedCornerShape(5.dp)),
                 )
             } else {
-                // Port of `PreviewItemView`'s `LargeTextPreviewView`: Maccy switches to a
-                // dedicated `NSTextView` past `largeTextThreshold` characters. Compose has no
-                // viewport-only text layout, so the tail is dropped instead of laying out a
-                // multi-megabyte string on every frame.
+                // 对应 `PreviewItemView` 的 `LargeTextPreviewView`：超过 `largeTextThreshold`
+                // 个字符时，Maccy 会改用专门的 `NSTextView`。Compose 没有只布局可视区域的文本
+                // 能力，因此这里直接截断尾部，而不是每帧去布局一个数兆字节的字符串。
                 val text = item.previewableText
                 val truncated = text.length > LARGE_TEXT_LIMIT
                 Column(

@@ -37,15 +37,15 @@ import com.qcmian.clipper.ui.icons.ClipperIcon
 import com.qcmian.clipper.ui.icons.ClipperIconKind
 
 /**
- * Port of Maccy's `SearchFieldView`: a 23pt tall rounded box filled with the secondary
- * colour at 10% opacity, a magnifier and an inline clear button.
+ * 对应 Maccy 的 `SearchFieldView`：一个 23pt 高的圆角框，用 10% 不透明度的次级色填充，
+ * 内含放大镜与内联的清空按钮。
  */
 @Composable
 fun SearchField(
     query: String,
     onQueryChange: (String) -> Unit,
     focusRequester: FocusRequester,
-    /** `true` while an input method has marked text, i.e. a candidate window is open. */
+    /** 输入法已标记文本（即候选窗打开）时为 `true`。 */
     onCompositionChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -54,16 +54,15 @@ fun SearchField(
 
     var value by remember { mutableStateOf(TextFieldValue(query)) }
 
-    // Keep the field in sync when the query is changed from the outside (⌃H, ⌃W, clearing).
+    // 当查询词被外部修改时（⌃H、⌃W、清空）保持输入框同步。
     LaunchedEffect(query) {
         if (value.text != query) {
             value = TextFieldValue(query, TextRange(query.length))
         }
     }
 
-    // Port of `KeyHandlingView`'s `hasMarkedText()` check: while an input method has marked
-    // text, every key press belongs to the candidate window and must not be treated as a
-    // shortcut by the panel.
+    // 对应 `KeyHandlingView` 的 `hasMarkedText()` 检查：输入法已标记文本时，
+    // 每次按键都属于候选窗，面板不得把它当成快捷键。
     LaunchedEffect(value.composition) {
         onCompositionChange(value.composition != null)
     }

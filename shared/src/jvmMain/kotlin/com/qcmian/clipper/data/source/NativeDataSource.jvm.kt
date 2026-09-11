@@ -11,7 +11,7 @@ import java.awt.GraphicsEnvironment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** True when the JVM runs on macOS, where the native integrations below are available. */
+/** JVM 是否运行在 macOS 上，下面的原生集成只在那里可用。 */
 internal val isMacOs: Boolean =
     System.getProperty("os.name").orEmpty().lowercase().contains("mac")
 
@@ -56,7 +56,7 @@ private class MacNativeDataSource : NativeDataSource {
 
     override suspend fun recognizeText(imageBase64: String): String? {
         if (!MacTextRecognition.available) return null
-        // Vision runs synchronously, so keep it off the UI thread.
+        // Vision 是同步执行的，因此把它放到 UI 线程之外。
         return withContext(Dispatchers.Default) { MacTextRecognition.recognize(imageBase64) }
     }
 

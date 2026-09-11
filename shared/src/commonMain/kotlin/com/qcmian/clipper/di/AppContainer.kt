@@ -25,28 +25,26 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 
 /**
- * Manual dependency injection: builds the data layer and the domain use cases once, so the UI
- * layer only ever receives what it needs. Deliberately framework free — no DI library is
- * required for an application this size.
+ * 手动依赖注入：一次性构建数据层与领域用例，使 UI 层只拿到自己需要的东西。
+ * 刻意不依赖任何框架——这个规模的应用不需要 DI 库。
  *
- * A container is expected to live for as long as the application does: Android creates it in
- * its `Application`, desktop / iOS / web create one per process. It must therefore never be
- * created from inside a composable, where a configuration change would discard and rebuild it
- * while the retained `ViewModel` keeps pointing at the old instance.
+ * 容器应当与应用的存活时间一致：Android 在它的 `Application` 中创建，
+ * desktop / iOS / web 每个进程创建一个。因此绝不能在 composable 内部创建它，
+ * 否则一次配置变更就会丢弃并重建它，而被保留的 `ViewModel` 仍指向旧实例。
  */
 class AppContainer(
-    /** Scope for the repository's debounced writes; pinned to [ioDispatcher] for file IO. */
+    /** 用于仓库防抖写入的作用域；固定在 [ioDispatcher] 上以便做文件 IO。 */
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + ioDispatcher),
 ) {
     /**
-     * Optional native capabilities. Exposed so hosts (the desktop tray, for example) can reuse
-     * the same instance instead of building a second one.
+     * 可选的原生能力。对外暴露是为了让宿主（例如桌面端托盘）复用同一个实例，
+     * 而不必再构建第二个。
      */
     val native: NativeDataSource = createNativeDataSource()
 
     /**
-     * A single implementation, exposed as two narrow interfaces: the history repository and
-     * the host platform. Every consumer depends only on the half it uses.
+     * 同一个实现，以两个窄接口对外暴露：历史仓库与宿主平台。
+     * 每个使用方只依赖自己用到的那一半。
      */
     private val defaultRepository = DefaultClipboardRepository(
         clipboard = createClipboardDataSource(),

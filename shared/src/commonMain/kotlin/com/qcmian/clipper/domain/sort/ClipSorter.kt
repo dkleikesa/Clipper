@@ -1,15 +1,14 @@
 package com.qcmian.clipper.domain.sort
 
 import com.qcmian.clipper.domain.model.ClipItem
-import com.qcmian.clipper.domain.model.PinPosition
-import com.qcmian.clipper.domain.model.SortBy
+import com.qcmian.clipper.settings.PinPosition
+import com.qcmian.clipper.settings.SortBy
 
-/** Port of Maccy's `Sorter`. */
+/** 对应 Maccy 的 `Sorter`。 */
 object ClipSorter {
     fun sort(items: List<ClipItem>, by: SortBy, pinTo: PinPosition): List<ClipItem> {
         val sorted = items.sortedWith(comparator(by))
-        // `sortedWith` is stable, so a second pass keeps the order produced above
-        // within the pinned / unpinned groups.
+        // `sortedWith` 是稳定排序，因此第二趟排序会在置顶 / 未置顶分组内保留上面的顺序。
         return sorted.sortedWith { lhs, rhs -> pinnedFirst(lhs, rhs, pinTo) }
     }
 

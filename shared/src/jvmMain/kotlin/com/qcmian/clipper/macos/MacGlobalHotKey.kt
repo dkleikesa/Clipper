@@ -6,20 +6,19 @@ import com.sun.jna.ptr.PointerByReference
 import javax.swing.SwingUtilities
 
 /**
- * Port of Maccy's `GlobalHotKey`: a system-wide shortcut registered through Carbon's
- * `RegisterEventHotKey`, which is what every macOS global hotkey library ends up using.
+ * 对应 Maccy 的 `GlobalHotKey`：通过 Carbon 的 `RegisterEventHotKey` 注册系统级快捷键，
+ * 这也是所有 macOS 全局热键库最终都会用到的方式。
  *
- * Registration can fail when another application already owns the combination; the caller
- * then simply runs without a global shortcut.
+ * 当组合键已被其它应用占用时注册会失败；此时调用方只是在没有全局快捷键的情况下继续运行。
  */
 object MacGlobalHotKey {
-    /** `kEventClassKeyboard`. */
+    /** `kEventClassKeyboard`。 */
     private const val EVENT_CLASS_KEYBOARD = 0x6B657962
 
-    /** `kEventHotKeyPressed`. */
+    /** `kEventHotKeyPressed`。 */
     private const val EVENT_HOT_KEY_PRESSED = 5
 
-    /** `'CLPR'`, the four character code identifying our hot key. */
+    /** `'CLPR'`，标识本热键的四字符码。 */
     private const val SIGNATURE = 0x434C5052
     private const val HOT_KEY_ID = 1
 
@@ -33,11 +32,10 @@ object MacGlobalHotKey {
         unregister()
         callback = onTrigger
 
-        // The Carbon callback must stay reachable for as long as it is installed.
+        // Carbon 回调在被安装期间必须保持可达。
         val proc = object : Carbon.EventHandlerProcPtr {
             override fun callback(inHandlerCallRef: Pointer?, inEvent: Pointer?, inUserData: Pointer?): Int {
-                // Delivered on the Carbon event loop; hop onto the AWT thread before
-                // touching any Compose state.
+                // 回调发生在 Carbon 事件循环上；在触碰任何 Compose 状态之前先切到 AWT 线程。
                 SwingUtilities.invokeLater { callback?.invoke() }
                 return 0
             }

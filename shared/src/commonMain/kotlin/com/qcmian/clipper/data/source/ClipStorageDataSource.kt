@@ -1,18 +1,26 @@
 package com.qcmian.clipper.data.source
 
 import com.qcmian.clipper.domain.model.ClipItem
-import com.qcmian.clipper.domain.model.AppSettings
+import com.qcmian.clipper.settings.AppSettings
 
-/** Persistence for the clipboard history and the user preferences. */
+/**
+ * 剪贴板历史与用户偏好的持久化。
+ *
+ * 这些成员都是挂起函数，以便实现在各平台都能使用 Room：在非 Android 平台上，Room 的 DAO
+ * 函数必须是挂起的，而调用方（仓库）本就运行在 IO 作用域里。
+ */
 interface ClipStorageDataSource {
-    fun loadItems(): List<ClipItem>
-    fun saveItems(items: List<ClipItem>)
-    fun loadSettings(): AppSettings
-    fun saveSettings(settings: AppSettings)
+    suspend fun loadItems(): List<ClipItem>
+
+    suspend fun saveItems(items: List<ClipItem>)
+
+    suspend fun loadSettings(): AppSettings
+
+    suspend fun saveSettings(settings: AppSettings)
 
     /**
-     * Human readable size of the persisted history, shown in the storage preferences the
-     * same way Maccy shows `Storage.size`. `null` when the platform cannot tell.
+     * 已持久化历史的可读大小，按 Maccy 的 `Storage.size` 方式显示在存储偏好中。
+     * 平台无法给出时返回 `null`。
      */
     fun storageSize(): String? = null
 }

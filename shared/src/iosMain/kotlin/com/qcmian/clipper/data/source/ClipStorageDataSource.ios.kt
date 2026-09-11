@@ -1,32 +1,33 @@
 package com.qcmian.clipper.data.source
 
-import com.qcmian.clipper.domain.model.ClipItem
-import com.qcmian.clipper.domain.model.AppSettings
-import com.qcmian.clipper.util.decodeJsonOrNull
-import com.qcmian.clipper.util.encodeJson
-import platform.Foundation.NSUserDefaults
+import androidx.room3.Room
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import com.qcmian.clipper.data.local.ClipperDatabase
+import com.qcmian.clipper.data.local.RoomClipStorageDataSource
+import kotlinx.cinterop.ExperimentalForeignApi
+import platform.Foundation.NSDocumentDirectory
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSUserDomainMask
 
-private class IosClipStorageDataSource : ClipStorageDataSource {
-    private val defaults = NSUserDefaults.standardUserDefaults
+private const val DATABASE_NAME = "clipper.db"
 
-    override fun loadItems(): List<ClipItem> =
-        decodeJsonOrNull<List<ClipItem>>(defaults.stringForKey(KEY_ITEMS)).orEmpty()
-
-    override fun saveItems(items: List<ClipItem>) {
-        defaults.setObject(encodeJson(items), forKey = KEY_ITEMS)
-    }
-
-    override fun loadSettings(): AppSettings =
-        decodeJsonOrNull<AppSettings>(defaults.stringForKey(KEY_SETTINGS)) ?: AppSettings()
-
-    override fun saveSettings(settings: AppSettings) {
-        defaults.setObject(encodeJson(settings), forKey = KEY_SETTINGS)
-    }
-
-    private companion object {
-        const val KEY_ITEMS = "clipper.history"
-        const val KEY_SETTINGS = "clipper.settings"
-    }
+/** 位于应用 Documents 目录中的数据库文件。 */
+@OptIn(ExperimentalForeignApi::class)
+private fun databasePath(): String {
+    val directory = NSFileManager.defaultManager.URLForDirectory(
+        directory = NSDocumentDirectory,
+        inDomain = NSUserDomainMask,
+        appropriateForURL = null,
+        create = true,
+        error = null,
+    ) ?: error("Cannot locate the documents directory")
+    val path = directory.path ?: error("Cannot resolve the documents directory path")
+    return "$path/$DATABASE_NAME"
 }
 
-actual fun createClipStorageDataSource(): ClipStorageDataSource = IosClipStorageDataSource()
+actual fun createClipStorageDataSource(): ClipStorageDataSource =
+    RoomClipStorageDataSource(
+        Room.databaseBuilder<ClipperDatabase>(name = databasePath())
+            .setDriver(BundledSQLiteDriver())
+            .build(),
+    )

@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.model.SearchResult
-import com.qcmian.clipper.domain.model.PinPosition
+import com.qcmian.clipper.settings.PinPosition
 import com.qcmian.clipper.ui.components.EmptyState
 import com.qcmian.clipper.ui.components.FooterRows
 import com.qcmian.clipper.ui.components.HistoryHeader
@@ -54,24 +54,23 @@ import com.qcmian.clipper.ui.components.PreviewSlideout
 import com.qcmian.clipper.ui.components.StatusToast
 import com.qcmian.clipper.ui.components.footerEntries
 import com.qcmian.clipper.ui.components.rememberApplicationIcon
-import com.qcmian.clipper.ui.dialogs.AboutDialog
 import com.qcmian.clipper.ui.dialogs.ConfirmDialog
 import com.qcmian.clipper.ui.dialogs.PreferencesDialog
 import com.qcmian.clipper.ui.state.ClipboardDialog
 import com.qcmian.clipper.ui.state.ClipboardUiAction
 import com.qcmian.clipper.ui.state.ClipboardUiState
 
-/** Width below which the preview pane overlays the list instead of sitting next to it. */
+/** 低于此宽度时，预览面板改为覆盖在列表上，而不是并排显示。 */
 private val OverlayThreshold = 700.dp
 
-/** Vertical padding a thumbnail adds on top of `imageMaxHeight`. */
+/** 缩略图在 `imageMaxHeight` 之上额外增加的垂直内边距。 */
 private val ImageRowPadding = 10.dp
 
 /**
- * Port of Maccy's `ContentView`: header, history list, footer, plus the preview slideout.
+ * Maccy `ContentView` 的移植：头部、历史列表、页脚，外加预览滑出面板。
  *
- * The screen is a pure function of [state]; every interaction is sent back through
- * [onAction]. All the behaviour lives in `ClipboardViewModel`.
+ * 界面是 [state] 的纯函数；每一次交互都通过 [onAction] 回传。所有行为都在
+ * `ClipboardViewModel` 中。
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -95,25 +94,25 @@ fun HistoryScreen(
     val searchFocusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
 
-    /** `true` while the search field has an open input-method candidate window. */
+    /** 搜索框打开了输入法候选窗时为 `true`。 */
     var composing by remember { mutableStateOf(false) }
 
     /**
-     * Modifiers held during the most recent pointer press, so a `⌥`-click pastes and a
-     * `⌘⇧`-click pastes without formatting, exactly like `HistoryItemView.performSelect`.
+     * 最近一次指针按下期间按住的修饰键，这样 ⌥-点击会粘贴、⌘⇧-点击会不带格式粘贴，
+     * 与 `HistoryItemView.performSelect` 完全一致。
      */
     var pointerShift by remember { mutableStateOf(false) }
     var pointerAlt by remember { mutableStateOf(false) }
     var pointerMeta by remember { mutableStateOf(false) }
 
-    // `BoxWithConstraints` subcomposes its content during the layout pass, so the search
-    // field's focus modifier is only attached after the first frame.
+    // `BoxWithConstraints` 会在布局阶段对内容做子组合，因此搜索框的焦点修饰符
+    // 要等到第一帧之后才会挂上。
     LaunchedEffect(Unit) {
         withFrameNanos { }
         searchFocusRequester.requestFocus()
     }
 
-    // `Popup.handleFirstKeyDown`: the host asked for the panel and the search takes focus back.
+    // `Popup.handleFirstKeyDown`：宿主请求显示面板后，搜索框重新获得焦点。
     LaunchedEffect(state.focusRequestToken) {
         if (state.focusRequestToken > 0) searchFocusRequester.requestFocus()
     }
@@ -122,10 +121,9 @@ fun HistoryScreen(
 
     val density = LocalDensity.current
 
-    // Measured block heights, the counterpart of Maccy's `readHeight(appState, into: \.popup.*)`
-    // in `HeaderView`, `FooterView` and `HistoryListView`. They start at zero, exactly like
-    // `Popup.height`: the panel first opens at its minimum height and the measurements then
-    // resize it so it hugs the content.
+    // 量出的各区块高度，对应 Maccy 在 `HeaderView`、`FooterView` 与 `HistoryListView` 中
+    // `readHeight(appState, into: \.popup.*)` 的做法。它们从 0 开始，与 `Popup.height` 一致：
+    // 面板先以最小高度打开，测量结果随后调整大小，使其贴合内容。
     var headerHeight by remember { mutableStateOf(0.dp) }
     var topPinsHeight by remember { mutableStateOf(0.dp) }
     var bottomPinsHeight by remember { mutableStateOf(0.dp) }
@@ -134,7 +132,7 @@ fun HistoryScreen(
     val footerEntries = footerEntries(flags, state.showQuit)
     val shortcuts = shortcutMap(results, settings.pasteByDefault)
 
-    // Port of `HistoryListView.scrollBottomPadding`.
+    // 对应 `HistoryListView.scrollBottomPadding`。
     val pinsAtTop = settings.pinTo == PinPosition.TOP
     val pinsSeparator = state.pinnedEntries.isNotEmpty() && state.unpinnedEntries.isNotEmpty()
     val listBottomPadding = if ((!pinsAtTop && pinsSeparator) || settings.showFooter) {
@@ -143,13 +141,11 @@ fun HistoryScreen(
         Popup.verticalSeparatorPadding - 1.dp
     }
 
-    // Port of `Popup.suitableHeight(for:)` + `Popup.preferredHeight(for:)`.
+    // 对应 `Popup.suitableHeight(for:)` + `Popup.preferredHeight(for:)`。
     //
-    // Maccy measures the scrolling list too, because its `ScrollView` lays out every row. A
-    // `LazyColumn` only lays out the rows that are visible and therefore cannot report a total
-    // height, so the unscrolled rows are estimated from `Popup.itemHeight` and the image rows
-    // from `imageMaxHeight`. Everything else is measured, which is what removes the drift the
-    // old fully static estimate had.
+    // Maccy 也会测量可滚动列表，因为它的 `ScrollView` 会布局每一行。`LazyColumn` 只布局可见行，
+    // 因此无法报告总高度；这里改为用 `Popup.itemHeight` 估算未滚动的行、用 `imageMaxHeight`
+    // 估算图片行。其余部分都是实测的，这正是消除旧版完全静态估算偏差的原因。
     val imageRowHeight = settings.imageMaxHeight.dp + ImageRowPadding
     val rowHeight: (SearchResult) -> Dp = { result ->
         if (result.item.imageBase64 != null) imageRowHeight else Popup.itemHeight
@@ -173,8 +169,7 @@ fun HistoryScreen(
 
     LaunchedEffect(preferredHeight) { onPreferredHeightChange(preferredHeight) }
 
-    // `NavigationManager.scroll(to:)` only ever scrolls the unpinned list; the pinned block is
-    // always on screen.
+    // `NavigationManager.scroll(to:)` 只会滚动未置顶列表；置顶区块始终可见。
     LaunchedEffect(state.historySelection, state.unpinnedEntries.size) {
         val target = state.unpinnedEntries.indexOfFirst { it.index == state.historySelection }
         if (target >= 0) listState.animateScrollToItem(target)
@@ -194,7 +189,7 @@ fun HistoryScreen(
         actions.isNotEmpty()
     }
 
-    /** One history row, shared by the fixed pins block and the scrolling unpinned list. */
+    /** 单条历史行，供固定的置顶区块与可滚动的未置顶列表共用。 */
     val entryRow: @Composable (IndexedValue<SearchResult>) -> Unit = { indexed ->
         val item = indexed.value.item
         HistoryRow(
@@ -224,7 +219,7 @@ fun HistoryScreen(
         )
     }
 
-    // Resolved once per selected item, off the composition thread.
+    // 每个选中项只解析一次，且不在组合线程上。
     val previewAppIcon = rememberApplicationIcon(
         load = applicationIcon,
         bundleId = state.selectedItem?.application?.bundleId,
@@ -238,15 +233,15 @@ fun HistoryScreen(
                 .fillMaxSize()
                 .background(colors.background)
                 .safeDrawingPadding()
-                // Capture the modifiers held during a pointer press, so a ⌥-click pastes
-                // and a ⌘⇧-click pastes without formatting (`HistoryItemView.performSelect`).
+                // 记录指针按下期间按住的修饰键，这样 ⌥-点击会粘贴、
+                // ⌘⇧-点击会不带格式粘贴（`HistoryItemView.performSelect`）。
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             when (event.type) {
-                                // `MouseMovedViewModifier`: mouse movement ends keyboard
-                                // navigation, so hovering starts selecting again.
+                                // `MouseMovedViewModifier`：鼠标移动会结束键盘导航，
+                                // 于是悬停重新开始选择。
                                 PointerEventType.Move -> onAction(ClipboardUiAction.PointerMoved)
                                 PointerEventType.Press -> {
                                     pointerShift = event.keyboardModifiers.isShiftPressed
@@ -277,17 +272,14 @@ fun HistoryScreen(
                 }
 
                 Column(Modifier.weight(1f).fillMaxHeight()) {
-                    // Port of `HeaderView.readHeight(appState, into: \.popup.headerHeight)`.
-                    // The paused banner is a replica addition, so it is folded into the same
-                    // measured block.
+                    // 对应 `HeaderView.readHeight(appState, into: \.popup.headerHeight)`。
+                    // 暂停横幅是复刻版新增的，因此折进同一个被测量的区块。
                     Column(
                         Modifier
                             .fillMaxWidth()
                             .onSizeChanged { headerHeight = with(density) { it.height.toDp() } },
                     ) {
                         HistoryHeader(
-                            title = "Clipper",
-                            showTitle = settings.showTitle,
                             visible = state.searchVisible,
                             query = state.query,
                             onQueryChange = { value -> onAction(ClipboardUiAction.UpdateQuery(value)) },
@@ -318,8 +310,8 @@ fun HistoryScreen(
                         } else {
                             Column(Modifier.fillMaxSize()) {
                                 if (pinsAtTop && (state.pinnedEntries.isNotEmpty() || pinsSeparator)) {
-                                    // Port of `HistoryListView`'s top block `readHeight`
-                                    // (`popup.extraTopHeight`): the fixed pins and their divider.
+                                    // 对应 `HistoryListView` 顶部区块的 `readHeight`
+                                    // （`popup.extraTopHeight`）：固定的置顶项及其分隔线。
                                     Column(
                                         Modifier
                                             .fillMaxWidth()
@@ -352,8 +344,8 @@ fun HistoryScreen(
                                 }
 
                                 if (!pinsAtTop && (state.pinnedEntries.isNotEmpty() || pinsSeparator)) {
-                                    // Port of `HistoryListView`'s bottom block `readHeight`
-                                    // (`popup.extraBottomHeight`).
+                                    // 对应 `HistoryListView` 底部区块的 `readHeight`
+                                    // （`popup.extraBottomHeight`）。
                                     Column(
                                         Modifier
                                             .fillMaxWidth()
@@ -394,10 +386,10 @@ fun HistoryScreen(
                             onAction = { action -> onAction(ClipboardUiAction.RunFooter(action)) },
                             onHover = { index ->
                                 onAction(ClipboardUiAction.HoverFooter(index))
-                                // `FooterItemView.onHover`: hovering the footer closes the preview.
+                                // `FooterItemView.onHover`：悬停页脚会关闭预览。
                                 if (state.previewOpen) onAction(ClipboardUiAction.TogglePreview)
                             },
-                            // Port of `FooterView.readHeight(appState, into: \.popup.footerHeight)`.
+                            // 对应 `FooterView.readHeight(appState, into: \.popup.footerHeight)`。
                             modifier = Modifier.onSizeChanged {
                                 footerHeight = with(density) { it.height.toDp() }
                             },
@@ -455,13 +447,6 @@ fun HistoryScreen(
         )
     }
 
-    if (state.dialog == ClipboardDialog.ABOUT) {
-        AboutDialog(
-            onDismiss = { onAction(ClipboardUiAction.DismissAbout) },
-            onOpenUrl = { url -> onAction(ClipboardUiAction.OpenUrl(url)) },
-        )
-    }
-
     state.confirmation?.let { request ->
         ConfirmDialog(
             message = request.message,
@@ -477,8 +462,8 @@ fun HistoryScreen(
 }
 
 /**
- * Pinned items use their assigned letter, the first nine unpinned items use `1`…`9`.
- * Each entry carries the three variants `KeyShortcut.create(character:)` produces.
+ * 置顶项使用分配到的字母，前九个未置顶项使用 `1`…`9`。
+ * 每个条目携带 `KeyShortcut.create(character:)` 产生的三个变体。
  */
 private fun shortcutMap(
     results: List<SearchResult>,

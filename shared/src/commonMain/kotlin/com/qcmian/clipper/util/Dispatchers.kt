@@ -3,10 +3,10 @@ package com.qcmian.clipper.util
 import kotlinx.coroutines.CoroutineDispatcher
 
 /**
- * Dispatcher for blocking work such as reading / writing the history and the preferences.
+ * 用于阻塞型工作的调度器，例如读写历史与偏好设置。
  *
- * Every platform except the web has a dedicated IO pool; the web targets have no threads and
- * fall back to [kotlinx.coroutines.Dispatchers.Default]. Keeping this behind an `expect`
- * declaration means the data layer never has to guess which dispatcher is safe to use.
+ * 除 Web 外的每个平台都有专门的 IO 线程池；Web 目标没有线程，退回到
+ * [kotlinx.coroutines.Dispatchers.Default]。把这件事实放在 `expect` 声明之后，
+ * 数据层就永远不必猜测哪个调度器是可以安全使用的。
  */
 expect val ioDispatcher: CoroutineDispatcher

@@ -1,11 +1,11 @@
 package com.qcmian.clipper.macos
 
 /**
- * Port of Maccy's `LaunchAtLogin` package, implemented with `SMAppService` (macOS 13+).
+ * 对应 Maccy 的 `LaunchAtLogin` 包，用 `SMAppService`（macOS 13+）实现。
  *
- * `SMAppService.mainAppService` registers the running application bundle as a login item.
- * When the JVM is not started from a bundle (for example `./gradlew run` during development)
- * registration fails; every failure is swallowed so the preference simply stays inert.
+ * `SMAppService.mainAppService` 会把正在运行的应用包注册为登录项。
+ * 当 JVM 不是从应用包启动时（例如开发时 `./gradlew run`）注册会失败；
+ * 所有失败都被吞掉，因此该偏好只是保持不变、不生效。
  */
 object MacLaunchAtLogin {
     private val available: Boolean by lazy {
@@ -13,7 +13,7 @@ object MacLaunchAtLogin {
             MacNative.clazz("SMAppService") != null
     }
 
-    /** `true` when the platform exposes `SMAppService`. */
+    /** 平台是否提供 `SMAppService`。 */
     val isSupported: Boolean get() = available
 
     fun setEnabled(enabled: Boolean): Boolean {

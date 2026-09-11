@@ -4,11 +4,10 @@ import com.qcmian.clipper.util.encodeBase64
 import java.io.File
 
 /**
- * Reads an application icon straight out of its bundle and converts it to a base64 PNG.
+ * 直接从应用包中读取图标并转成 base64 PNG。
  *
- * Maccy goes through `NSWorkspace.icon(forFile:)`; reading the `.icns` and pulling the
- * largest embedded PNG chunk out of it is the dependency free equivalent and works for the
- * overwhelming majority of applications.
+ * Maccy 走的是 `NSWorkspace.icon(forFile:)`；这里读取 `.icns` 并从中取出内嵌的最大 PNG 块，
+ * 是无依赖的等价方案，并且对绝大多数应用都有效。
  */
 object MacAppIcon {
     private val pngChunkTypes = setOf("ic07", "ic08", "ic09", "ic10", "ic11", "ic12", "ic13", "ic14")
@@ -42,12 +41,12 @@ object MacAppIcon {
             if (candidate.isFile) return candidate
         }
 
-        // Binary plists and apps without CFBundleIconFile fall back to the largest icon.
+        // 二进制 plist 与没有 CFBundleIconFile 的应用，退回到取最大的图标。
         return resources.listFiles { file -> file.isFile && file.name.endsWith(".icns") }
             ?.maxByOrNull { it.length() }
     }
 
-    /** Walks the ICNS container and returns the biggest PNG payload it holds. */
+    /** 遍历 ICNS 容器，返回其中最大的 PNG 载荷。 */
     private fun largestPng(data: ByteArray): ByteArray? {
         if (data.size < 8) return null
         if (String(data, 0, 4, Charsets.US_ASCII) != "icns") return null

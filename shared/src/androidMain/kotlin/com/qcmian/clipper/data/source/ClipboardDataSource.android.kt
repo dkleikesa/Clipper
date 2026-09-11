@@ -8,11 +8,10 @@ import com.qcmian.clipper.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.util.encodeBase64
 
 /**
- * Android clipboard support.
+ * Android 剪贴板支持。
  *
- * Note that since Android 10 the `OnPrimaryClipChangedListener` is only invoked while the
- * application has focus, so copies made in other applications are picked up the next time
- * Clipper comes to the foreground.
+ * 注意：从 Android 10 起，`OnPrimaryClipChangedListener` 只在应用处于前台时才会被调用，
+ * 因此其它应用里的复制会等 Clipper 下次回到前台时才补采。
  */
 private class AndroidClipboardDataSource(private val context: Context) : ClipboardDataSource {
     private val manager =
@@ -32,8 +31,8 @@ private class AndroidClipboardDataSource(private val context: Context) : Clipboa
             snapshot.files.isNotEmpty() -> ClipData.newRawUri(LABEL, Uri.parse(snapshot.files.first()))
             else -> return false
         }
-        // The fingerprint is intentionally not refreshed so the change listener picks the
-        // write up and the repository moves the selected item back to the top.
+        // 这里刻意不刷新指纹，好让变更监听器捕获到这次写入，
+        // 从而让仓库把选中的条目重新排到最前面。
         return runCatching { manager.setPrimaryClip(clip) }.isSuccess
     }
 
@@ -93,11 +92,11 @@ private class AndroidClipboardDataSource(private val context: Context) : Clipboa
             }
         }
 
-        // `coerceToText` turns an image URI into its string form, which is not a useful title.
+        // `coerceToText` 会把图片 URI 变成它的字符串形式，那不是一个有用的标题。
         val text = if (imageBase64 != null && rawText == uri.toString()) null else rawText
 
-        // `ClipDescription.getMimeTypes()` was removed in recent SDKs; walk the individual
-        // entries instead.
+        // `ClipDescription.getMimeTypes()` 在较新的 SDK 中已被移除，
+        // 因此改为逐个遍历各个条目。
         val description = clip.description
         val types = (0 until description.mimeTypeCount).map { description.getMimeType(it) }
         return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files, types = types)

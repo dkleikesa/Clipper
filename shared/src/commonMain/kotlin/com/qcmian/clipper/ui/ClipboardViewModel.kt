@@ -8,16 +8,12 @@ import com.qcmian.clipper.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.domain.repository.ClipboardRepository
 import com.qcmian.clipper.domain.action.ClipAction
 import com.qcmian.clipper.domain.action.defaultAction
-import com.qcmian.clipper.domain.search.ClipSearch
 import com.qcmian.clipper.domain.usecase.SelectResult
 import com.qcmian.clipper.ui.components.FooterAction
 import com.qcmian.clipper.ui.state.ClearConfirmation
 import com.qcmian.clipper.ui.state.ClipboardDialog
 import com.qcmian.clipper.ui.state.ClipboardUiAction
 import com.qcmian.clipper.ui.state.ClipboardUiState
-import com.qcmian.clipper.ui.state.HistoryNavigation
-import com.qcmian.clipper.ui.state.HistorySelection
-import com.qcmian.clipper.util.currentTimeMillis
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -28,43 +24,47 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * State holder of the history screen. It owns the whole [ClipboardUiState], turns
- * [ClipboardUiAction]s into domain use case calls and is the only place that decides what the
- * screen looks like next. The UI itself stays a pure function of the state it receives.
+ * 历史界面的状态持有者。它持有整个 [ClipboardUiState]，把 [ClipboardUiAction] 转成领域用例调用，
+ * 并且是唯一决定界面下一步长什么样的地方。界面本身始终是它所接收状态的纯函数。
  *
- * @param showQuit whether the host can quit the application, which adds a footer row.
- * @param autoPreview whether the preview may slide out on its own; only hosts with room for a
- *   side-by-side pane enable it.
+ * 界面中两块自洽的行为——搜索节流、列表 / 页脚导航——分别位于 [HistorySearchController] 与
+ * [HistoryNavigationController]（它们直接读写本类持有的状态）。本类持有状态、把各部分耦合
+ * 起来、触达剪贴板生命周期，以及驱动用例。
+ *
+ * @param showQuit 宿主是否能退出应用，会因此多出一行页脚。
  */
 class ClipboardViewModel(
     private val repository: ClipboardRepository,
     private val platform: ClipboardPlatform,
     private val useCases: ClipboardUseCases,
     private val showQuit: Boolean = false,
-    private val autoPreview: Boolean = false,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ClipboardUiState(showQuit = showQuit))
     val uiState: StateFlow<ClipboardUiState> = _uiState.asStateFlow()
 
-    /** Set by the host: hides the panel so a synthetic paste reaches the target application. */
+    /** 持有查询节流与搜索任务。 */
+    private val search = HistorySearchController(
+        state = _uiState,
+        settings = { repository.settings.value },
+        items = { repository.items.value },
+        scope = viewModelScope,
+    )
+
+    /** 持有键盘 / 鼠标导航与待处理的悬停。 */
+    private val navigation = HistoryNavigationController(
+        state = _uiState,
+        footerCount = ::footerCount,
+        onFooterHovered = ::togglePreview,
+    )
+
+    /** 由宿主设置：隐藏面板，使合成粘贴能到达目标应用。 */
     var onRequestHideWindow: () -> Unit = {}
 
-    /** Set by the host: the "退出" footer row. */
+    /** 由宿主设置：页脚中的「退出」一行。 */
     var onQuitRequest: () -> Unit = {}
 
-    private var searchJob: Job? = null
-    private var autoPreviewJob: Job? = null
     private var statusJob: Job? = null
-    private var lastSearchAt = 0L
-
-    /** Port of `NavigationManager.isKeyboardNavigating`'s pending hover. */
-    private var pendingHoverSelection = -1
-
-    /** Port of `SlideoutController`: keeps the pane from springing back after a manual close. */
-    private var autoOpenSuppressed = false
-
-    private var autoPreviewItemId: String? = null
 
     init {
         viewModelScope.launch { repository.items.collect { refresh() } }
@@ -81,63 +81,67 @@ class ClipboardViewModel(
                 }
             }
         }
-        // Subscribe before the data source starts emitting, so the first copy is not lost;
-        // UNDISPATCHED runs the collector up to its suspension point synchronously.
+        // 在数据源开始发射之前先订阅，这样第一次复制不会丢失；
+        // UNDISPATCHED 会让收集器同步运行到它的挂起点。
         viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) { useCases.captureClipboard.run() }
         repository.start()
     }
 
     override fun onCleared() {
-        // The capture job runs in `viewModelScope` and is cancelled with it.
+        // 捕获任务运行在 `viewModelScope` 中，会随它一起被取消。
         repository.stop()
         repository.flush()
     }
 
-    /** Port of `AppDelegate.applicationWillTerminate`. */
+    /** 对应 `AppDelegate.applicationWillTerminate`。 */
     fun onQuit() = useCases.handleQuit()
 
     // ---------------------------------------------------------------------------------
-    // Actions
+    // 动作
     // ---------------------------------------------------------------------------------
 
     fun onAction(action: ClipboardUiAction) {
         when (action) {
-            is ClipboardUiAction.UpdateQuery -> updateQuery(action.value)
-            ClipboardUiAction.ClearSearch -> clearSearch()
-            ClipboardUiAction.DeleteSearchChar -> deleteSearchChar()
-            ClipboardUiAction.DeleteSearchWord -> deleteSearchWord()
+            is ClipboardUiAction.UpdateQuery -> search.updateQuery(action.value)
+            ClipboardUiAction.ClearSearch -> search.clearSearch()
+            ClipboardUiAction.DeleteSearchChar -> search.deleteSearchChar()
+            ClipboardUiAction.DeleteSearchWord -> search.deleteSearchWord()
             ClipboardUiAction.CopySearchQuery -> {
-                if (useCases.copySearchQuery(_uiState.value.query)) clearSearch()
+                if (useCases.copySearchQuery(_uiState.value.query)) search.clearSearch()
             }
 
-            ClipboardUiAction.PointerMoved -> onPointerMoved()
-            is ClipboardUiAction.HoverHistory -> hoverHistory(action.index)
-            is ClipboardUiAction.HoverFooter -> hoverFooter(action.index)
-            is ClipboardUiAction.SelectHistory -> selectHistory(action.index)
-            is ClipboardUiAction.MoveNext -> moveNext(action.allowCycle)
-            ClipboardUiAction.MovePrevious -> movePrevious()
-            ClipboardUiAction.MoveToFirst -> selectHistory(0)
-            ClipboardUiAction.MoveToLast -> moveToLast()
+            ClipboardUiAction.PointerMoved -> navigation.onPointerMoved()
+            is ClipboardUiAction.HoverHistory -> navigation.hoverHistory(action.index)
+            is ClipboardUiAction.HoverFooter -> navigation.hoverFooter(action.index)
+            is ClipboardUiAction.SelectHistory -> navigation.selectHistory(action.index)
+            is ClipboardUiAction.MoveNext -> navigation.moveNext(action.allowCycle)
+            ClipboardUiAction.MovePrevious -> navigation.movePrevious()
+            ClipboardUiAction.MoveToFirst -> navigation.selectHistory(0)
+            ClipboardUiAction.MoveToLast -> navigation.moveToLast()
 
             is ClipboardUiAction.Activate ->
                 activate(action.index, resolveAction(action.shift, action.alt, action.meta))
             is ClipboardUiAction.ActivateShortcut -> activate(action.index, action.action)
             is ClipboardUiAction.RunFooter -> runFooter(action.action)
-            ClipboardUiAction.Escape -> {
-                clearSearch()
-                onRequestHideWindow()
-            }
+            ClipboardUiAction.Escape ->
+                // 搜索状态下 `Esc` 只清空搜索（`KeyChord.clearSearch`）；搜索为空时才关闭面板
+                // （`KeyChord.close`）。
+                if (_uiState.value.query.isEmpty()) {
+                    onRequestHideWindow()
+                } else {
+                    search.clearSearch()
+                }
 
             ClipboardUiAction.TogglePinSelected -> _uiState.value.selectedItem?.let {
                 useCases.togglePin(it)
-                // Port of `History.togglePin`: pinning always leaves the search behind.
-                clearSearch()
+                // 对应 `History.togglePin`：置顶之后总是会离开搜索状态。
+                search.clearSearch()
             }
 
             ClipboardUiAction.DeleteSelected -> _uiState.value.selectedItem?.let { useCases.deleteClip(it) }
             ClipboardUiAction.TogglePreview -> togglePreview()
             ClipboardUiAction.CopyExtractedText -> _uiState.value.selectedItem?.let { item ->
-                if (useCases.copyExtractedText(item)) clearSearch()
+                if (useCases.copyExtractedText(item)) search.clearSearch()
             }
 
             is ClipboardUiAction.SetPreviewWidth ->
@@ -151,18 +155,11 @@ class ClipboardViewModel(
             is ClipboardUiAction.UpdateTitle -> useCases.updateTitle(action.item, action.title)
             is ClipboardUiAction.UpdateContent -> useCases.updateContent(action.item, action.text)
             ClipboardUiAction.PickIgnoredApplication -> pickIgnoredApplication()
-            is ClipboardUiAction.OpenUrl -> platform.openUrl(action.url)
 
             ClipboardUiAction.ShowPreferences ->
                 _uiState.update { it.copy(dialog = ClipboardDialog.PREFERENCES) }
 
             ClipboardUiAction.DismissPreferences ->
-                _uiState.update { it.copy(dialog = null) }
-
-            ClipboardUiAction.ShowAbout ->
-                _uiState.update { it.copy(dialog = ClipboardDialog.ABOUT) }
-
-            ClipboardUiAction.DismissAbout ->
                 _uiState.update { it.copy(dialog = null) }
 
             is ClipboardUiAction.RequestClear -> requestClear(action.all, action.hidePanel)
@@ -172,11 +169,11 @@ class ClipboardViewModel(
             ClipboardUiAction.DismissStatus -> repository.setStatusMessage(null)
 
             ClipboardUiAction.Opened -> onOpened()
-            ClipboardUiAction.Cycle -> moveNext(allowCycle = true)
+            ClipboardUiAction.Cycle -> navigation.moveNext(allowCycle = true)
             ClipboardUiAction.Accept -> onAccept()
             ClipboardUiAction.Hidden -> _uiState.update { it.copy(previewOpen = false) }
             is ClipboardUiAction.TogglePause -> useCases.updateSettings {
-                // `AppDelegate.performStatusItemClick`: ⌥ pauses, ⇧⌥ pauses for one copy.
+                // `AppDelegate.performStatusItemClick`：⌥ 暂停，⇧⌥ 只暂停下一次。
                 val paused = !it.ignoreEvents
                 it.copy(
                     ignoreEvents = paused,
@@ -186,186 +183,20 @@ class ClipboardViewModel(
         }
     }
 
-    /** Port of `PinsSettingsPane`'s key column. */
+    /** 对应 `PinsSettingsPane` 的快捷键列。 */
     fun availablePins(item: ClipItem): List<String> = useCases.availablePins(item)
 
-    /** Base64 PNG of the icon of the application an item came from. */
+    /** 条目来源应用的图标 base64 PNG。 */
     fun applicationIcon(bundleId: String?): String? = platform.applicationIcon(bundleId)
 
-    /** `NSWorkspace.applicationName(at:)`: turns a bundle id into a display name. */
+    /** `NSWorkspace.applicationName(at:)`：把 bundle id 变成显示名。 */
     fun applicationName(bundleId: String): String? = platform.applicationName(bundleId)
 
-    // ---------------------------------------------------------------------------------
-    // Search
-    // ---------------------------------------------------------------------------------
-
-    /** Port of `History.searchQuery.didSet` + `Throttler(minimumDelay: 0.2)`. */
-    private fun updateQuery(value: String) {
-        _uiState.update { it.copy(query = value) }
-
-        val now = currentTimeMillis()
-        val elapsed = now - lastSearchAt
-        val throttle = _uiState.value.settings.searchThrottleMillis
-        searchJob?.cancel()
-
-        if (value.isEmpty() || elapsed >= throttle) {
-            lastSearchAt = now
-            applyQuery(value)
-        } else {
-            searchJob = viewModelScope.launch {
-                delay(throttle - elapsed)
-                lastSearchAt = currentTimeMillis()
-                applyQuery(value)
-            }
-        }
-    }
-
-    /** Port of `History.searchQuery.didSet`: a new query highlights the first match. */
-    private fun applyQuery(value: String) {
-        val settings = repository.settings.value
-        val items = repository.items.value
-        val results = ClipSearch.search(value, items, settings.searchMode)
-        val firstUnpinned = results.indexOfFirst { it.item.isUnpinned }.coerceAtLeast(0)
-
-        _uiState.update {
-            it.copy(
-                appliedQuery = value,
-                results = results,
-                keyboardNavigating = true,
-                footerSelection = -1,
-                historySelection = if (value.isEmpty()) firstUnpinned else 0,
-            )
-        }
-        syncAutoPreview()
-    }
-
-    private fun clearSearch() {
-        searchJob?.cancel()
-        val wasEmpty = _uiState.value.appliedQuery.isEmpty()
-        _uiState.update { it.copy(query = "") }
-        if (!wasEmpty) applyQuery("")
-    }
-
-    /** Port of `KeyChord.deleteOneCharFromSearch` (⌃H). */
-    private fun deleteSearchChar() {
-        val query = _uiState.value.query
-        if (query.isNotEmpty()) updateQuery(query.dropLast(1))
-    }
-
-    /** Port of `KeyChord.deleteLastWordFromSearch` (⌃W). */
-    private fun deleteSearchWord() {
-        val words = _uiState.value.query.split(" ").filter { it.isNotEmpty() }.dropLast(1)
-        updateQuery(if (words.isEmpty()) "" else words.joinToString(" ") + " ")
-    }
+    /** `⌃K` 只在第一个条目未被高亮时向上移动，见 Maccy #1055。 */
+    fun canMovePreviousWithCtrlK(): Boolean = navigation.canMovePreviousWithCtrlK()
 
     // ---------------------------------------------------------------------------------
-    // Navigation
-    // ---------------------------------------------------------------------------------
-
-    private fun onPointerMoved() {
-        val state = _uiState.value
-        if (!state.keyboardNavigating) return
-        val pending = pendingHoverSelection
-        pendingHoverSelection = -1
-        _uiState.update { current ->
-            val shouldApply = pending >= 0 && current.footerSelection < 0
-            current.copy(
-                keyboardNavigating = false,
-                historySelection = if (shouldApply) {
-                    pending.coerceIn(0, maxOf(0, current.results.lastIndex))
-                } else {
-                    current.historySelection
-                },
-            )
-        }
-    }
-
-    /** Port of `HoverSelectionModifier`. */
-    private fun hoverHistory(index: Int) {
-        val state = _uiState.value
-        if (!state.keyboardNavigating) {
-            if (state.footerSelection >= 0 || state.historySelection != index) {
-                _uiState.update {
-                    it.copy(
-                        historySelection = index.coerceIn(0, maxOf(0, it.results.lastIndex)),
-                        footerSelection = -1,
-                    )
-                }
-            }
-        } else {
-            pendingHoverSelection = index
-        }
-    }
-
-    /** `FooterItemView.onHover`: hovering the footer closes the preview. */
-    private fun hoverFooter(index: Int) {
-        selectFooter(index)
-        if (_uiState.value.previewOpen) togglePreview()
-    }
-
-    private fun currentSelection(): HistorySelection =
-        HistorySelection(_uiState.value.historySelection, _uiState.value.footerSelection)
-
-    private fun selectHistory(index: Int) {
-        val target = HistoryNavigation.history(index, _uiState.value.results.lastIndex)
-        _uiState.update {
-            it.copy(
-                keyboardNavigating = true,
-                historySelection = target.historyIndex,
-                footerSelection = target.footerIndex,
-            )
-        }
-        syncAutoPreview()
-    }
-
-    private fun selectFooter(index: Int) {
-        val target = HistoryNavigation.footer(currentSelection(), index, footerCount())
-        _uiState.update { it.copy(footerSelection = target.footerIndex) }
-    }
-
-    /**
-     * Writes a navigation result back to the state, keeping the side effects of the two
-     * original branches: moving to the list re-enables keyboard navigation and re-runs the
-     * auto preview (`selectHistory`), while moving inside the footer only moves the highlight.
-     */
-    private fun applyMove(target: HistorySelection) {
-        val current = currentSelection()
-        if (target == current) return
-        if (target.footerIndex < 0 || target.historyIndex != current.historyIndex) {
-            selectHistory(target.historyIndex)
-        } else {
-            _uiState.update { it.copy(footerSelection = target.footerIndex) }
-        }
-    }
-
-    /** Port of `NavigationManager.isFirstItemHighlighted`. */
-    private fun isFirstItemHighlighted(): Boolean =
-        currentSelection().let { it.isHistoryHighlighted && it.historyIndex == 0 }
-
-    /** Port of `NavigationManager.highlightNext(allowCycle:)`. */
-    private fun moveNext(allowCycle: Boolean) {
-        val state = _uiState.value
-        applyMove(HistoryNavigation.next(currentSelection(), state.results.lastIndex, footerCount(), allowCycle))
-    }
-
-    /** Port of `NavigationManager.highlightPrevious`. */
-    private fun movePrevious() {
-        applyMove(HistoryNavigation.previous(currentSelection(), _uiState.value.results.lastIndex))
-    }
-
-    /** Port of `NavigationManager.highlightLast`: the last history item hands over to the footer. */
-    private fun moveToLast() {
-        val state = _uiState.value
-        applyMove(HistoryNavigation.last(currentSelection(), state.results.lastIndex, footerCount()))
-    }
-
-    /** `⌃K` only moves up while the first item is not highlighted, see Maccy #1055. */
-    fun canMovePreviousWithCtrlK(): Boolean = !isFirstItemHighlighted()
-
-    private fun footerCount(): Int = 3 + if (showQuit) 1 else 0
-
-    // ---------------------------------------------------------------------------------
-    // Activation
+    // 激活
     // ---------------------------------------------------------------------------------
 
     private fun resolveAction(shift: Boolean, alt: Boolean, meta: Boolean): ClipAction =
@@ -378,7 +209,7 @@ class ClipboardViewModel(
         viewModelScope.launch {
             val result = useCases.selectClip(item, action) { onRequestHideWindow() }
             if (result == SelectResult.COPIED || result == SelectResult.PASTING) {
-                clearSearch()
+                search.clearSearch()
             }
         }
     }
@@ -390,16 +221,15 @@ class ClipboardViewModel(
             FooterAction.PREFERENCES ->
                 _uiState.update { it.copy(dialog = ClipboardDialog.PREFERENCES) }
 
-            FooterAction.ABOUT -> _uiState.update { it.copy(dialog = ClipboardDialog.ABOUT) }
             FooterAction.QUIT -> onQuitRequest()
         }
     }
 
-    /** Port of `AppState.select` + `ConfirmationView`: honour "don't ask again". */
+    /** 对应 `AppState.select` + `ConfirmationView`：遵循「不再提示」。 */
     private fun requestClear(all: Boolean, hidePanel: Boolean = true) {
         if (_uiState.value.settings.suppressClearAlert) {
             useCases.clearHistory(all)
-            // `History.clear` closes the popup once the history is gone.
+            // `History.clear` 在历史清空后关闭弹窗。
             if (hidePanel) onRequestHideWindow()
             return
         }
@@ -422,13 +252,6 @@ class ClipboardViewModel(
         _uiState.update { it.copy(confirmation = null) }
     }
 
-    /** Port of `SlideoutController.togglePreview(trigger: .manual)`. */
-    private fun togglePreview() {
-        val willOpen = !_uiState.value.previewOpen
-        autoOpenSuppressed = !willOpen
-        _uiState.update { it.copy(previewOpen = willOpen) }
-    }
-
     private fun pickIgnoredApplication() {
         val application = platform.pickApplication() ?: return
         val key = application.bundleId ?: application.name
@@ -439,12 +262,11 @@ class ClipboardViewModel(
     }
 
     // ---------------------------------------------------------------------------------
-    // Host events
+    // 宿主事件
     // ---------------------------------------------------------------------------------
 
-    /** Port of `Popup.handleFirstKeyDown`. */
+    /** 对应 `Popup.handleFirstKeyDown`。 */
     private fun onOpened() {
-        autoOpenSuppressed = false
         _uiState.update {
             it.copy(
                 keyboardNavigating = true,
@@ -455,7 +277,7 @@ class ClipboardViewModel(
         }
     }
 
-    /** Port of `Popup.handleFlagsChanged`: releasing the modifiers accepts the highlighted item. */
+    /** 对应 `Popup.handleFlagsChanged`：松开修饰键时接受当前高亮的条目。 */
     private fun onAccept() {
         val state = _uiState.value
         if (state.footerSelection < 0 && state.results.isNotEmpty()) {
@@ -465,13 +287,12 @@ class ClipboardViewModel(
     }
 
     // ---------------------------------------------------------------------------------
-    // State projection
+    // 状态投影
     // ---------------------------------------------------------------------------------
 
     private fun refresh() {
         val settings = repository.settings.value
-        val items = repository.items.value
-        val results = ClipSearch.search(_uiState.value.appliedQuery, items, settings.searchMode)
+        val results = search.resultsFor(_uiState.value.appliedQuery)
 
         _uiState.update {
             it.copy(
@@ -484,27 +305,12 @@ class ClipboardViewModel(
                 supportsApplicationInfo = platform.supportsApplicationInfo,
             )
         }
-        syncAutoPreview()
     }
 
-    /** Port of `SlideoutController.startAutoOpen`: slide the preview out once selection settles. */
-    private fun syncAutoPreview() {
-        val state = _uiState.value
-        val id = state.selectedItem?.id
-        if (id == autoPreviewItemId) return
-        autoPreviewItemId = id
+    /** 对应 `SlideoutController.togglePreview(trigger: .manual)`。 */
+    private fun togglePreview() = _uiState.update { it.copy(previewOpen = !it.previewOpen) }
 
-        autoPreviewJob?.cancel()
-        if (id == null || !autoPreview) return
-        if (!state.settings.openPreviewAutomatically || autoOpenSuppressed || state.previewOpen) return
-
-        autoPreviewJob = viewModelScope.launch {
-            delay(state.settings.previewDelay.toLong())
-            if (!_uiState.value.previewOpen && !autoOpenSuppressed) {
-                _uiState.update { it.copy(previewOpen = true) }
-            }
-        }
-    }
+    private fun footerCount(): Int = 3 + if (showQuit) 1 else 0
 
     private companion object {
         const val STATUS_DURATION_MILLIS = 1_600L

@@ -35,16 +35,15 @@ import com.qcmian.clipper.ui.KeyShortcut
 import com.qcmian.clipper.ui.Popup
 
 /**
- * Port of Maccy's `ListItemView`: one compact row shared by the history list and the footer.
- * It only ever shows the leading accessory, the title (or a thumbnail) and the keyboard
- * shortcut hint — no timestamps, pin markers or delete buttons.
+ * 对应 Maccy 的 `ListItemView`：历史列表与页脚共用的一种紧凑行。它只显示前置配件、
+ * 标题（或缩略图）以及快捷键提示——没有时间戳、置顶标记或删除按钮。
  */
 @Composable
 fun ListItemRow(
     isSelected: Boolean,
     modifier: Modifier = Modifier,
     shortcut: KeyShortcut? = null,
-    /** The source application icon, shown when `showApplicationIcons` is enabled. */
+    /** 来源应用图标，在 `showApplicationIcons` 开启时显示。 */
     appIcon: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     onHover: (() -> Unit)? = null,
@@ -93,10 +92,9 @@ fun ListItemRow(
 }
 
 /**
- * The row title, matching `ListItemTitleView` (single line, middle truncation).
+ * 行的标题，对应 `ListItemTitleView`（单行、中间截断）。
  *
- * The line height is pinned so the row keeps `Popup.itemHeight` instead of inheriting
- * Material's much taller default line box.
+ * 行高被固定下来，使该行保持 `Popup.itemHeight`，而不会继承 Material 默认高得多的行框。
  */
 @Composable
 fun RowTitle(text: AnnotatedString, modifier: Modifier = Modifier) {
@@ -116,7 +114,7 @@ fun RowTitle(text: String, modifier: Modifier = Modifier) {
     RowTitle(AnnotatedString(text), modifier)
 }
 
-/** Renders `⌥⌘⌫` the same way `KeyboardShortcutView` does. */
+/** 按 `KeyboardShortcutView` 的方式渲染 `⌥⌘⌫`。 */
 @Composable
 private fun ShortcutView(shortcut: KeyShortcut) {
     val color = LocalContentColor.current

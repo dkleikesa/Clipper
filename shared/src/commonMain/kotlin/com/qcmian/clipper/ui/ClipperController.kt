@@ -3,118 +3,142 @@ package com.qcmian.clipper.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.qcmian.clipper.domain.model.AppSettings
-import com.qcmian.clipper.domain.model.MenuIcon
+import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.settings.MenuIcon
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * The host visible projection of the screen: everything a desktop tray or window needs in
- * order to draw itself.
+ * 界面中面向宿主的投影：桌面托盘或窗口绘制自身所需的一切。
  *
- * `App` writes it in one shot from the `ClipboardUiState`, which is why it is a single
- * immutable value instead of a dozen mutable fields — the controller mirrors the state holder,
- * it never becomes a second source of truth.
+ * `App` 会一次性从 `ClipboardUiState` 写入它，因此这里是单个不可变值，而不是十几个可变字段——
+ * 控制器只是镜像状态持有者，永远不会成为第二个数据源。
  */
 data class HostUiState(
-    /** The preferences, so a host can honour window size, screen and shortcuts. */
+    /** 偏好设置，便于宿主遵循窗口尺寸、屏幕与快捷键。 */
     val settings: AppSettings = AppSettings(),
 
-    /** `Defaults[.ignoreEvents]`. */
+    /** `Defaults[.ignoreEvents]`。 */
     val isPaused: Boolean = false,
 
     /**
-     * `AppDelegate.isStatusItemDisabled`: the tray icon is dimmed while capture is paused
-     * *or* while every content kind is turned off in the storage preferences.
+     * `AppDelegate.isStatusItemDisabled`：记录被暂停时托盘图标变灰，
+     * 存储偏好中把所有内容类型都关掉时同样如此。
      */
     val isStatusItemDisabled: Boolean = false,
 
-    /** Whether the preview slideout is currently open. */
+    /** 预览滑出面板当前是否打开。 */
     val isPreviewOpen: Boolean = false,
 
     /**
-     * `true` while a dialog (preferences, about, clear confirmation) is on screen. Port of
-     * `FloatingPanel.resignKey`, which does not close the panel while an alert is up.
+     * 有对话框（偏好设置、关于、清除确认）显示时为 `true`。
+     * 对应 `FloatingPanel.resignKey`，它在弹出警告框时不会关闭面板。
      */
     val isModalOpen: Boolean = false,
 
-    /** `Defaults[.menuIcon]`. */
+    /** `Defaults[.menuIcon]`。 */
     val menuIcon: MenuIcon = MenuIcon.MACCY,
 
-    /** `AppState.menuIconText`, shown when `showRecentCopyInMenuBar` is enabled. */
+    /** `AppState.menuIconText`，在 `showRecentCopyInMenuBar` 开启时显示。 */
     val recentCopyText: String = "",
 )
 
 /**
- * Lets a host (the desktop tray, for example) observe and drive the panel the same way Maccy's
- * menu bar icon does.
+ * 让宿主（例如桌面托盘）像 Maccy 的菜单栏图标那样观察并驱动面板。
  *
- * The state it carries is the [HostUiState] projection written by `App`; the requests below
- * travel the other way, from the host into the state holder, as ordinary actions.
+ * 它携带的状态是由 `App` 写入的 [HostUiState] 投影；下面的请求则反向而行，
+ * 从宿主进入状态持有者，以普通动作的形式传递。
  */
 class ClipperController {
-    /** Mirrored from the screen state by `App`; the host only ever reads it. */
+    /** 由 `App` 从界面状态镜像过来；宿主只读取它。 */
     var hostUiState by mutableStateOf(HostUiState())
         internal set
 
     /**
-     * Incremented when the global hot key is pressed while the panel is already open. The
-     * panel reacts by highlighting the next item, which is Maccy's `PopupState.cycle`.
+     * 面板已经打开时按下全局热键则自增。面板会据此高亮下一条，
+     * 即 Maccy 的 `PopupState.cycle`。
      */
     var cycleRequests by mutableStateOf(0)
         internal set
 
-    /** Incremented when the panel is opened through the global hot key. */
+    /** 通过全局热键打开面板时自增。 */
     var openRequests by mutableStateOf(0)
         internal set
 
+    /** 托盘请求显示面板（菜单「显示 Clipper」/ 普通点击图标）时自增。 */
+    var showRequests by mutableStateOf(0)
+        internal set
+
+    /** 宿主（窗口或托盘的 ViewModel）落盘完成后置位，由应用根结束进程。 */
+    private val _exitRequested = MutableStateFlow(false)
+    val exitRequested: StateFlow<Boolean> = _exitRequested.asStateFlow()
+
     /**
-     * Incremented when the global hot key is released in cycle mode. Port of
-     * `Popup.handleFlagsChanged`, which accepts the highlighted item on release.
+     * 循环模式下松开全局热键时自增。对应 `Popup.handleFlagsChanged`，
+     * 它在松开时接受当前高亮的条目。
      */
     var acceptRequests by mutableStateOf(0)
         internal set
 
-    /** Incremented when the host hides the panel, so the preview closes together with it. */
+    /** 宿主隐藏面板时自增，使预览与之一同关闭。 */
     var hideRequests by mutableStateOf(0)
         internal set
 
     internal var togglePauseAction: (Boolean) -> Unit = {}
     internal var togglePreviewAction: () -> Unit = {}
     internal var clearSearchAction: () -> Unit = {}
+    internal var quitAction: () -> Unit = {}
 
-    /** Set by the host so the "reset popup position" button can clear its remembered spot. */
+    /** 由宿主设置，使「重置弹窗位置」按钮能清掉记住的位置。 */
     var resetPositionAction: () -> Unit = {}
 
     /**
-     * Port of clicking the status item with ⌥ held; [onlyNext] mirrors the ⇧⌥ combination,
-     * which pauses capture for a single copy.
+     * 对应按住 ⌥ 点击状态项；[onlyNext] 对应 ⇧⌥ 组合，即只为下一次复制暂停记录。
      */
     fun togglePause(onlyNext: Boolean = false) = togglePauseAction(onlyNext)
 
     fun togglePreview() = togglePreviewAction()
 
-    /** Port of `Popup.handleKeyDown` in `.cycle` state: move to the next history item. */
+    /** 对应 `.cycle` 状态下 `Popup.handleKeyDown`：移到下一条历史。 */
     fun requestCycle() {
         cycleRequests++
     }
 
-    /** Port of `Popup.handleFirstKeyDown` when the panel is closed. */
+    /** 对应面板关闭时的 `Popup.handleFirstKeyDown`。 */
     fun requestOpen() {
         openRequests++
     }
 
-    /** Port of `Popup.handleFlagsChanged`: accept the highlighted item on modifier release. */
+    /** 对应托盘菜单的「显示 Clipper」：窗口侧 ViewModel 观察该请求后显示面板。 */
+    fun requestShow() {
+        showRequests++
+    }
+
+    /** 宿主 ViewModel 落盘完成后请求结束进程。 */
+    fun requestExit() {
+        _exitRequested.value = true
+    }
+
+    /** 对应 `Popup.handleFlagsChanged`：松开修饰键时接受高亮的条目。 */
     fun requestAccept() {
         acceptRequests++
     }
 
-    /** Port of `FloatingPanel.close()`: closing the popup also closes the preview slideout. */
+    /** 对应 `FloatingPanel.close()`：关闭弹窗的同时也关闭预览滑出面板。 */
     fun requestHide() {
         hideRequests++
     }
 
-    /** Port of `ListHeaderView`'s "clear the search when the popup loses focus". */
+    /** 对应 `ListHeaderView` 的「弹窗失去焦点时清空搜索」。 */
     fun clearSearch() = clearSearchAction()
 
-    /** Port of the "reset" button next to `PopupPosition.lastPosition`. */
+    /**
+     * 对应 `AppDelegate.applicationWillTerminate`：应用「退出时清空历史」偏好。
+     * 宿主要在关闭前调用它，然后等待自己的存储落盘。
+     */
+    fun quit() = quitAction()
+
+    /** 对应 `PopupPosition.lastPosition` 旁的「重置」按钮。 */
     fun resetPosition() = resetPositionAction()
 }

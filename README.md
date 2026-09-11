@@ -14,7 +14,7 @@
 * 右侧预览面板：工具栏（置顶、删除、复制识别文字）+ 内容 + 元信息（应用、尺寸、首次/上次复制时间、复制次数）；超长文本截断保护，图片解码走 LRU 缓存
 * **来源应用**：记录复制来源的应用名，并从 `.app` 包中提取图标显示（列表行可选、预览必显）
 * **图片文字识别（OCR）**：用 Vision / ML Kit 识别图片文字并作为条目标题，预览工具栏可一键把识别出的文字复制回剪贴板
-* **全局热键**：`⇧⌘C` 在任何应用里呼出/收起面板，并在已打开时逐条循环（Maccy 的 `PopupState.cycle`）
+* **全局热键**：`⇧⌘C` 在任何应用里呼出面板；按住快捷键（保持修饰键不松）即逐条循环选择、松开修饰键粘贴高亮项（Maccy 的 `PopupState.cycle`），面板已稳定显示时再按则把窗口移到鼠标位置
 * **快捷键可自定义**：呼出 / 置顶 / 删除 / 预览四个快捷键都能在偏好设置里重新录制并复位
 * **失焦自动收起**：桌面端面板失去焦点即隐藏（弹窗打开时不收起），与 Maccy 的 `FloatingPanel.resignKey` 一致
 * **托盘交互**：⌥ 点击托盘图标暂停记录、⇧⌥ 仅暂停下一次，暂停时图标置灰（Maccy 的 `performStatusItemClick`）
@@ -22,11 +22,11 @@
 * **忽略规则**：忽略正则、忽略应用（应用列表 + 系统应用选择器，显示应用名与图标，支持仅白名单）、忽略剪贴板类型（可一键恢复默认）
 * 单条删除、清空未置顶、全部清除（带二次确认，可勾选“不再提示”）
 * 存储：历史条数上限（置顶项不受限）、可分别开关文本/图片/文件入库、显示占用大小、剪贴板检查间隔可调
-* 外观：弹窗位置（光标 / 菜单栏图标 / 应用窗口中心 / 屏幕中心 / 上次位置）、**弹窗屏幕（多显示器）**、置顶位置、菜单栏图标样式（4 种）与显示开关、显示标题/页脚/搜索框/色块/特殊符号/应用图标、图片最大高度、窗口宽度与最大高度、**预览宽度（可拖拽分隔条调整）**、预览自动展开与延迟
+* 外观：弹窗位置（光标 / 菜单栏图标 / 应用窗口中心 / 屏幕中心 / 上次位置）、**弹窗屏幕（多显示器）**、置顶位置、菜单栏图标样式（4 种）与显示开关、显示页脚/搜索框/色块/特殊符号/应用图标、图片最大高度、窗口宽度与最大高度、**预览宽度（可拖拽分隔条调整）**
 * 置顶项管理：改键位、改别名，纯文本项还可直接编辑内容；选中一行后按 `Delete` 即可删除（Maccy 的 `PinsSettingsPane.onDeleteCommand`）
 * 高级：退出时清空历史、同时清空系统剪贴板、开机自启（macOS `SMAppService`）
-* 弹窗高度贴合内容（Maccy 的 `Popup.preferredHeight`）
-* **关于对话框**：显示版本号与可点击的上游项目链接（对应 Maccy `About` 的 credits 链接行）
+* 弹窗尺寸：**默认**宽度固定、高度随内容增长直到屏幕底部；**用户手动拖动窗口后**固定为用户
+  拖出的大小，不再随条目数变化（重启恢复自动）
 * 深/浅色主题跟随系统
 
 ## 快捷键
@@ -35,7 +35,7 @@
 
 | 操作 | 按键 |
 | --- | --- |
-| 呼出 / 收起面板（全局） | `⇧⌘C`（可自定义；已打开时重复按下逐条循环） |
+| 呼出面板 / 循环选择 / 移到鼠标（全局） | `⇧⌘C`（可自定义；按住修饰键逐条循环、松开粘贴，面板已稳定显示时再按则把窗口移到鼠标位置） |
 | 下一个 / 上一个 | `↓` `⇧↓` `⌃N` `⌃⇧N` `⌃J` / `↑` `⇧↑` `⌃P` `⌃⇧P` `⌃K` |
 | 第一个 / 最后一个 | `⌘↑` `⌥↑` `⌃⌥P` `PageUp` / `⌘↓` `⌥↓` `⌃⌥N` `PageDown` |
 | 复制选中项（并按设置粘贴） | `Enter`（未选中任何项时复制搜索词本身） |
@@ -48,7 +48,7 @@
 | 清空搜索 | `⌃U` |
 | 删除搜索中的一个字符 / 一个词 | `⌃H` / `⌃W` |
 | 偏好设置 | `⌘,` |
-| 关闭 | `Esc` |
+| 清空搜索 / 关闭 | `Esc`（有搜索词时先清空，搜索为空时关闭） |
 
 页脚第一行会随按下的修饰键在「清除 `⌥⌘⌫`」与「全部清除 `⌥⇧⌘⌫`」之间切换，
 列表行的快捷键角标也会随修饰键在 `⌘x` / `⌥x` / `⌘⇧x` 之间切换——与 Maccy 相同。
@@ -84,7 +84,7 @@
 | `ApplicationImage` / `ApplicationImageCache` | `macos/MacAppIcon.kt` + `NativeDataSource` |
 | `NSWorkspace.frontmostApplication` | `macos/MacWorkspace.kt` |
 | `HistoryItem.performTextRecognition()` | `macos/MacTextRecognition.kt`（Vision）/ `ios/IosTextRecognition.kt` / `mlkit/MlKitTextRecognition.kt` |
-| `MenuIcon` | `desktopApp/MenuIcons.kt`（4 种矢量图标） |
+| `MenuIcon` | `desktopApp/desktop/ui/MenuIcons.kt`（4 种矢量图标） |
 | `Popup` / `PopupPosition` | `ui/Popup.kt` / `ui/HistoryScreen.kt` |
 | `KeyShortcut` / `KeyboardShortcutView` | `ui/KeyShortcut.kt` / `ui/components/ListItemRow.kt` |
 | `KeyChord` / `KeyHandlingView` | `ui/HistoryKeyboard.kt` |
@@ -102,22 +102,20 @@
 | `SlideoutView` / `SlideoutContentView` | `ui/HistoryScreen.kt` 的 Row 布局 + `ui/components/PreviewSlideout.kt` |
 | `PreviewItemView` / `ToolbarView` | `ui/components/PreviewPane.kt` |
 | `ConfirmationView` | `ui/dialogs/ConfirmDialog.kt` |
-| `About` | `ui/dialogs/AboutDialog.kt` |
 | 六个设置面板 | `ui/dialogs/PreferencesDialog.kt` |
-| `AppDelegate` 的托盘 / `clearOnQuit` / ⌥ 点击暂停 | `ui/ClipperController.kt` + `desktopApp/main.kt` |
+| `AppDelegate` 的托盘 / `clearOnQuit` / ⌥ 点击暂停 | `ui/ClipperController.kt` + `desktopApp/desktop/ui/ClipperTray.kt` + `DesktopShellViewModel` |
 | `KeyboardShortcuts.Name` / `KeyboardShortcuts.Recorder` | `settings/ShortcutSpec` + `PreferencesDialog.ShortcutRow` |
-| `PopupState`（toggle / cycle / opening） | `desktopApp/main.kt` 的 `PopupMode` + `ClipperController.requestCycle/requestOpen` |
-| `FloatingPanel.resignKey()` 失焦关闭 | `desktopApp/main.kt` 的 `WindowFocusListener` |
+| `PopupState`（opening / cycle / toggle） | `desktopApp/desktop/domain/PopupMode.kt` + `DesktopShellViewModel` + `ClipperController.requestOpen/requestCycle` |
+| `FloatingPanel.resignKey()` 失焦关闭 | `desktopApp/desktop/ui/ClipperWindow.kt`（`WindowFocusListener`）+ `DesktopShellViewModel.onWindowLostFocus` |
 | `LaunchAtLogin` | `macos/MacLaunchAtLogin.kt`（JNA 调 `SMAppService`） |
 | `SlideoutController.startResize(.slideout)` / `computePlacement` | `ui/components/PreviewSlideout.kt` 中可拖拽的分隔条 + `HistoryScreen` 的预览左右翻转 |
 | `ToolbarView` 的 `text.viewfinder` | `PreviewPane` 的「复制识别文字」按钮 |
-| `AppDelegate.performStatusItemClick` 的 ⌥ / ⇧⌥ | `main.kt` 托盘 `onAction` 读 `NSEvent.modifierFlags` |
+| `AppDelegate.performStatusItemClick` 的 ⌥ / ⇧⌥ | `desktopApp/desktop/ui/ClipperTray.kt` 的 `onAction` + `DesktopShellViewModel.onTrayClicked` 读 `NSEvent.modifierFlags` |
 | `NSRunningApplication.windowFrame` | `macos/MacWindow.kt`（JNA 调 `CGWindowListCopyWindowInfo`） |
 | `IgnoreApplicationsSettingsView` 的应用选择器 | `macos/MacApplicationPicker.kt`（JNA 调 `NSOpenPanel`）+ `NativeDataSource.applicationName` |
 | `IgnorePasteboardTypesSettingsView` 的 `Defaults.reset` | 偏好设置里的「恢复默认类型」按钮 |
 | `ApplicationImageCache` | `ui/components/ImageCache.kt` + `NativeDataSource.applicationIcon`（JVM 侧带 bundle id 缓存） |
 | `PreviewItemView.largeTextThreshold` / `LargeTextPreviewView` | `ui/components/PreviewPane.kt` 的 `LARGE_TEXT_LIMIT` |
-| `About` 的 credits 链接行 | `ui/dialogs/AboutDialog.kt` + `ClipperInfo.kt` |
 | `NSWorkspace.open(_:)` | `NativeDataSource.openUrl`（JVM / Android / iOS / Web 各自实现） |
 
 Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能力，跨平台无法完全等价，
@@ -173,7 +171,6 @@ Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能�
 | 空内容过滤 | 逐个 pasteboard item 判断：带 `string` 类型、内容为空且非富文本 → 整条跳过 | 所有表示合并为一个快照后再判断，因此「空文本 + 图片」的组合会保留图片 |
 | 置顶项内容编辑 | 富文本也可编辑，并给出 `RichTextEditWarning` 警告图标 | 仅纯文本可编辑，其它类型显示「无法编辑内容」 |
 | 快捷键徽标 | 同时叠放 3 个 `KeyboardShortcutView`，按修饰键切换透明度 | 只渲染当前可见的那一个（视觉结果等价） |
-| About 链接 | `Website│GitHub│Support` 三个链接 + 致谢 | 上游项目「官网 / GitHub」两个链接 |
 | 悬停提示（tooltip） | 页脚项、预览工具栏按钮、多个设置项都有 `.help()` 提示 | Compose Multiplatform 的公共 API 没有桌面式 tooltip，全部省略 |
 | 偏好设置窗口 | 独立的设置窗口，6 个分页（General / Storage / Appearance / Pins / Ignore / Advanced）+ 工具栏图标 | 单个可滚动对话框，按同样的 6 组分区组织，全部选项保留 |
 | 置顶项删除 | `Table` 原生 selection + `onDeleteCommand` | 自绘行选中 + 冒泡阶段的 `onKeyEvent`；打开对话框时根节点先取得焦点，文本框编辑时会先消费 `Delete` 而不会误删 |
@@ -190,9 +187,9 @@ Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能�
 
 | 平台 | 剪贴板监听方式 | 图片 | 文件 | 自动粘贴 | 持久化位置 |
 | --- | --- | --- | --- | --- | --- |
-| Desktop (JVM) | 轮询 AWT 剪贴板（默认 500ms，可调） | 读/写 | 读/写 | `Robot` 发送 `⌘V`/`Ctrl+V` | `~/.clipper/*.json` |
-| Android | `OnPrimaryClipChangedListener` | 读 | 读 | 不支持 | `SharedPreferences` |
-| iOS | 轮询 `UIPasteboard.changeCount`（默认 500ms） | 读/写 | 读/写 | 不支持 | `NSUserDefaults` |
+| Desktop (JVM) | 轮询 AWT 剪贴板（默认 500ms，可调） | 读/写 | 读/写 | `Robot` 发送 `⌘V`/`Ctrl+V` | Room（`~/.clipper/clipper.db`） |
+| Android | `OnPrimaryClipChangedListener` | 读 | 读 | 不支持 | Room（`clipper.db`） |
+| iOS | 轮询 `UIPasteboard.changeCount`（默认 500ms） | 读/写 | 读/写 | 不支持 | Room（`clipper.db`） |
 | Web | 轮询 `navigator.clipboard`（默认 800ms） | 不支持 | 不支持 | 不支持 | `localStorage` |
 
 已知限制：
@@ -231,14 +228,27 @@ Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能�
 ```
 
 * **单向数据流**：`HistoryScreen` 只渲染 `ClipboardUiState`，任何交互都只发
-  `ClipboardUiAction`；`ClipboardViewModel` 是唯一的状态持有者，也是唯一改动状态的地方。
-* **UI 层**：`ui/state/`（UiState / UiAction）、`ClipboardViewModel`、`HistoryScreen`
-  与无状态的 `components/`、`dialogs/`。
+  `ClipboardUiAction`；`ClipboardViewModel` 是唯一拥有 `ClipboardUiState` 的地方，并把两块
+  自洽的行为分别交给 `HistorySearchController`（搜索节流）与 `HistoryNavigationController`
+  （列表 / 页脚导航）——它们直接读写 ViewModel 持有的同一份状态。
+* **UI 层**：`ui/state/`（UiState / UiAction）、`ClipboardViewModel` 及其控制器、
+  `HistoryScreen` 与无状态的 `components/`、`dialogs/`。
 * **Domain 层**：纯 Kotlin 的搜索/排序/动作解析，以及承载业务规则的 UseCase
   （捕获去重、选中粘贴、置顶、清空、改设置、退出清理）。不依赖 Compose。
 * **Data 层**：`ClipboardRepository` 接口 + `DefaultClipboardRepository`（用
   `StateFlow` 暴露状态，不再持有 Compose 状态），底层是三个数据源接口。
+* **持久化**：Android / iOS / Desktop 统一使用 **Room（SQLite）**：`clip_history` 存历史，
+  `app_settings` 存设置（单行 JSON）。驱动分别为 `BundledSQLiteDriver`，数据库文件位置由各
+  平台源集提供；`ClipStorageDataSource` 因此改为挂起接口。Web 端暂用 `localStorage`
+  （`androidx.sqlite:sqlite-web` 的 `WebWorkerSQLiteDriver` 需要调用方自行编译一个 worker
+  入口，官方尚未发布可直接使用的 worker 产物）。
 * **依赖注入**：`di/AppContainer` 手动装配，无需 DI 框架。
+* **桌面宿主同样分层**：`desktopApp/desktop/domain`（`WindowPlacement.kt`、`WindowSizing.kt`）
+  是窗口定位 / 尺寸的纯函数；`desktopApp/desktop/viewmodel`（`DesktopShellViewModel.kt`，官方
+  `androidx.lifecycle.ViewModel` + `viewModelScope`）持有窗口可见性、位置、尺寸、全局热键状态机
+  与焦点恢复。它是应用级单例，在组合根 `remember` 一次，供 `desktop/ui`（`ClipperWindow.kt`、
+  `ClipperTray.kt`、`MenuIcons.kt`）共享——窗口与托盘只渲染并把平台事件转发给 ViewModel，
+  它们之间的数据本就通过 `ClipperController.hostUiState` 这份宿主投影同步；`main.kt` 仅作组合根。
 
 ## 项目结构
 
@@ -246,6 +256,7 @@ Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能�
 shared/src/
   commonMain/
     data/
+      local/       Room 数据库 / 实体 / DAO（clip_history、app_settings）
       model/       ClipItem、SourceApplication、ClipboardSnapshot
       source/      ClipboardDataSource / ClipStorageDataSource / NativeDataSource
       repository/  ClipboardRepository 接口 + 默认实现（StateFlow）
@@ -256,7 +267,8 @@ shared/src/
       usecase/     捕获、选中粘贴、置顶、删除、清空、改设置、退出 等用例
     ui/
       state/       ClipboardUiState / ClipboardUiAction
-      ClipboardViewModel   唯一的状态持有者
+      ClipboardViewModel   状态所有者（协调下列控制器）
+      HistorySearchController / HistoryNavigationController
       HistoryScreen        纯渲染的界面
       HistoryKeyboard      按键 → 动作映射
       components/ dialogs/ icons/ theme/
@@ -268,7 +280,7 @@ shared/src/
   iosMain/         UIPasteboard、NSUserDefaults、Vision OCR
   webMain/         Clipboard API 与 localStorage（JS 与 Wasm 共用）
 androidApp/     Android 入口
-desktopApp/     Desktop 入口（窗口 + 托盘 + 全局热键 + 弹窗定位）
+desktopApp/     Desktop 入口：`main.kt` 组合根 + `desktop/{ui,viewmodel,domain}`
 iosApp/         iOS 入口
 webApp/         Web 入口
 ```

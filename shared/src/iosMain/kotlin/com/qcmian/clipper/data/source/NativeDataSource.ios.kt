@@ -11,8 +11,8 @@ private class IosNativeDataSource : NativeDataSource {
         IosTextRecognition.recognize(imageBase64)
 
     /**
-     * Opens the About dialog links with the default handler. Only `http(s)` is accepted so a
-     * malformed constant can never hand an arbitrary scheme to another application.
+     * 用默认处理器打开「关于」对话框里的链接。只接受 `http(s)`，
+     * 这样即便常量写错也绝不会把任意 scheme 交给其它应用。
      */
     override fun openUrl(url: String): Boolean {
         if (!url.startsWith("http://") && !url.startsWith("https://")) return false

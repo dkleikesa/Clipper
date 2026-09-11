@@ -5,9 +5,9 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 
 /**
- * Formats a timestamp the way the preview pane shows it, e.g. `2026年9月11日 14:50`.
- * Maccy renders `Text(date, style: .date)` + `Text(date, style: .time)`; this is the
- * zh-Hans rendering of the same value.
+ * 按预览面板的显示方式格式化时间戳，例如 `2026年9月11日 14:50`。
+ * Maccy 用 `Text(date, style: .date)` + `Text(date, style: .time)` 渲染；这里是同一取值的
+ * zh-Hans 渲染结果。
  */
 fun formatDateTime(epochMillis: Long): String {
     val local = Instant.fromEpochMilliseconds(epochMillis)

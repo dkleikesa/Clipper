@@ -5,7 +5,7 @@ import com.qcmian.clipper.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.domain.model.SourceApplication
 import com.qcmian.clipper.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.domain.repository.ClipboardRepository
-import com.qcmian.clipper.domain.model.AppSettings
+import com.qcmian.clipper.settings.AppSettings
 import com.qcmian.clipper.util.currentTimeMillis
 import com.qcmian.clipper.util.randomId
 import kotlinx.coroutines.CoroutineScope
@@ -13,25 +13,23 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
- * The "record a new copy" business rule. Port of Maccy's `Clipboard.pasteboardChanged`
- * handler: it decides whether a snapshot may enter the history, merges duplicates and asks
- * for text recognition on images.
+ * 「记录一次新复制」的业务规则。对应 Maccy 的 `Clipboard.pasteboardChanged` 处理器：
+ * 它决定一份快照能否进入历史、合并重复项，并请求对图片做文字识别。
  *
- * [run] suspends for as long as it collects, so the caller's scope owns the lifecycle — the
- * state holder starts it in `viewModelScope` — instead of this use case keeping a scope and a
- * `start()` / `stop()` pair of its own.
+ * [run] 会一直挂起直到收集结束，因此生命周期由调用方的作用域掌管——状态持有者在
+ * `viewModelScope` 中启动它——而不是让本用例自己持有作用域和一对 `start()` / `stop()`。
  */
 class CaptureClipboardUseCase(
     private val repository: ClipboardRepository,
     private val platform: ClipboardPlatform,
 ) {
-    /** Collects [ClipboardRepository.snapshots] until the calling scope is cancelled. */
+    /** 持续收集 [ClipboardRepository.snapshots]，直到调用方的作用域被取消。 */
     suspend fun run(): Unit = coroutineScope {
         val scope: CoroutineScope = this
         repository.snapshots.collect { snapshot -> capture(scope, snapshot) }
     }
 
-    /** Decides what a new [snapshot] becomes and stores it, or ignores it entirely. */
+    /** 决定一份新 [snapshot] 会变成什么并存入历史，或将其完全忽略。 */
     private fun capture(scope: CoroutineScope, snapshot: ClipboardSnapshot) {
         if (snapshot.isEmpty) return
 
@@ -44,13 +42,13 @@ class CaptureClipboardUseCase(
             return
         }
 
-        // Port of `Clipboard.shouldIgnore(_ types:)`: transient and user listed pasteboard
-        // types never reach the history.
+        // 对应 `Clipboard.shouldIgnore(_ types:)`：临时类型与用户列出的粘贴板类型
+        // 永远不会进入历史。
         val ignoredTypes = settings.ignoredPasteboardTypes + AppSettings.TRANSIENT_PASTEBOARD_TYPES
         if (snapshot.types.any { it in ignoredTypes }) return
 
-        // Maccy filters the pasteboard through `enabledPasteboardTypes`, so disabled content
-        // kinds never reach the history at all.
+        // Maccy 会用 `enabledPasteboardTypes` 过滤粘贴板，因此被关闭的内容类型
+        // 根本不会进入历史。
         val text = snapshot.text.takeIf { settings.saveText }
         val image = snapshot.imageBase64.takeIf { settings.saveImages }
         val files = snapshot.files.takeIf { settings.saveFiles }.orEmpty()
@@ -58,14 +56,13 @@ class CaptureClipboardUseCase(
 
         if (!text.isNullOrBlank() && matchesIgnoredPattern(text, settings)) return
 
-        // Port of `Clipboard.shouldIgnore(_ sourceAppBundle:)`.
+        // 对应 `Clipboard.shouldIgnore(_ sourceAppBundle:)`。
         val sourceApplication = platform.currentSourceApplication()
         if (sourceApplication != null && isIgnoredApplication(sourceApplication, settings)) return
 
         val items = repository.items.value
-        // Wall clock resolution is a millisecond, which is not enough to keep the order of
-        // copies made in quick succession (Maccy relies on sub-millisecond `Date`). Bumping
-        // past the newest item guarantees a strict ordering.
+        // 墙钟精度只有毫秒，不足以保持快速连续复制之间的顺序（Maccy 依赖亚毫秒的 `Date`）。
+        // 这里让它越过最新条目的时间戳，以保证严格的先后顺序。
         val now = maxOf(currentTimeMillis(), (items.maxOfOrNull { it.lastCopiedAt } ?: 0L) + 1L)
         val base = ClipItem(
             id = randomId(),
@@ -83,7 +80,7 @@ class CaptureClipboardUseCase(
 
         val existing = items.firstOrNull { it.id != candidate.id && it.supersedes(candidate) }
         val merged = if (existing != null) {
-            // Keep the identity of the original entry and only bump the counters.
+            // 保留原条目的身份，只更新计数。
             candidate.copy(
                 firstCopiedAt = existing.firstCopiedAt,
                 numberOfCopies = existing.numberOfCopies + 1,
@@ -98,14 +95,14 @@ class CaptureClipboardUseCase(
         val updated = items.filterNot { it.id == existing?.id } + merged
         repository.setItems(updated)
 
-        // Port of `HistoryItem.generateTitle()`: images get their title from text recognition.
-        // Recognition runs on its own child coroutine so the next snapshot is not held up by it.
+        // 对应 `HistoryItem.generateTitle()`：图片的标题来自文字识别。
+        // 识别放在自己的子协程里，以免阻塞下一份快照的处理。
         if (image != null && settings.recognizeText && platform.supportsTextRecognition) {
             scope.launch { recognizeImageText(merged.id, image) }
         }
     }
 
-    /** Runs Vision / ML Kit in the background and promotes the result to the item title. */
+    /** 在后台运行 Vision / ML Kit，并把结果提升为条目标题。 */
     private suspend fun recognizeImageText(itemId: String, imageBase64: String) {
         val recognized = platform.recognizeText(imageBase64) ?: return
         val items = repository.items.value

@@ -1,8 +1,8 @@
-package com.qcmian.clipper.domain.model
+package com.qcmian.clipper.settings
 
 import kotlinx.serialization.Serializable
 
-/** How the search query is matched against the history. Mirrors Maccy's `Search.Mode`. */
+/** 查询词与历史的匹配方式。对应 Maccy 的 `Search.Mode`。 */
 enum class SearchMode(val label: String) {
     EXACT("精确"),
     FUZZY("模糊"),
@@ -10,20 +10,20 @@ enum class SearchMode(val label: String) {
     MIXED("混合"),
 }
 
-/** Mirrors Maccy's `Sorter.By`. */
+/** 对应 Maccy 的 `Sorter.By`。 */
 enum class SortBy(val label: String) {
     LAST_COPIED_AT("最后复制时间"),
     FIRST_COPIED_AT("首次复制时间"),
     NUMBER_OF_COPIES("复制次数"),
 }
 
-/** Mirrors Maccy's `PinsPosition`. */
+/** 对应 Maccy 的 `PinsPosition`。 */
 enum class PinPosition(val label: String) {
     TOP("顶部"),
     BOTTOM("底部"),
 }
 
-/** Mirrors Maccy's `HighlightMatch`. */
+/** 对应 Maccy 的 `HighlightMatch`。 */
 enum class HighlightMatch(val label: String) {
     BOLD("加粗"),
     ITALIC("斜体"),
@@ -31,13 +31,13 @@ enum class HighlightMatch(val label: String) {
     BACKGROUND("背景"),
 }
 
-/** Mirrors Maccy's `SearchVisibility`. */
+/** 对应 Maccy 的 `SearchVisibility`。 */
 enum class SearchVisibility(val label: String) {
     ALWAYS("总是显示"),
     DURING_SEARCH("搜索时显示"),
 }
 
-/** Mirrors Maccy's `PopupPosition`. */
+/** 对应 Maccy 的 `PopupPosition`。 */
 enum class PopupPosition(val label: String) {
     CURSOR("光标位置"),
     MENU_BAR("菜单栏图标"),
@@ -46,7 +46,7 @@ enum class PopupPosition(val label: String) {
     LAST_POSITION("上次位置"),
 }
 
-/** Mirrors Maccy's `MenuIcon`. */
+/** 对应 Maccy 的 `MenuIcon`。 */
 enum class MenuIcon(val label: String) {
     MACCY("Clipper"),
     CLIPBOARD("剪贴板"),
@@ -55,8 +55,8 @@ enum class MenuIcon(val label: String) {
 }
 
 /**
- * A user-recordable shortcut, the counterpart of Maccy's `KeyboardShortcuts.Name` +
- * `KeyboardShortcuts.Shortcut`. [character] is the rendered key (`"C"`, `"⌫"`, `" "`).
+ * 用户可录制的快捷键，对应 Maccy 的 `KeyboardShortcuts.Name` +
+ * `KeyboardShortcuts.Shortcut`。[character] 是渲染出来的按键（`"C"`、`"⌫"`、`" "`）。
  */
 @Serializable
 data class ShortcutSpec(
@@ -66,7 +66,7 @@ data class ShortcutSpec(
     val shift: Boolean = false,
     val command: Boolean = false,
 ) {
-    /** `⌥⌘⌫`, the label the preferences window shows. */
+    /** `⌥⌘⌫`，偏好设置窗口显示的标签。 */
     val label: String
         get() = buildString {
             if (control) append('\u2303')
@@ -77,88 +77,90 @@ data class ShortcutSpec(
         }
 }
 
-/** The counterpart of Maccy's `Defaults.Keys` subset that makes sense on every platform. */
+/**
+ * 用户偏好设置。刻意*不*放在领域模型里：它混合了存储、行为、快捷键与外观选项，
+ * 因此独立放在 `settings` 包中，而不是与纯领域实体并列。
+ *
+ * 对应 Maccy 的 `Defaults.Keys` 中在各平台都成立的那个子集。
+ */
 @Serializable
 data class AppSettings(
-    // Storage
+    // 存储
     val historySize: Int = 200,
     val saveText: Boolean = true,
     val saveImages: Boolean = true,
     val saveFiles: Boolean = true,
     val sortBy: SortBy = SortBy.LAST_COPIED_AT,
 
-    // Behavior
+    // 行为
     val pasteByDefault: Boolean = false,
     val removeFormattingByDefault: Boolean = false,
     val clearOnQuit: Boolean = false,
     val clearSystemClipboard: Boolean = false,
     val searchThrottleMillis: Int = 200,
-    /** Port of `Defaults[.clipboardCheckInterval]`, in milliseconds. */
+    /** 对应 `Defaults[.clipboardCheckInterval]`，单位毫秒。 */
     val clipboardCheckIntervalMillis: Int = 500,
-    /** Port of `LaunchAtLogin`; registers the app as a login item. */
+    /** 对应 `LaunchAtLogin`；把应用注册为开机自启项。 */
     val launchAtLogin: Boolean = false,
-    /** Port of `Defaults[.suppressClearAlert]`: skip the "clear history" confirmation. */
+    /** 对应 `Defaults[.suppressClearAlert]`：跳过「清除历史」的二次确认。 */
     val suppressClearAlert: Boolean = false,
 
-    // Shortcuts
-    /** Port of `KeyboardShortcuts.Name.popup`, `⇧⌘C`. */
+    // 快捷键
+    /** 对应 `KeyboardShortcuts.Name.popup`，`⇧⌘C`。 */
     val popupShortcut: ShortcutSpec = ShortcutSpec("C", command = true, shift = true),
-    /** Port of `KeyboardShortcuts.Name.pin`, `⌥P`. */
+    /** 对应 `KeyboardShortcuts.Name.pin`，`⌥P`。 */
     val pinShortcut: ShortcutSpec = ShortcutSpec("P", option = true),
-    /** Port of `KeyboardShortcuts.Name.delete`, `⌥⌫`. */
+    /** 对应 `KeyboardShortcuts.Name.delete`，`⌥⌫`。 */
     val deleteShortcut: ShortcutSpec = ShortcutSpec("\u232b", option = true),
-    /** Port of `KeyboardShortcuts.Name.togglePreview`, `⌃Space`. */
+    /** 对应 `KeyboardShortcuts.Name.togglePreview`，`⌃Space`。 */
     val togglePreviewShortcut: ShortcutSpec = ShortcutSpec(" ", control = true),
 
-    // Search
+    // 搜索
     val searchMode: SearchMode = SearchMode.EXACT,
     val highlightMatch: HighlightMatch = HighlightMatch.BOLD,
     val showSearch: Boolean = true,
     val searchVisibility: SearchVisibility = SearchVisibility.ALWAYS,
 
-    // Appearance
+    // 外观
     val pinTo: PinPosition = PinPosition.TOP,
-    val showTitle: Boolean = true,
     val showFooter: Boolean = true,
     val showHexColorSwatch: Boolean = true,
     val showSpecialSymbols: Boolean = true,
     val showApplicationIcons: Boolean = false,
     val imageMaxHeight: Int = 40,
-    val openPreviewAutomatically: Boolean = true,
-    val previewDelay: Int = 1_500,
     val popupPosition: PopupPosition = PopupPosition.CURSOR,
     val menuIcon: MenuIcon = MenuIcon.MACCY,
     val showRecentCopyInMenuBar: Boolean = false,
-    /** Port of `Defaults[.showInStatusBar]`: show or hide the menu bar / tray icon. */
+    /** 对应 `Defaults[.showInStatusBar]`：显示或隐藏菜单栏 / 托盘图标。 */
     val showInStatusBar: Boolean = true,
-    /** Port of `Defaults[.popupScreen]`: 0 means the active screen, 1+ a specific one. */
+    /** 对应 `Defaults[.popupScreen]`：0 表示当前活动屏幕，1 及以上指向特定屏幕。 */
     val popupScreen: Int = 0,
-    /** Port of `Defaults[.windowSize].width`. */
+    /** 对应 `Defaults[.windowSize].width`。 */
     val windowWidth: Int = 450,
-    /** Port of `Defaults[.windowSize].height`. */
+    /** 对应 `Defaults[.windowSize].height`。 */
     val windowHeight: Int = 800,
-    /** Port of `Defaults[.previewWidth]`. */
+    /** 对应 `Defaults[.previewWidth]`。 */
     val previewWidth: Int = 400,
 
-    // Ignore
-    /** Pause capturing new copies. */
+    // 忽略
+    /** 暂停记录新的复制。 */
     val ignoreEvents: Boolean = false,
-    /** When paused, only skip the next copy. */
+    /** 暂停时，只跳过下一条复制。 */
     val ignoreOnlyNextEvent: Boolean = false,
     val ignoredRegexp: List<String> = emptyList(),
-    /** Bundle identifiers of the applications whose copies are skipped. */
+    /** 复制内容会被跳过的应用 Bundle 标识符。 */
     val ignoredApps: List<String> = emptyList(),
-    /** When set, only the applications listed in [ignoredApps] are recorded. */
+    /** 开启后，只记录 [ignoredApps] 中列出的应用。 */
     val ignoreAllAppsExceptListed: Boolean = false,
-    /** Pasteboard type identifiers that must never be recorded, e.g. `com.agilebits.onepassword`. */
+    /** 绝不能记录的粘贴板类型标识，例如 `com.agilebits.onepassword`。 */
     val ignoredPasteboardTypes: List<String> = DEFAULT_IGNORED_PASTEBOARD_TYPES,
 
-    // Recognition
-    /** Run text recognition on copied images and use the result as the title. */
+    // 识别
+    /** 对复制进来的图片执行文字识别，并把结果用作标题。 */
     val recognizeText: Boolean = true,
 ) {
     companion object {
-        /** Maccy's default `ignoredPasteboardTypes`. */
+        /** Maccy 默认的 `ignoredPasteboardTypes`。 */
         val DEFAULT_IGNORED_PASTEBOARD_TYPES = listOf(
             "Pasteboard generator type",
             "com.agilebits.onepassword",
@@ -167,7 +169,7 @@ data class AppSettings(
             "net.antelle.keeweb",
         )
 
-        /** Types Maccy always ignores because they are confidential or temporary. */
+        /** Maccy 始终忽略的类型，因为它们涉及机密或只是临时内容。 */
         val TRANSIENT_PASTEBOARD_TYPES = listOf(
             "org.nspasteboard.TransientType",
             "org.nspasteboard.ConcealedType",

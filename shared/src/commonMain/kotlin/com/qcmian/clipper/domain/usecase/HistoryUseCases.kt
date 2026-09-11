@@ -3,9 +3,9 @@ package com.qcmian.clipper.domain.usecase
 import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.domain.repository.ClipboardRepository
-import com.qcmian.clipper.domain.model.AppSettings
+import com.qcmian.clipper.settings.AppSettings
 
-/** Port of `History.togglePin`: pins an item with a free shortcut or unpins it. */
+/** 对应 `History.togglePin`：用空闲的快捷键置顶条目，或取消置顶。 */
 class TogglePinUseCase(
     private val repository: ClipboardRepository,
     private val availablePins: AvailablePinsUseCase,
@@ -23,27 +23,27 @@ class TogglePinUseCase(
     private fun randomAvailablePin(): String = availablePins().randomOrNull().orEmpty()
 }
 
-/** Port of `PinsSettingsPane`: lets the user re-assign the key of a pinned item. */
+/** 对应 `PinsSettingsPane`：允许用户重新指定置顶项的快捷键。 */
 class UpdatePinUseCase(private val repository: ClipboardRepository) {
     operator fun invoke(item: ClipItem, pin: String?) = repository.replace(item) { it.copy(pin = pin) }
 }
 
-/** Port of `PinsSettingsPane`'s alias column, which edits `HistoryItem.title`. */
+/** 对应 `PinsSettingsPane` 的别名列，它编辑的是 `HistoryItem.title`。 */
 class UpdateTitleUseCase(private val repository: ClipboardRepository) {
     operator fun invoke(item: ClipItem, title: String) = repository.replace(item) { it.copy(title = title) }
 }
 
-/** Port of `PinValueView.updateItemContent()`: replaces the plain text representation. */
+/** 对应 `PinValueView.updateItemContent()`：替换纯文本表示。 */
 class UpdateContentUseCase(private val repository: ClipboardRepository) {
     operator fun invoke(item: ClipItem, text: String) {
-        // Only plain text entries expose an editable content field.
+        // 只有纯文本条目才提供可编辑的内容字段。
         val hasPlainText = item.text != null && item.imageBase64 == null && item.files.isEmpty()
         if (!hasPlainText) return
         repository.replace(item) { it.copy(text = text) }
     }
 }
 
-/** Removes a single entry. */
+/** 删除单条记录。 */
 class DeleteClipUseCase(private val repository: ClipboardRepository) {
     operator fun invoke(item: ClipItem) {
         val items = repository.items.value
@@ -53,8 +53,8 @@ class DeleteClipUseCase(private val repository: ClipboardRepository) {
 }
 
 /**
- * Port of Maccy's "Clear" (unpinned only) and "Clear all". Pinned items survive a plain
- * clear, and the system clipboard is emptied when the preference asks for it.
+ * 对应 Maccy 的「清除」（仅未置顶）与「全部清除」。普通清除会保留置顶项，
+ * 当偏好要求时还会清空系统剪贴板。
  */
 class ClearHistoryUseCase(
     private val repository: ClipboardRepository,
@@ -69,9 +69,8 @@ class ClearHistoryUseCase(
 }
 
 /**
- * Port of `HistoryItem.supportedPins`: the characters reserved by the recordable
- * `delete` / `pin` / `togglePreview` shortcuts are removed from the pool, so a custom
- * shortcut can never collide with the generated pin of a pinned item.
+ * 对应 `HistoryItem.supportedPins`：可录制的 `delete` / `pin` / `togglePreview` 快捷键
+ * 所用到的字符会从候选池中剔除，因此自定义快捷键永远不会与自动分配的置顶键冲突。
  */
 class AvailablePinsUseCase(private val repository: ClipboardRepository) {
     operator fun invoke(excluding: ClipItem? = null): List<String> {
@@ -91,12 +90,12 @@ class AvailablePinsUseCase(private val repository: ClipboardRepository) {
     }
 
     private companion object {
-        /** `a`, `q`, `v`, `w`, `z` are reserved for shortcuts, see Maccy. */
+        /** `a`、`q`、`v`、`w`、`z` 被快捷键占用，见 Maccy。 */
         const val PIN_CHARACTERS = "bcdefghijklmnoprstuxy"
     }
 }
 
-/** Shared "replace one item and persist" helper. */
+/** 共用的「替换一条记录并持久化」辅助函数。 */
 private inline fun ClipboardRepository.replace(
     item: ClipItem,
     transform: (ClipItem) -> ClipItem,

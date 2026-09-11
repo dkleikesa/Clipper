@@ -1,49 +1,42 @@
 package com.qcmian.clipper.data.source
 
 import android.content.Context
+import androidx.room3.Room
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import com.qcmian.clipper.data.local.ClipperDatabase
+import com.qcmian.clipper.data.local.RoomClipStorageDataSource
 import com.qcmian.clipper.domain.model.ClipItem
-import com.qcmian.clipper.domain.model.AppSettings
-import com.qcmian.clipper.util.decodeJsonOrNull
-import com.qcmian.clipper.util.encodeJson
+import com.qcmian.clipper.settings.AppSettings
 
-private class AndroidClipStorageDataSource(context: Context) : ClipStorageDataSource {
-    private val preferences =
-        context.getSharedPreferences("clipper", Context.MODE_PRIVATE)
+private const val DATABASE_NAME = "clipper.db"
 
-    override fun loadItems(): List<ClipItem> =
-        decodeJsonOrNull<List<ClipItem>>(preferences.getString(KEY_ITEMS, null)).orEmpty()
+/** 在应用的私有 databases 目录中打开唯一的 Room 数据库。 */
+private fun createDatabase(context: Context): ClipperDatabase =
+    Room.databaseBuilder<ClipperDatabase>(
+        name = context.getDatabasePath(DATABASE_NAME).absolutePath,
+    )
+        .setDriver(BundledSQLiteDriver())
+        .build()
 
-    override fun saveItems(items: List<ClipItem>) {
-        preferences.edit().putString(KEY_ITEMS, encodeJson(items)).apply()
-    }
-
-    override fun loadSettings(): AppSettings =
-        decodeJsonOrNull<AppSettings>(preferences.getString(KEY_SETTINGS, null)) ?: AppSettings()
-
-    override fun saveSettings(settings: AppSettings) {
-        preferences.edit().putString(KEY_SETTINGS, encodeJson(settings)).apply()
-    }
-
-    private companion object {
-        const val KEY_ITEMS = "clipper.history"
-        const val KEY_SETTINGS = "clipper.settings"
-    }
-}
-
+/** 供预览使用；预览没有 Application，无法定位数据库文件。 */
 private class InMemoryClipStorageDataSource : ClipStorageDataSource {
     private var items: List<ClipItem> = emptyList()
     private var settings: AppSettings = AppSettings()
 
-    override fun loadItems(): List<ClipItem> = items
-    override fun saveItems(items: List<ClipItem>) {
+    override suspend fun loadItems(): List<ClipItem> = items
+
+    override suspend fun saveItems(items: List<ClipItem>) {
         this.items = items
     }
 
-    override fun loadSettings(): AppSettings = settings
-    override fun saveSettings(settings: AppSettings) {
+    override suspend fun loadSettings(): AppSettings = settings
+
+    override suspend fun saveSettings(settings: AppSettings) {
         this.settings = settings
     }
 }
 
 actual fun createClipStorageDataSource(): ClipStorageDataSource =
-    ClipperAndroid.appContext?.let { AndroidClipStorageDataSource(it) } ?: InMemoryClipStorageDataSource()
+    ClipperAndroid.appContext
+        ?.let { RoomClipStorageDataSource(createDatabase(it)) }
+        ?: InMemoryClipStorageDataSource()

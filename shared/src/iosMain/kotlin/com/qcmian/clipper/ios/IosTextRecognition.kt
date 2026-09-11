@@ -10,8 +10,8 @@ import platform.Vision.VNRecognizedTextObservation
 import platform.Vision.VNRequestTextRecognitionLevelFast
 
 /**
- * Port of `HistoryItem.performTextRecognition()` on top of the Vision framework, which is
- * available on every supported iOS version.
+ * 基于 Vision 框架的 `HistoryItem.performTextRecognition()` 移植，
+ * Vision 在所有受支持的 iOS 版本上都可用。
  */
 object IosTextRecognition {
     @OptIn(ExperimentalForeignApi::class)
