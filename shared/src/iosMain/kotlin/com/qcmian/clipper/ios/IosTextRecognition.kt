@@ -1,7 +1,7 @@
 package com.qcmian.clipper.ios
 
-import com.qcmian.clipper.core.decodeBase64
-import com.qcmian.clipper.core.toNSData
+import com.qcmian.clipper.data.source.toNSData
+import com.qcmian.clipper.util.decodeBase64
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Vision.VNImageRequestHandler
 import platform.Vision.VNRecognizeTextRequest

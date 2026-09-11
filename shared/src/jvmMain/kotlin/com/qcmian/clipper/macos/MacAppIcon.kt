@@ -1,6 +1,6 @@
 package com.qcmian.clipper.macos
 
-import com.qcmian.clipper.core.encodeBase64
+import com.qcmian.clipper.util.encodeBase64
 import java.io.File
 
 /**

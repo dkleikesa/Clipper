@@ -2,7 +2,7 @@ package com.qcmian.clipper.ui.components
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.decodeToImageBitmap
-import com.qcmian.clipper.core.decodeBase64
+import com.qcmian.clipper.util.decodeBase64
 
 /**
  * Decoded clipboard images, keyed by their encoded payload.

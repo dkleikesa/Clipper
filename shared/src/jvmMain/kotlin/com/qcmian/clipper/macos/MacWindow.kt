@@ -1,6 +1,6 @@
 package com.qcmian.clipper.macos
 
-import com.qcmian.clipper.core.ScreenRect
+import com.qcmian.clipper.data.source.ScreenRect
 import com.sun.jna.Function
 import com.sun.jna.Memory
 import com.sun.jna.NativeLibrary

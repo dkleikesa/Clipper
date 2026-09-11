@@ -1,6 +1,6 @@
 package com.qcmian.clipper.macos
 
-import com.qcmian.clipper.core.decodeBase64
+import com.qcmian.clipper.util.decodeBase64
 import com.sun.jna.Library
 import com.sun.jna.Memory
 import com.sun.jna.Native

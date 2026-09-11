@@ -73,33 +73,33 @@
 
 | Maccy | Clipper |
 | --- | --- |
-| `HistoryItem` / `HistoryItemContent` | `model/ClipItem.kt` |
-| `History` | `core/ClipboardRepository.kt` |
-| `Clipboard` | `core/ClipboardPlatform.kt` + 各平台实现 |
-| `Search` / `Throttler` | `core/ClipSearch.kt` / `ClipboardRepository.updateSearchQuery` |
-| `Sorter` | `core/ClipSorter.kt` |
-| `Storage` | `core/ClipStorage.kt` + 各平台实现 |
+| `HistoryItem` / `HistoryItemContent` | `data/model/ClipItem.kt` |
+| `History` | `data/repository/ClipboardRepository.kt` + `ui/ClipboardViewModel.kt` |
+| `Clipboard` | `data/source/ClipboardDataSource.kt` + 各平台实现 |
+| `Search` / `Throttler` | `domain/search/ClipSearch.kt` / `ClipboardViewModel.updateQuery` |
+| `Sorter` | `domain/sort/ClipSorter.kt` |
+| `Storage` | `data/source/ClipStorageDataSource.kt` + 各平台实现 |
 | `Defaults.Keys` | `settings/AppSettings.kt` |
 | `GlobalHotKey` | `macos/MacGlobalHotKey.kt`（JNA + Carbon `RegisterEventHotKey`） |
-| `ApplicationImage` / `ApplicationImageCache` | `macos/MacAppIcon.kt` + `NativeIntegration` |
+| `ApplicationImage` / `ApplicationImageCache` | `macos/MacAppIcon.kt` + `NativeDataSource` |
 | `NSWorkspace.frontmostApplication` | `macos/MacWorkspace.kt` |
 | `HistoryItem.performTextRecognition()` | `macos/MacTextRecognition.kt`（Vision）/ `ios/IosTextRecognition.kt` / `mlkit/MlKitTextRecognition.kt` |
 | `MenuIcon` | `desktopApp/MenuIcons.kt`（4 种矢量图标） |
-| `Popup` / `PopupPosition` | `ui/Popup.kt` / `ui/HistoryPanel.kt` |
+| `Popup` / `PopupPosition` | `ui/Popup.kt` / `ui/HistoryScreen.kt` |
 | `KeyShortcut` / `KeyboardShortcutView` | `ui/KeyShortcut.kt` / `ui/components/ListItemRow.kt` |
-| `KeyChord` / `KeyHandlingView` | `ui/HistoryPanel.kt` |
+| `KeyChord` / `KeyHandlingView` | `ui/HistoryKeyboard.kt` |
 | `ModifierFlags` | `ui/KeyShortcut.kt` |
-| `HistoryItemAction` | `core/ClipAction.kt` |
+| `HistoryItemAction` | `domain/action/ClipAction.kt` |
 | `HighlightMatch` / `PinsPosition` / `SearchVisibility` | `settings/AppSettings.kt` |
 | `ColorImage` | `ui/ClipColors.kt` + `ui/components/HistoryRow.kt` |
-| `ContentView` | `ui/HistoryPanel.kt` |
-| `HeaderView` / `ListHeaderView` / `SearchFieldView` | `ui/components/SearchField.kt` + `HistoryPanel.Header` |
+| `ContentView` | `ui/HistoryScreen.kt` |
+| `HeaderView` / `ListHeaderView` / `SearchFieldView` | `ui/components/SearchField.kt` + `ui/components/HistoryChrome.kt` |
 | `ListItemView` / `ListItemTitleView` | `ui/components/ListItemRow.kt` |
-| `HistoryItemView` / `HistoryListView` / `PinsView` | `ui/components/HistoryRow.kt` + `HistoryPanel` 的固定置顶区块 + `LazyColumn` |
-| `HoverSelectionModifier` | `ListItemRow` 的 `onHover` |
+| `HistoryItemView` / `HistoryListView` / `PinsView` | `ui/components/HistoryRow.kt` + `HistoryScreen` 的固定置顶区块 + `LazyColumn` |
+| `HoverSelectionModifier` | `ClipboardViewModel.hoverHistory` |
 | `MultipleSelectionListView` | `LazyColumn` |
 | `FooterView` / `FooterItemView` / `FooterItem` | `ui/components/FooterRows.kt` |
-| `SlideoutView` / `SlideoutContentView` | `ui/HistoryPanel.kt` 的 Row 布局 |
+| `SlideoutView` / `SlideoutContentView` | `ui/HistoryScreen.kt` 的 Row 布局 + `ui/components/PreviewSlideout.kt` |
 | `PreviewItemView` / `ToolbarView` | `ui/components/PreviewPane.kt` |
 | `ConfirmationView` | `ui/dialogs/ConfirmDialog.kt` |
 | `About` | `ui/dialogs/AboutDialog.kt` |
@@ -109,16 +109,16 @@
 | `PopupState`（toggle / cycle / opening） | `desktopApp/main.kt` 的 `PopupMode` + `ClipperController.requestCycle/requestOpen` |
 | `FloatingPanel.resignKey()` 失焦关闭 | `desktopApp/main.kt` 的 `WindowFocusListener` |
 | `LaunchAtLogin` | `macos/MacLaunchAtLogin.kt`（JNA 调 `SMAppService`） |
-| `SlideoutController.startResize(.slideout)` / `computePlacement` | `HistoryPanel` 中可拖拽的分隔条 + 预览左右翻转 |
+| `SlideoutController.startResize(.slideout)` / `computePlacement` | `ui/components/PreviewSlideout.kt` 中可拖拽的分隔条 + `HistoryScreen` 的预览左右翻转 |
 | `ToolbarView` 的 `text.viewfinder` | `PreviewPane` 的「复制识别文字」按钮 |
 | `AppDelegate.performStatusItemClick` 的 ⌥ / ⇧⌥ | `main.kt` 托盘 `onAction` 读 `NSEvent.modifierFlags` |
 | `NSRunningApplication.windowFrame` | `macos/MacWindow.kt`（JNA 调 `CGWindowListCopyWindowInfo`） |
-| `IgnoreApplicationsSettingsView` 的应用选择器 | `macos/MacApplicationPicker.kt`（JNA 调 `NSOpenPanel`）+ `NativeIntegration.applicationName` |
+| `IgnoreApplicationsSettingsView` 的应用选择器 | `macos/MacApplicationPicker.kt`（JNA 调 `NSOpenPanel`）+ `NativeDataSource.applicationName` |
 | `IgnorePasteboardTypesSettingsView` 的 `Defaults.reset` | 偏好设置里的「恢复默认类型」按钮 |
-| `ApplicationImageCache` | `ui/components/ImageCache.kt` + `NativeIntegration.applicationIcon`（JVM 侧带 bundle id 缓存） |
+| `ApplicationImageCache` | `ui/components/ImageCache.kt` + `NativeDataSource.applicationIcon`（JVM 侧带 bundle id 缓存） |
 | `PreviewItemView.largeTextThreshold` / `LargeTextPreviewView` | `ui/components/PreviewPane.kt` 的 `LARGE_TEXT_LIMIT` |
 | `About` 的 credits 链接行 | `ui/dialogs/AboutDialog.kt` + `ClipperInfo.kt` |
-| `NSWorkspace.open(_:)` | `NativeIntegration.openUrl`（JVM / Android / iOS / Web 各自实现） |
+| `NSWorkspace.open(_:)` | `NativeDataSource.openUrl`（JVM / Android / iOS / Web 各自实现） |
 
 Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能力，跨平台无法完全等价，
 因此 Clipper 只保留可移植的三种表示：**纯文本、编码后的图片、文件路径**。
@@ -206,15 +206,67 @@ Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能�
 * **桌面端关闭窗口**会隐藏到托盘图标，剪贴板监听继续运行；托盘菜单可重新显示、暂停/恢复记录。
 * **开机自启**基于 `SMAppService`，需要以打包后的 `.app` 运行；用 `./gradlew :desktopApp:run` 直接运行时该开关不生效。
 
+## 架构
+
+按 Android 官方推荐的分层架构组织：**UI 层 / Domain 层 / Data 层**，依赖单向向下，
+业务逻辑与界面彻底分离。
+
+```
+        ┌──────────────────────── UI 层 ────────────────────────┐
+        │ HistoryScreen（纯渲染）  ←  ClipboardUiState           │
+        │        │                                              │
+        │        └── ClipboardUiAction ──►  ClipboardViewModel   │
+        └───────────────────────────┬───────────────────────────┘
+                                    │ 调用 UseCase
+        ┌───────────────────────────▼───────────────────────────┐
+        │ Domain 层：ClipSearch / ClipSorter / ClipAction        │
+        │            CaptureClipboard / SelectClip / …UseCase    │
+        └───────────────────────────┬───────────────────────────┘
+                                    │ 依赖接口
+        ┌───────────────────────────▼───────────────────────────┐
+        │ Data 层：ClipboardRepository（接口 + 实现）            │
+        │   ClipboardDataSource / ClipStorageDataSource /        │
+        │   NativeDataSource（各平台 expect/actual 实现）        │
+        └───────────────────────────────────────────────────────┘
+```
+
+* **单向数据流**：`HistoryScreen` 只渲染 `ClipboardUiState`，任何交互都只发
+  `ClipboardUiAction`；`ClipboardViewModel` 是唯一的状态持有者，也是唯一改动状态的地方。
+* **UI 层**：`ui/state/`（UiState / UiAction）、`ClipboardViewModel`、`HistoryScreen`
+  与无状态的 `components/`、`dialogs/`。
+* **Domain 层**：纯 Kotlin 的搜索/排序/动作解析，以及承载业务规则的 UseCase
+  （捕获去重、选中粘贴、置顶、清空、改设置、退出清理）。不依赖 Compose。
+* **Data 层**：`ClipboardRepository` 接口 + `DefaultClipboardRepository`（用
+  `StateFlow` 暴露状态，不再持有 Compose 状态），底层是三个数据源接口。
+* **依赖注入**：`di/AppContainer` 手动装配，无需 DI 框架。
+
 ## 项目结构
 
 ```
 shared/src/
-  commonMain/   模型、仓库、搜索、排序、原生能力接口、全部 UI
-  jvmMain/      AWT 剪贴板、文件存储、macOS 原生层（JNA）
-  androidMain/  ClipboardManager、SharedPreferences、ML Kit OCR
-  iosMain/      UIPasteboard、NSUserDefaults、Vision OCR
-  webMain/      Clipboard API 与 localStorage（JS 与 Wasm 共用）
+  commonMain/
+    data/
+      model/       ClipItem、SourceApplication、ClipboardSnapshot
+      source/      ClipboardDataSource / ClipStorageDataSource / NativeDataSource
+      repository/  ClipboardRepository 接口 + 默认实现（StateFlow）
+    domain/
+      search/      ClipSearch（精确 / 正则 / 模糊 / 混合）
+      sort/        ClipSorter
+      action/      ClipAction 与修饰键映射
+      usecase/     捕获、选中粘贴、置顶、删除、清空、改设置、退出 等用例
+    ui/
+      state/       ClipboardUiState / ClipboardUiAction
+      ClipboardViewModel   唯一的状态持有者
+      HistoryScreen        纯渲染的界面
+      HistoryKeyboard      按键 → 动作映射
+      components/ dialogs/ icons/ theme/
+    di/            AppContainer（手动依赖注入）
+    settings/      AppSettings
+    util/          平台无关工具（base64、时间、JSON）
+  jvmMain/         AWT 剪贴板、文件存储、macOS 原生层（JNA）
+  androidMain/     ClipboardManager、SharedPreferences、ML Kit OCR
+  iosMain/         UIPasteboard、NSUserDefaults、Vision OCR
+  webMain/         Clipboard API 与 localStorage（JS 与 Wasm 共用）
 androidApp/     Android 入口
 desktopApp/     Desktop 入口（窗口 + 托盘 + 全局热键 + 弹窗定位）
 iosApp/         iOS 入口
