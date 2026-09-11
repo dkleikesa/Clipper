@@ -18,9 +18,9 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
-import com.qcmian.clipper.core.GlobalShortcut
-import com.qcmian.clipper.core.ScreenRect
-import com.qcmian.clipper.core.createNativeIntegration
+import com.qcmian.clipper.data.source.GlobalShortcut
+import com.qcmian.clipper.data.source.ScreenRect
+import com.qcmian.clipper.data.source.createNativeDataSource
 import com.qcmian.clipper.settings.PopupPosition
 import com.qcmian.clipper.ui.ClipperController
 import kotlinx.coroutines.delay
@@ -53,7 +53,7 @@ fun main() = application {
     var frontmostWindowRect by remember { mutableStateOf<ScreenRect?>(null) }
 
     val controller = remember { ClipperController() }
-    val native = remember { createNativeIntegration() }
+    val native = remember { createNativeDataSource() }
 
     val settings = controller.settings
 

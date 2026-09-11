@@ -58,10 +58,9 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.qcmian.clipper.core.ClipAction
-import com.qcmian.clipper.core.modifierFlagsOf
-import com.qcmian.clipper.model.ClipItem
-import com.qcmian.clipper.model.SourceApplication
+import com.qcmian.clipper.data.model.ClipItem
+import com.qcmian.clipper.domain.action.ClipAction
+import com.qcmian.clipper.domain.action.modifierFlagsOf
 import com.qcmian.clipper.settings.AppSettings
 import com.qcmian.clipper.settings.HighlightMatch
 import com.qcmian.clipper.settings.MenuIcon
@@ -102,7 +101,7 @@ fun PreferencesDialog(
     supportsApplicationInfo: Boolean = false,
     applicationName: (String) -> String? = { null },
     applicationIcon: (String?) -> String? = { null },
-    onPickApplication: (() -> SourceApplication?)? = null,
+    onPickApplication: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
 
@@ -159,7 +158,7 @@ fun PreferencesContent(
     supportsApplicationInfo: Boolean = false,
     applicationName: (String) -> String? = { null },
     applicationIcon: (String?) -> String? = { null },
-    onPickApplication: (() -> SourceApplication?)? = null,
+    onPickApplication: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
 
@@ -673,24 +672,7 @@ fun PreferencesContent(
                             modifier = Modifier.padding(top = 4.dp),
                         ) {
                             if (onPickApplication != null) {
-                                TextButton(
-                                    onClick = {
-                                        onPickApplication()?.let { application ->
-                                            val key = application.bundleId ?: application.name
-                                            if (key.isNotBlank()) {
-                                                onSettingsChange { current ->
-                                                    if (key in current.ignoredApps) {
-                                                        current
-                                                    } else {
-                                                        current.copy(
-                                                            ignoredApps = current.ignoredApps + key,
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    },
-                                ) { Text("添加应用…") }
+                                TextButton(onClick = onPickApplication) { Text("添加应用…") }
                             }
                             Text(
                                 text = "来自这些应用的复制不会被记录。",

@@ -4,7 +4,7 @@ import android.graphics.BitmapFactory
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import com.qcmian.clipper.core.decodeBase64
+import com.qcmian.clipper.util.decodeBase64
 import kotlinx.coroutines.tasks.await
 
 /**

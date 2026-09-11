@@ -28,7 +28,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.qcmian.clipper.model.ClipItem
+import com.qcmian.clipper.data.model.ClipItem
 import com.qcmian.clipper.ui.Popup
 import com.qcmian.clipper.ui.icons.ClipperIcon
 import com.qcmian.clipper.ui.icons.ClipperIconKind
