@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -13,6 +14,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.ui.ClipboardViewModel
 import com.qcmian.clipper.ui.ClipperController
+import com.qcmian.clipper.ui.HostUiState
 import com.qcmian.clipper.ui.HistoryScreen
 import com.qcmian.clipper.ui.state.ClipboardUiAction
 import com.qcmian.clipper.ui.theme.ClipperTheme
@@ -20,9 +22,11 @@ import com.qcmian.clipper.ui.theme.ClipperTheme
 /**
  * Entry point shared by every target.
  *
- * It wires the dependency container, creates the state holder and forwards the host
+ * It creates the state holder from the host provided [container] and forwards the host
  * callbacks; the actual UI lives in [HistoryScreen] and is a pure function of the state.
  *
+ * @param container the dependency graph owned by the host (Application on Android, the process
+ *   entry point on the other targets) so it outlives every composition.
  * @param onRequestHideWindow lets the host hide its window before a "paste automatically"
  *   action is delivered, so the keystroke reaches the previously focused application.
  * @param onQuit the "退出" footer row. `null` hides the row on platforms that cannot quit.
@@ -38,6 +42,8 @@ import com.qcmian.clipper.ui.theme.ClipperTheme
  */
 @Composable
 fun App(
+    /** Application scoped dependency graph, created by the host (never by a composable). */
+    container: AppContainer,
     onRequestHideWindow: () -> Unit = {},
     onQuit: (() -> Unit)? = null,
     onPreviewOpenChange: (Boolean) -> Unit = {},
@@ -47,23 +53,11 @@ fun App(
     onPreferredHeightChange: (Dp) -> Unit = {},
 ) {
     ClipperTheme {
-        val container = remember { AppContainer() }
         val viewModel = viewModel {
             ClipboardViewModel(
                 repository = container.repository,
-                captureClipboard = container.captureClipboard,
-                selectClip = container.selectClip,
-                togglePin = container.togglePin,
-                updatePin = container.updatePin,
-                updateTitle = container.updateTitle,
-                updateContent = container.updateContent,
-                deleteClip = container.deleteClip,
-                clearHistory = container.clearHistory,
-                updateSettings = container.updateSettings,
-                availablePinsUseCase = container.availablePins,
-                copySearchQuery = container.copySearchQuery,
-                copyExtractedText = container.copyExtractedText,
-                handleQuit = container.handleQuit,
+                platform = container.platform,
+                useCases = container.useCases,
                 showQuit = onQuit != null,
                 autoPreview = autoPreview,
             )
@@ -128,17 +122,20 @@ fun App(
             }
         }
 
-        LaunchedEffect(controller, state.settings) { controller?.settings = state.settings }
-        LaunchedEffect(controller, state.isModalOpen) { controller?.isModalOpen = state.isModalOpen }
-        LaunchedEffect(controller, state.settings.ignoreEvents) {
-            controller?.isPaused = state.settings.ignoreEvents
+        // One projection instead of a dozen mirrors: the host visible slice of the state is
+        // handed to the controller as a single immutable value, so there is exactly one
+        // source of truth for it.
+        SideEffect {
+            controller?.hostUiState = HostUiState(
+                settings = state.settings,
+                isPaused = state.settings.ignoreEvents,
+                isStatusItemDisabled = state.isStatusItemDisabled,
+                isPreviewOpen = state.previewOpen,
+                isModalOpen = state.isModalOpen,
+                menuIcon = state.settings.menuIcon,
+                recentCopyText = recentCopyText,
+            )
         }
-        LaunchedEffect(controller, state.isStatusItemDisabled) {
-            controller?.isStatusItemDisabled = state.isStatusItemDisabled
-        }
-        LaunchedEffect(controller, state.settings.menuIcon) { controller?.menuIcon = state.settings.menuIcon }
-        LaunchedEffect(controller, state.previewOpen) { controller?.isPreviewOpen = state.previewOpen }
-        LaunchedEffect(controller, recentCopyText) { controller?.recentCopyText = recentCopyText }
 
         HistoryScreen(
             state = state,

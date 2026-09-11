@@ -1,7 +1,7 @@
 package com.qcmian.clipper.domain.usecase
 
-import com.qcmian.clipper.data.repository.ClipboardRepository
-import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.domain.repository.ClipboardRepository
+import com.qcmian.clipper.domain.model.AppSettings
 
 /**
  * Applies a preference change and every side effect it implies. Port of Maccy's

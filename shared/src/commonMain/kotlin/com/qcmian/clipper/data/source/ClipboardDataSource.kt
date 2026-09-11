@@ -1,6 +1,6 @@
 package com.qcmian.clipper.data.source
 
-import com.qcmian.clipper.data.model.ClipboardSnapshot
+import com.qcmian.clipper.domain.model.ClipboardSnapshot
 
 /**
  * Bridge to the operating system clipboard.

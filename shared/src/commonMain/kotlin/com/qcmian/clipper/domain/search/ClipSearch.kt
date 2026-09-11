@@ -1,8 +1,8 @@
 package com.qcmian.clipper.domain.search
 
-import com.qcmian.clipper.data.model.ClipItem
+import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.model.SearchResult
-import com.qcmian.clipper.settings.SearchMode
+import com.qcmian.clipper.domain.model.SearchMode
 
 /** Port of Maccy's `Search`. */
 object ClipSearch {

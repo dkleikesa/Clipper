@@ -12,7 +12,7 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
-import com.qcmian.clipper.settings.ShortcutSpec
+import com.qcmian.clipper.domain.model.ShortcutSpec
 
 /**
  * The modifier keys currently held down. Counterpart of `NSEvent.ModifierFlags`, including

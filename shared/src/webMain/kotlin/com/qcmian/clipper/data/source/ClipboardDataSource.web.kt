@@ -1,6 +1,6 @@
 package com.qcmian.clipper.data.source
 
-import com.qcmian.clipper.data.model.ClipboardSnapshot
+import com.qcmian.clipper.domain.model.ClipboardSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

@@ -1,4 +1,4 @@
-package com.qcmian.clipper.settings
+package com.qcmian.clipper.domain.model
 
 import kotlinx.serialization.Serializable
 

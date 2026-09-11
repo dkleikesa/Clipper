@@ -1,6 +1,6 @@
 package com.qcmian.clipper.domain.action
 
-import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.domain.model.AppSettings
 
 /**
  * What happens when a history item is activated. Mirrors Maccy's `HistoryItemAction`,

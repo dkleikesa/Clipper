@@ -4,7 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
-import com.qcmian.clipper.data.model.ClipboardSnapshot
+import com.qcmian.clipper.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.util.encodeBase64
 
 /**

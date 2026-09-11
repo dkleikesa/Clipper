@@ -1,7 +1,7 @@
 package com.qcmian.clipper.data.source
 
-import com.qcmian.clipper.data.model.ClipItem
-import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.domain.model.ClipItem
+import com.qcmian.clipper.domain.model.AppSettings
 
 /** Persistence for the clipboard history and the user preferences. */
 interface ClipStorageDataSource {

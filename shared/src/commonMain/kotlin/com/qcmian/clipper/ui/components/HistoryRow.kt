@@ -24,9 +24,9 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.data.model.ClipItem
-import com.qcmian.clipper.data.model.isHexColor
-import com.qcmian.clipper.settings.HighlightMatch
+import com.qcmian.clipper.domain.model.ClipItem
+import com.qcmian.clipper.domain.model.isHexColor
+import com.qcmian.clipper.domain.model.HighlightMatch
 import com.qcmian.clipper.ui.KeyShortcut
 import com.qcmian.clipper.ui.hexToColor
 

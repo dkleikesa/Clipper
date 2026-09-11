@@ -1,7 +1,5 @@
 package com.qcmian.clipper.macos
 
-import com.qcmian.clipper.data.source.GlobalHotKeyHandle
-import com.qcmian.clipper.data.source.GlobalShortcut
 import com.sun.jna.Pointer
 import com.sun.jna.platform.mac.Carbon
 import com.sun.jna.ptr.PointerByReference

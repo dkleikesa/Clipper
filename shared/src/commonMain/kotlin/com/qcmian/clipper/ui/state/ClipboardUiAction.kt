@@ -1,8 +1,8 @@
 package com.qcmian.clipper.ui.state
 
-import com.qcmian.clipper.data.model.ClipItem
+import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.action.ClipAction
-import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.domain.model.AppSettings
 import com.qcmian.clipper.ui.components.FooterAction
 
 /**

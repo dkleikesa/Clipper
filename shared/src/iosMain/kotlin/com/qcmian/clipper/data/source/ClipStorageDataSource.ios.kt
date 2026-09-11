@@ -1,7 +1,7 @@
 package com.qcmian.clipper.data.source
 
-import com.qcmian.clipper.data.model.ClipItem
-import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.domain.model.ClipItem
+import com.qcmian.clipper.domain.model.AppSettings
 import com.qcmian.clipper.util.decodeJsonOrNull
 import com.qcmian.clipper.util.encodeJson
 import platform.Foundation.NSUserDefaults

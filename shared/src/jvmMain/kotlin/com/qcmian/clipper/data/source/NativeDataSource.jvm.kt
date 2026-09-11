@@ -1,9 +1,8 @@
 package com.qcmian.clipper.data.source
 
-import com.qcmian.clipper.data.model.SourceApplication
+import com.qcmian.clipper.domain.model.SourceApplication
 import com.qcmian.clipper.macos.MacAppIcon
 import com.qcmian.clipper.macos.MacApplicationPicker
-import com.qcmian.clipper.macos.MacGlobalHotKey
 import com.qcmian.clipper.macos.MacLaunchAtLogin
 import com.qcmian.clipper.macos.MacTextRecognition
 import com.qcmian.clipper.macos.MacWindow
@@ -21,7 +20,6 @@ private class MacNativeDataSource : NativeDataSource {
 
     override val supportsApplicationInfo: Boolean get() = isMacOs
     override val supportsTextRecognition: Boolean get() = MacTextRecognition.available
-    override val supportsGlobalHotKey: Boolean get() = isMacOs
     override val supportsLaunchAtLogin: Boolean get() = isMacOs && MacLaunchAtLogin.isSupported
 
     override val screenCount: Int
@@ -61,11 +59,6 @@ private class MacNativeDataSource : NativeDataSource {
         // Vision runs synchronously, so keep it off the UI thread.
         return withContext(Dispatchers.Default) { MacTextRecognition.recognize(imageBase64) }
     }
-
-    override fun registerGlobalHotKey(
-        shortcut: GlobalShortcut,
-        onTrigger: () -> Unit,
-    ): GlobalHotKeyHandle? = if (isMacOs) MacGlobalHotKey.register(shortcut, onTrigger) else null
 
     override fun setLaunchAtLogin(enabled: Boolean) {
         if (!isMacOs) return

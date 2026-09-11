@@ -2,31 +2,23 @@ package com.qcmian.clipper.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.qcmian.clipper.data.model.ClipItem
-import com.qcmian.clipper.data.repository.ClipboardRepository
+import com.qcmian.clipper.di.ClipboardUseCases
+import com.qcmian.clipper.domain.model.ClipItem
+import com.qcmian.clipper.domain.repository.ClipboardPlatform
+import com.qcmian.clipper.domain.repository.ClipboardRepository
 import com.qcmian.clipper.domain.action.ClipAction
 import com.qcmian.clipper.domain.action.defaultAction
 import com.qcmian.clipper.domain.search.ClipSearch
-import com.qcmian.clipper.domain.usecase.AvailablePinsUseCase
-import com.qcmian.clipper.domain.usecase.CaptureClipboardUseCase
-import com.qcmian.clipper.domain.usecase.ClearHistoryUseCase
-import com.qcmian.clipper.domain.usecase.CopyExtractedTextUseCase
-import com.qcmian.clipper.domain.usecase.CopySearchQueryUseCase
-import com.qcmian.clipper.domain.usecase.DeleteClipUseCase
-import com.qcmian.clipper.domain.usecase.HandleQuitUseCase
-import com.qcmian.clipper.domain.usecase.SelectClipUseCase
 import com.qcmian.clipper.domain.usecase.SelectResult
-import com.qcmian.clipper.domain.usecase.TogglePinUseCase
-import com.qcmian.clipper.domain.usecase.UpdateContentUseCase
-import com.qcmian.clipper.domain.usecase.UpdatePinUseCase
-import com.qcmian.clipper.domain.usecase.UpdateSettingsUseCase
-import com.qcmian.clipper.domain.usecase.UpdateTitleUseCase
 import com.qcmian.clipper.ui.components.FooterAction
 import com.qcmian.clipper.ui.state.ClearConfirmation
 import com.qcmian.clipper.ui.state.ClipboardDialog
 import com.qcmian.clipper.ui.state.ClipboardUiAction
 import com.qcmian.clipper.ui.state.ClipboardUiState
+import com.qcmian.clipper.ui.state.HistoryNavigation
+import com.qcmian.clipper.ui.state.HistorySelection
 import com.qcmian.clipper.util.currentTimeMillis
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,19 +38,8 @@ import kotlinx.coroutines.launch
  */
 class ClipboardViewModel(
     private val repository: ClipboardRepository,
-    private val captureClipboard: CaptureClipboardUseCase,
-    private val selectClip: SelectClipUseCase,
-    private val togglePin: TogglePinUseCase,
-    private val updatePin: UpdatePinUseCase,
-    private val updateTitle: UpdateTitleUseCase,
-    private val updateContent: UpdateContentUseCase,
-    private val deleteClip: DeleteClipUseCase,
-    private val clearHistory: ClearHistoryUseCase,
-    private val updateSettings: UpdateSettingsUseCase,
-    private val availablePinsUseCase: AvailablePinsUseCase,
-    private val copySearchQuery: CopySearchQueryUseCase,
-    private val copyExtractedText: CopyExtractedTextUseCase,
-    private val handleQuit: HandleQuitUseCase,
+    private val platform: ClipboardPlatform,
+    private val useCases: ClipboardUseCases,
     private val showQuit: Boolean = false,
     private val autoPreview: Boolean = false,
 ) : ViewModel() {
@@ -100,18 +81,20 @@ class ClipboardViewModel(
                 }
             }
         }
+        // Subscribe before the data source starts emitting, so the first copy is not lost;
+        // UNDISPATCHED runs the collector up to its suspension point synchronously.
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) { useCases.captureClipboard.run() }
         repository.start()
-        captureClipboard.start()
     }
 
     override fun onCleared() {
-        captureClipboard.stop()
+        // The capture job runs in `viewModelScope` and is cancelled with it.
         repository.stop()
         repository.flush()
     }
 
     /** Port of `AppDelegate.applicationWillTerminate`. */
-    fun onQuit() = handleQuit()
+    fun onQuit() = useCases.handleQuit()
 
     // ---------------------------------------------------------------------------------
     // Actions
@@ -124,7 +107,7 @@ class ClipboardViewModel(
             ClipboardUiAction.DeleteSearchChar -> deleteSearchChar()
             ClipboardUiAction.DeleteSearchWord -> deleteSearchWord()
             ClipboardUiAction.CopySearchQuery -> {
-                if (copySearchQuery(_uiState.value.query)) clearSearch()
+                if (useCases.copySearchQuery(_uiState.value.query)) clearSearch()
             }
 
             ClipboardUiAction.PointerMoved -> onPointerMoved()
@@ -146,29 +129,29 @@ class ClipboardViewModel(
             }
 
             ClipboardUiAction.TogglePinSelected -> _uiState.value.selectedItem?.let {
-                togglePin(it)
+                useCases.togglePin(it)
                 // Port of `History.togglePin`: pinning always leaves the search behind.
                 clearSearch()
             }
 
-            ClipboardUiAction.DeleteSelected -> _uiState.value.selectedItem?.let { deleteClip(it) }
+            ClipboardUiAction.DeleteSelected -> _uiState.value.selectedItem?.let { useCases.deleteClip(it) }
             ClipboardUiAction.TogglePreview -> togglePreview()
             ClipboardUiAction.CopyExtractedText -> _uiState.value.selectedItem?.let { item ->
-                if (copyExtractedText(item)) clearSearch()
+                if (useCases.copyExtractedText(item)) clearSearch()
             }
 
             is ClipboardUiAction.SetPreviewWidth ->
-                updateSettings { it.copy(previewWidth = action.width) }
+                useCases.updateSettings { it.copy(previewWidth = action.width) }
 
-            is ClipboardUiAction.TogglePin -> togglePin(action.item)
-            is ClipboardUiAction.DeleteItem -> deleteClip(action.item)
+            is ClipboardUiAction.TogglePin -> useCases.togglePin(action.item)
+            is ClipboardUiAction.DeleteItem -> useCases.deleteClip(action.item)
 
-            is ClipboardUiAction.UpdateSettings -> updateSettings(action.transform)
-            is ClipboardUiAction.UpdatePin -> updatePin(action.item, action.pin)
-            is ClipboardUiAction.UpdateTitle -> updateTitle(action.item, action.title)
-            is ClipboardUiAction.UpdateContent -> updateContent(action.item, action.text)
+            is ClipboardUiAction.UpdateSettings -> useCases.updateSettings(action.transform)
+            is ClipboardUiAction.UpdatePin -> useCases.updatePin(action.item, action.pin)
+            is ClipboardUiAction.UpdateTitle -> useCases.updateTitle(action.item, action.title)
+            is ClipboardUiAction.UpdateContent -> useCases.updateContent(action.item, action.text)
             ClipboardUiAction.PickIgnoredApplication -> pickIgnoredApplication()
-            is ClipboardUiAction.OpenUrl -> repository.openUrl(action.url)
+            is ClipboardUiAction.OpenUrl -> platform.openUrl(action.url)
 
             ClipboardUiAction.ShowPreferences ->
                 _uiState.update { it.copy(dialog = ClipboardDialog.PREFERENCES) }
@@ -192,7 +175,7 @@ class ClipboardViewModel(
             ClipboardUiAction.Cycle -> moveNext(allowCycle = true)
             ClipboardUiAction.Accept -> onAccept()
             ClipboardUiAction.Hidden -> _uiState.update { it.copy(previewOpen = false) }
-            is ClipboardUiAction.TogglePause -> updateSettings {
+            is ClipboardUiAction.TogglePause -> useCases.updateSettings {
                 // `AppDelegate.performStatusItemClick`: ⌥ pauses, ⇧⌥ pauses for one copy.
                 val paused = !it.ignoreEvents
                 it.copy(
@@ -204,13 +187,13 @@ class ClipboardViewModel(
     }
 
     /** Port of `PinsSettingsPane`'s key column. */
-    fun availablePins(item: ClipItem): List<String> = availablePinsUseCase(item)
+    fun availablePins(item: ClipItem): List<String> = useCases.availablePins(item)
 
     /** Base64 PNG of the icon of the application an item came from. */
-    fun applicationIcon(bundleId: String?): String? = repository.applicationIcon(bundleId)
+    fun applicationIcon(bundleId: String?): String? = platform.applicationIcon(bundleId)
 
     /** `NSWorkspace.applicationName(at:)`: turns a bundle id into a display name. */
-    fun applicationName(bundleId: String): String? = repository.applicationName(bundleId)
+    fun applicationName(bundleId: String): String? = platform.applicationName(bundleId)
 
     // ---------------------------------------------------------------------------------
     // Search
@@ -230,7 +213,7 @@ class ClipboardViewModel(
             applyQuery(value)
         } else {
             searchJob = viewModelScope.launch {
-                delay((throttle - elapsed).toLong())
+                delay(throttle - elapsed)
                 lastSearchAt = currentTimeMillis()
                 applyQuery(value)
             }
@@ -320,75 +303,60 @@ class ClipboardViewModel(
         if (_uiState.value.previewOpen) togglePreview()
     }
 
+    private fun currentSelection(): HistorySelection =
+        HistorySelection(_uiState.value.historySelection, _uiState.value.footerSelection)
+
     private fun selectHistory(index: Int) {
+        val target = HistoryNavigation.history(index, _uiState.value.results.lastIndex)
         _uiState.update {
             it.copy(
                 keyboardNavigating = true,
-                historySelection = index.coerceIn(0, maxOf(0, it.results.lastIndex)),
-                footerSelection = -1,
+                historySelection = target.historyIndex,
+                footerSelection = target.footerIndex,
             )
         }
         syncAutoPreview()
     }
 
     private fun selectFooter(index: Int) {
-        _uiState.update {
-            it.copy(footerSelection = index.coerceIn(0, maxOf(0, footerCount() - 1)))
+        val target = HistoryNavigation.footer(currentSelection(), index, footerCount())
+        _uiState.update { it.copy(footerSelection = target.footerIndex) }
+    }
+
+    /**
+     * Writes a navigation result back to the state, keeping the side effects of the two
+     * original branches: moving to the list re-enables keyboard navigation and re-runs the
+     * auto preview (`selectHistory`), while moving inside the footer only moves the highlight.
+     */
+    private fun applyMove(target: HistorySelection) {
+        val current = currentSelection()
+        if (target == current) return
+        if (target.footerIndex < 0 || target.historyIndex != current.historyIndex) {
+            selectHistory(target.historyIndex)
+        } else {
+            _uiState.update { it.copy(footerSelection = target.footerIndex) }
         }
     }
 
     /** Port of `NavigationManager.isFirstItemHighlighted`. */
-    private fun isFirstItemHighlighted(): Boolean {
-        val state = _uiState.value
-        return state.footerSelection < 0 && state.historySelection == 0
-    }
+    private fun isFirstItemHighlighted(): Boolean =
+        currentSelection().let { it.isHistoryHighlighted && it.historyIndex == 0 }
 
     /** Port of `NavigationManager.highlightNext(allowCycle:)`. */
     private fun moveNext(allowCycle: Boolean) {
         val state = _uiState.value
-        val footer = footerCount()
-        when {
-            state.footerSelection >= 0 ->
-                if (state.footerSelection < footer - 1) {
-                    selectFooter(state.footerSelection + 1)
-                } else if (footer > 0) {
-                    // Maccy wraps around inside the footer.
-                    selectFooter(0)
-                }
-
-            state.historySelection < state.results.lastIndex ->
-                selectHistory(state.historySelection + 1)
-
-            footer > 0 -> selectFooter(0)
-            allowCycle && state.results.isNotEmpty() -> selectHistory(0)
-        }
+        applyMove(HistoryNavigation.next(currentSelection(), state.results.lastIndex, footerCount(), allowCycle))
     }
 
     /** Port of `NavigationManager.highlightPrevious`. */
     private fun movePrevious() {
-        val state = _uiState.value
-        when {
-            state.footerSelection > 0 -> selectFooter(state.footerSelection - 1)
-            state.footerSelection == 0 -> selectHistory(maxOf(0, state.results.lastIndex))
-            state.historySelection > 0 -> selectHistory(state.historySelection - 1)
-        }
+        applyMove(HistoryNavigation.previous(currentSelection(), _uiState.value.results.lastIndex))
     }
 
     /** Port of `NavigationManager.highlightLast`: the last history item hands over to the footer. */
     private fun moveToLast() {
         val state = _uiState.value
-        val footer = footerCount()
-        if (state.footerSelection >= 0) {
-            selectFooter(maxOf(0, footer - 1))
-            return
-        }
-
-        val lastIndex = state.results.lastIndex
-        if (lastIndex >= 0 && state.historySelection == lastIndex && footer > 0) {
-            selectFooter(0)
-        } else {
-            selectHistory(maxOf(0, lastIndex))
-        }
+        applyMove(HistoryNavigation.last(currentSelection(), state.results.lastIndex, footerCount()))
     }
 
     /** `⌃K` only moves up while the first item is not highlighted, see Maccy #1055. */
@@ -407,9 +375,11 @@ class ClipboardViewModel(
         if (action == ClipAction.UNKNOWN) return
         val item = _uiState.value.results.getOrNull(index)?.item ?: return
 
-        val result = selectClip(item, action) { onRequestHideWindow() }
-        if (result == SelectResult.COPIED || result == SelectResult.PASTING) {
-            clearSearch()
+        viewModelScope.launch {
+            val result = useCases.selectClip(item, action) { onRequestHideWindow() }
+            if (result == SelectResult.COPIED || result == SelectResult.PASTING) {
+                clearSearch()
+            }
         }
     }
 
@@ -428,7 +398,7 @@ class ClipboardViewModel(
     /** Port of `AppState.select` + `ConfirmationView`: honour "don't ask again". */
     private fun requestClear(all: Boolean, hidePanel: Boolean = true) {
         if (_uiState.value.settings.suppressClearAlert) {
-            clearHistory(all)
+            useCases.clearHistory(all)
             // `History.clear` closes the popup once the history is gone.
             if (hidePanel) onRequestHideWindow()
             return
@@ -447,7 +417,7 @@ class ClipboardViewModel(
 
     private fun confirmClear() {
         val confirmation = _uiState.value.confirmation ?: return
-        clearHistory(confirmation.all)
+        useCases.clearHistory(confirmation.all)
         if (confirmation.hidePanel) onRequestHideWindow()
         _uiState.update { it.copy(confirmation = null) }
     }
@@ -460,10 +430,10 @@ class ClipboardViewModel(
     }
 
     private fun pickIgnoredApplication() {
-        val application = repository.pickApplication() ?: return
+        val application = platform.pickApplication() ?: return
         val key = application.bundleId ?: application.name
         if (key.isBlank()) return
-        updateSettings { current ->
+        useCases.updateSettings { current ->
             if (key in current.ignoredApps) current else current.copy(ignoredApps = current.ignoredApps + key)
         }
     }
@@ -508,10 +478,10 @@ class ClipboardViewModel(
                 settings = settings,
                 results = results,
                 historySelection = it.historySelection.coerceIn(0, maxOf(0, results.lastIndex)),
-                storageSize = repository.storageSize,
-                screenCount = repository.screenCount,
-                supportsLaunchAtLogin = repository.supportsLaunchAtLogin,
-                supportsApplicationInfo = repository.supportsApplicationInfo,
+                storageSize = platform.storageSize,
+                screenCount = platform.screenCount,
+                supportsLaunchAtLogin = platform.supportsLaunchAtLogin,
+                supportsApplicationInfo = platform.supportsApplicationInfo,
             )
         }
         syncAutoPreview()

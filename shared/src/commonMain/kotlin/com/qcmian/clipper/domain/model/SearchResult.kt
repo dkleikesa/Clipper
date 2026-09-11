@@ -1,6 +1,6 @@
 package com.qcmian.clipper.domain.model
 
-import com.qcmian.clipper.data.model.ClipItem
+import com.qcmian.clipper.domain.model.ClipItem
 
 /**
  * A match of the current query inside an item's title.

@@ -1,14 +1,15 @@
 package com.qcmian.clipper.domain.usecase
 
-import com.qcmian.clipper.data.model.ClipItem
-import com.qcmian.clipper.data.model.ClipboardSnapshot
-import com.qcmian.clipper.data.model.SourceApplication
-import com.qcmian.clipper.data.repository.ClipboardRepository
-import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.domain.model.ClipItem
+import com.qcmian.clipper.domain.model.ClipboardSnapshot
+import com.qcmian.clipper.domain.model.SourceApplication
+import com.qcmian.clipper.domain.repository.ClipboardPlatform
+import com.qcmian.clipper.domain.repository.ClipboardRepository
+import com.qcmian.clipper.domain.model.AppSettings
 import com.qcmian.clipper.util.currentTimeMillis
 import com.qcmian.clipper.util.randomId
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
@@ -16,29 +17,22 @@ import kotlinx.coroutines.launch
  * handler: it decides whether a snapshot may enter the history, merges duplicates and asks
  * for text recognition on images.
  *
- * The use case is started once and keeps collecting [ClipboardRepository.snapshots], so the
- * rule is independent from any UI lifecycle.
+ * [run] suspends for as long as it collects, so the caller's scope owns the lifecycle — the
+ * state holder starts it in `viewModelScope` — instead of this use case keeping a scope and a
+ * `start()` / `stop()` pair of its own.
  */
 class CaptureClipboardUseCase(
     private val repository: ClipboardRepository,
-    private val scope: CoroutineScope,
+    private val platform: ClipboardPlatform,
 ) {
-    private var job: Job? = null
-
-    fun start() {
-        if (job != null) return
-        job = scope.launch {
-            repository.snapshots.collect { snapshot -> capture(snapshot) }
-        }
-    }
-
-    fun stop() {
-        job?.cancel()
-        job = null
+    /** Collects [ClipboardRepository.snapshots] until the calling scope is cancelled. */
+    suspend fun run(): Unit = coroutineScope {
+        val scope: CoroutineScope = this
+        repository.snapshots.collect { snapshot -> capture(scope, snapshot) }
     }
 
     /** Decides what a new [snapshot] becomes and stores it, or ignores it entirely. */
-    private fun capture(snapshot: ClipboardSnapshot) {
+    private fun capture(scope: CoroutineScope, snapshot: ClipboardSnapshot) {
         if (snapshot.isEmpty) return
 
         val settings = repository.settings.value
@@ -65,7 +59,7 @@ class CaptureClipboardUseCase(
         if (!text.isNullOrBlank() && matchesIgnoredPattern(text, settings)) return
 
         // Port of `Clipboard.shouldIgnore(_ sourceAppBundle:)`.
-        val sourceApplication = repository.currentSourceApplication()
+        val sourceApplication = platform.currentSourceApplication()
         if (sourceApplication != null && isIgnoredApplication(sourceApplication, settings)) return
 
         val items = repository.items.value
@@ -105,26 +99,25 @@ class CaptureClipboardUseCase(
         repository.setItems(updated)
 
         // Port of `HistoryItem.generateTitle()`: images get their title from text recognition.
-        if (image != null && settings.recognizeText && repository.supportsTextRecognition) {
-            recognizeImageText(merged.id, image)
+        // Recognition runs on its own child coroutine so the next snapshot is not held up by it.
+        if (image != null && settings.recognizeText && platform.supportsTextRecognition) {
+            scope.launch { recognizeImageText(merged.id, image) }
         }
     }
 
     /** Runs Vision / ML Kit in the background and promotes the result to the item title. */
-    private fun recognizeImageText(itemId: String, imageBase64: String) {
-        scope.launch {
-            val recognized = repository.recognizeText(imageBase64) ?: return@launch
-            val items = repository.items.value
-            val index = items.indexOfFirst { it.id == itemId }
-            if (index < 0) return@launch
+    private suspend fun recognizeImageText(itemId: String, imageBase64: String) {
+        val recognized = platform.recognizeText(imageBase64) ?: return
+        val items = repository.items.value
+        val index = items.indexOfFirst { it.id == itemId }
+        if (index < 0) return
 
-            val title = recognized
-                .replace("\n", "\u23ce")
-                .take(ClipItem.MAX_TITLE_LENGTH)
-            if (title.isBlank()) return@launch
+        val title = recognized
+            .replace("\n", "\u23ce")
+            .take(ClipItem.MAX_TITLE_LENGTH)
+        if (title.isBlank()) return
 
-            repository.setItems(items.toMutableList().also { it[index] = it[index].copy(title = title) })
-        }
+        repository.setItems(items.toMutableList().also { it[index] = it[index].copy(title = title) })
     }
 
     private fun matchesIgnoredPattern(text: String, settings: AppSettings): Boolean =

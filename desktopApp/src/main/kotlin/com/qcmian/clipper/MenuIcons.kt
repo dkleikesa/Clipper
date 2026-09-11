@@ -8,7 +8,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathBuilder
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.settings.MenuIcon
+import com.qcmian.clipper.domain.model.MenuIcon
 
 /**
  * The four status bar glyphs of Maccy's `MenuIcon` enum, drawn as vectors.
