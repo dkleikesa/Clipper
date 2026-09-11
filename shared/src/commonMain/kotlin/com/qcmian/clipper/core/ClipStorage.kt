@@ -9,6 +9,12 @@ interface ClipStorage {
     fun saveItems(items: List<ClipItem>)
     fun loadSettings(): AppSettings
     fun saveSettings(settings: AppSettings)
+
+    /**
+     * Human readable size of the persisted history, shown in the storage preferences the
+     * same way Maccy shows `Storage.size`. `null` when the platform cannot tell.
+     */
+    fun storageSize(): String? = null
 }
 
 expect fun createClipStorage(): ClipStorage

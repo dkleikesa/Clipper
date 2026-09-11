@@ -1,5 +1,6 @@
 package com.qcmian.clipper.ui.dialogs
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,12 +21,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.qcmian.clipper.ClipperInfo
 import com.qcmian.clipper.getPlatform
 import com.qcmian.clipper.ui.icons.ClipperIcon
 import com.qcmian.clipper.ui.icons.ClipperIconKind
 
+/**
+ * Port of Maccy's `About` panel: the app name, its version and the credits block. Maccy's
+ * credits are a `Website│GitHub│Support` link row, reproduced here with clickable text.
+ */
 @Composable
-fun AboutDialog(onDismiss: () -> Unit) {
+fun AboutDialog(
+    onDismiss: () -> Unit,
+    onOpenUrl: (String) -> Unit = {},
+) {
     val colors = MaterialTheme.colorScheme
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -51,9 +60,9 @@ fun AboutDialog(onDismiss: () -> Unit) {
                     }
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("Clipper", style = MaterialTheme.typography.titleMedium)
+                        Text(ClipperInfo.NAME, style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Compose Multiplatform clipboard manager",
+                            ClipperInfo.TAGLINE,
                             style = MaterialTheme.typography.labelMedium,
                             color = colors.onSurfaceVariant,
                         )
@@ -63,25 +72,60 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 Spacer(Modifier.height(16.dp))
 
                 Text(
-                    "A lightweight, keyboard-first clipboard history for desktop, Android, iOS and the web. " +
-                        "Inspired by Maccy.",
+                    "轻量、键盘优先的剪贴板历史记录，运行在桌面端、Android、iOS 与网页端。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    "参考并复刻了 macOS 开源项目 Maccy。",
                     style = MaterialTheme.typography.bodyMedium,
                 )
 
                 Spacer(Modifier.height(12.dp))
 
                 Text(
-                    "Running on ${getPlatform().name}",
+                    "版本 ${ClipperInfo.VERSION}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                )
+                Text(
+                    "运行于 ${getPlatform().name}",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.onSurfaceVariant,
                 )
 
+                Spacer(Modifier.height(12.dp))
+
+                // Maccy's credits row is `Website│GitHub│Support`; this replica links to the
+                // project it follows instead of claiming a site of its own.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CreditLink("${ClipperInfo.UPSTREAM_NAME} 官网") {
+                        onOpenUrl(ClipperInfo.UPSTREAM_WEBSITE)
+                    }
+                    Text("│", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+                    CreditLink("${ClipperInfo.UPSTREAM_NAME} GitHub") {
+                        onOpenUrl(ClipperInfo.UPSTREAM_URL)
+                    }
+                }
+
                 Spacer(Modifier.height(16.dp))
 
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = onDismiss) { Text("Close") }
+                    TextButton(onClick = onDismiss) { Text("关闭") }
                 }
             }
         }
     }
+}
+
+/** One clickable entry of the credits row, Maccy's `Website│GitHub│Support` equivalent. */
+@Composable
+private fun CreditLink(label: String, onClick: () -> Unit) {
+    Text(
+        text = "$label ↗",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+    )
 }

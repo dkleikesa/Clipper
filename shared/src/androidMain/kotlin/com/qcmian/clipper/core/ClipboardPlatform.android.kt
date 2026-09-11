@@ -94,7 +94,11 @@ private class AndroidClipboardPlatform(private val context: Context) : Clipboard
         // `coerceToText` turns an image URI into its string form, which is not a useful title.
         val text = if (imageBase64 != null && rawText == uri.toString()) null else rawText
 
-        return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files)
+        // `ClipDescription.getMimeTypes()` was removed in recent SDKs; walk the individual
+        // entries instead.
+        val description = clip.description
+        val types = (0 until description.mimeTypeCount).map { description.getMimeType(it) }
+        return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files, types = types)
     }
 
     private companion object {

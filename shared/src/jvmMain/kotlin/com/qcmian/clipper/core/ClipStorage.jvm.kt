@@ -2,6 +2,7 @@ package com.qcmian.clipper.core
 
 import com.qcmian.clipper.model.ClipItem
 import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.util.formatBytes
 import java.io.File
 
 /**
@@ -24,6 +25,12 @@ private class JvmClipStorage : ClipStorage {
 
     override fun saveSettings(settings: AppSettings) {
         write(settingsFile, encodeJson(settings))
+    }
+
+    override fun storageSize(): String? {
+        val bytes = runCatching { itemsFile.length() }.getOrNull() ?: return null
+        // Maccy returns an empty string when the store is effectively empty.
+        return if (bytes > 1) formatBytes(bytes) else ""
     }
 
     private fun read(file: File): String? =

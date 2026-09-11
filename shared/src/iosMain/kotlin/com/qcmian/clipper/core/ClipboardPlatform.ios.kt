@@ -23,6 +23,8 @@ private class IosClipboardPlatform : ClipboardPlatform {
     private var pollJob: Job? = null
     private var lastChangeCount = -1L
 
+    override var pollIntervalMillis: Long = ClipboardPlatform.DEFAULT_POLL_INTERVAL_MILLIS
+
     override val supportsImages: Boolean get() = true
     override val supportsFiles: Boolean get() = true
 
@@ -66,7 +68,7 @@ private class IosClipboardPlatform : ClipboardPlatform {
         lastChangeCount = UIPasteboard.generalPasteboard.changeCount
         pollJob = scope.launch {
             while (isActive) {
-                delay(POLL_INTERVAL_MILLIS)
+                delay(pollIntervalMillis)
                 val pasteboard = UIPasteboard.generalPasteboard
                 val changeCount = pasteboard.changeCount
                 if (changeCount == lastChangeCount) continue
@@ -92,11 +94,9 @@ private class IosClipboardPlatform : ClipboardPlatform {
             ?.toByteArray()
             ?.let { encodeBase64(it) }
         val files = pasteboard.URLs.orEmpty().mapNotNull { (it as? NSURL)?.path }
-        return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files)
-    }
-
-    private companion object {
-        const val POLL_INTERVAL_MILLIS = 500L
+        // iOS exposes the real pasteboard type identifiers, the same strings Maccy matches on.
+        val types = pasteboard.pasteboardTypes.orEmpty().mapNotNull { it as? String }
+        return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files, types = types)
     }
 }
 
