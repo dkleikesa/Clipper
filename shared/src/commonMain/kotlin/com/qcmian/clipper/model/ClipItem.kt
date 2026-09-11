@@ -21,16 +21,25 @@ data class ClipItem(
     val numberOfCopies: Int = 1,
     val pin: String? = null,
     val title: String = "",
+    /**
+     * The application the content was copied from. Maccy fills this in through
+     * `NSWorkspace.frontmostApplication`; platforms without an equivalent leave it `null`
+     * and the preview simply hides the "应用:" line.
+     */
+    val application: SourceApplication? = null,
 ) {
     val isPinned: Boolean get() = pin != null
     val isUnpinned: Boolean get() = pin == null
 
-    /** Text used for previews and for search. */
+    /**
+     * Text used for previews and for search. Port of `HistoryItem.previewableText`:
+     * images carry no text representation, so their title stays empty until text
+     * recognition fills it in.
+     */
     val previewableText: String
         get() = when {
             files.isNotEmpty() -> files.joinToString("\n")
             !text.isNullOrBlank() -> text
-            imageBase64 != null -> title.ifBlank { "Image" }
             else -> title
         }
 
@@ -53,15 +62,20 @@ data class ClipItem(
     }
 
     /**
-     * Builds the one-line title that is displayed in the list, replacing newlines and
-     * tabs with visible symbols the same way Maccy does.
+     * Builds the one-line title displayed in the list. Port of `HistoryItem.generateTitle()`,
+     * including the `showSpecialSymbols` preference: when enabled, leading/trailing spaces
+     * become `·` and newlines/tabs become `⏎`/`⇥`.
      */
-    fun generateTitle(): String = previewableText
-        .take(MAX_TITLE_LENGTH)
-        .replace("\n", "\u23ce")
-        .replace("\t", "\u21e5")
-        .replace(Regex(" +"), " ")
-        .trim()
+    fun generateTitle(showSpecialSymbols: Boolean = true): String {
+        val raw = previewableText.take(MAX_TITLE_LENGTH).removingUnsafeTitleScalars()
+        if (!showSpecialSymbols) return raw.trim()
+
+        return raw
+            .replace(Regex("^ +")) { "·".repeat(it.value.length) }
+            .replace(Regex(" +$")) { "·".repeat(it.value.length) }
+            .replace("\n", "\u23ce")
+            .replace("\t", "\u21e5")
+    }
 
     companion object {
         const val MAX_TITLE_LENGTH = 1_000
@@ -69,6 +83,20 @@ data class ClipItem(
 }
 
 enum class ClipKind { TEXT, LINK, COLOR, IMAGE, FILE }
+
+/**
+ * Unicode scalars that hang CoreText's line truncation on macOS 26, see Maccy #1520.
+ *
+ * U+FFFC OBJECT REPLACEMENT CHARACTER is the placeholder for an inline attachment, so rich
+ * text with embedded images carries one per attachment in its plain text flavour. Two or
+ * more of them next to non-Latin text send the typesetter into an infinite loop when the
+ * title is laid out with a single line and middle truncation.
+ */
+private val UNSAFE_TITLE_SCALARS = setOf('\uFFFC')
+
+/** Port of `String.removingScalarsUnsafeForTitleLayout()`, filtered per scalar. */
+fun String.removingUnsafeTitleScalars(): String =
+    if (none { it in UNSAFE_TITLE_SCALARS }) this else filterNot { it in UNSAFE_TITLE_SCALARS }
 
 private val HEX_COLOR_PATTERN = Regex("^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 private val LINK_PATTERN = Regex(

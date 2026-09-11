@@ -21,8 +21,15 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "com.qcmian.clipper"
+            packageName = "Clipper"
             packageVersion = "1.0.0"
+            description = "Compose Multiplatform clipboard history manager"
+            vendor = "qcmian"
+
+            macOS {
+                bundleID = "com.qcmian.clipper"
+                dockName = "Clipper"
+            }
         }
     }
 }

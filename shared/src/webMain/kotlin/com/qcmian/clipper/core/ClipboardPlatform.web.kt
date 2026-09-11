@@ -25,6 +25,8 @@ private class WebClipboardPlatform : ClipboardPlatform {
     private var pollJob: Job? = null
     private var lastText: String? = null
 
+    override var pollIntervalMillis: Long = 800L
+
     override val supportsImages: Boolean get() = false
     override val supportsFiles: Boolean get() = false
 
@@ -43,7 +45,7 @@ private class WebClipboardPlatform : ClipboardPlatform {
         listener = onChange
         pollJob = scope.launch {
             while (isActive) {
-                delay(POLL_INTERVAL_MILLIS)
+                delay(pollIntervalMillis)
                 poll()
             }
         }
@@ -61,11 +63,7 @@ private class WebClipboardPlatform : ClipboardPlatform {
         val text = runCatching { navigator.clipboard.readText() }.getOrNull() ?: return
         if (text.isEmpty() || text == lastText) return
         lastText = text
-        listener?.invoke(ClipboardSnapshot(text = text))
-    }
-
-    private companion object {
-        const val POLL_INTERVAL_MILLIS = 800L
+        listener?.invoke(ClipboardSnapshot(text = text, types = listOf("text/plain")))
     }
 }
 

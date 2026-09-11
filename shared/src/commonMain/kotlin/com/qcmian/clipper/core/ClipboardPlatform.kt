@@ -1,20 +1,6 @@
 package com.qcmian.clipper.core
 
 /**
- * A platform independent view of the system clipboard.
- *
- * `imageBase64` holds the raw encoded image bytes (PNG or JPEG) so that the value can be
- * persisted without depending on a platform image type.
- */
-data class ClipboardSnapshot(
-    val text: String? = null,
-    val imageBase64: String? = null,
-    val files: List<String> = emptyList(),
-) {
-    val isEmpty: Boolean get() = text.isNullOrEmpty() && imageBase64 == null && files.isEmpty()
-}
-
-/**
  * Bridge to the operating system clipboard.
  *
  * Implementations must invoke [onChange] whenever new content is placed on the clipboard
@@ -49,6 +35,19 @@ interface ClipboardPlatform {
 
     /** Whether this platform is able to read file references. */
     val supportsFiles: Boolean get() = false
+
+    /**
+     * How often the clipboard is inspected, in milliseconds. Port of Maccy's
+     * `clipboardCheckInterval`. Platforms that rely on change notifications ignore it.
+     */
+    var pollIntervalMillis: Long
+        get() = DEFAULT_POLL_INTERVAL_MILLIS
+        set(@Suppress("UNUSED_PARAMETER") value: Long) {}
+
+    companion object {
+        /** Maccy's `clipboardCheckInterval` default, 500 ms. */
+        const val DEFAULT_POLL_INTERVAL_MILLIS = 500L
+    }
 }
 
 expect fun createClipboardPlatform(): ClipboardPlatform

@@ -35,6 +35,8 @@ private class JvmClipboardPlatform : ClipboardPlatform {
     private var pollJob: Job? = null
     private var lastFingerprint: String? = null
 
+    override var pollIntervalMillis: Long = ClipboardPlatform.DEFAULT_POLL_INTERVAL_MILLIS
+
     override val supportsFiles: Boolean get() = true
 
     override fun write(snapshot: ClipboardSnapshot): Boolean {
@@ -64,7 +66,7 @@ private class JvmClipboardPlatform : ClipboardPlatform {
         lastFingerprint = fingerprint(readSnapshot())
         pollJob = scope.launch {
             while (isActive) {
-                delay(POLL_INTERVAL_MILLIS)
+                delay(pollIntervalMillis)
                 val snapshot = readSnapshot()
                 if (snapshot.isEmpty) continue
                 val current = fingerprint(snapshot)
@@ -98,7 +100,10 @@ private class JvmClipboardPlatform : ClipboardPlatform {
         val text = readText(flavors)
         val imageBase64 = readImage(flavors)
         val files = readFiles(flavors)
-        return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files)
+        // AWT only exposes its own mime types, not the native pasteboard types, but that is
+        // still enough for the "ignored pasteboard types" preference to be useful.
+        val types = flavors.map { it.mimeType }
+        return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files, types = types)
     }
 
     private fun readText(flavors: List<DataFlavor>): String? {
@@ -145,8 +150,6 @@ private class JvmClipboardPlatform : ClipboardPlatform {
         System.getProperty("os.name").orEmpty().lowercase().contains("mac")
 
     private companion object {
-        const val POLL_INTERVAL_MILLIS = 500L
-
         fun fingerprint(snapshot: ClipboardSnapshot): String = buildString {
             append(snapshot.text.orEmpty())
             append('\u0000')
