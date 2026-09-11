@@ -1,6 +1,6 @@
 package com.qcmian.clipper.data.source
 
-import com.qcmian.clipper.data.model.ClipboardSnapshot
+import com.qcmian.clipper.domain.model.ClipboardSnapshot
 
 /**
  * Used when a platform clipboard is unavailable (for example when the Android context

@@ -1,8 +1,8 @@
 package com.qcmian.clipper.domain.sort
 
-import com.qcmian.clipper.data.model.ClipItem
-import com.qcmian.clipper.settings.PinPosition
-import com.qcmian.clipper.settings.SortBy
+import com.qcmian.clipper.domain.model.ClipItem
+import com.qcmian.clipper.domain.model.PinPosition
+import com.qcmian.clipper.domain.model.SortBy
 
 /** Port of Maccy's `Sorter`. */
 object ClipSorter {

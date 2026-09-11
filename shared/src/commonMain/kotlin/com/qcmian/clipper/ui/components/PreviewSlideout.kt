@@ -13,7 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.data.model.ClipItem
+import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.ui.Popup
 import kotlin.math.roundToInt
 

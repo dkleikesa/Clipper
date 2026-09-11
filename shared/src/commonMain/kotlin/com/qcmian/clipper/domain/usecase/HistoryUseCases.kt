@@ -1,8 +1,9 @@
 package com.qcmian.clipper.domain.usecase
 
-import com.qcmian.clipper.data.model.ClipItem
-import com.qcmian.clipper.data.repository.ClipboardRepository
-import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.domain.model.ClipItem
+import com.qcmian.clipper.domain.repository.ClipboardPlatform
+import com.qcmian.clipper.domain.repository.ClipboardRepository
+import com.qcmian.clipper.domain.model.AppSettings
 
 /** Port of `History.togglePin`: pins an item with a free shortcut or unpins it. */
 class TogglePinUseCase(
@@ -55,12 +56,15 @@ class DeleteClipUseCase(private val repository: ClipboardRepository) {
  * Port of Maccy's "Clear" (unpinned only) and "Clear all". Pinned items survive a plain
  * clear, and the system clipboard is emptied when the preference asks for it.
  */
-class ClearHistoryUseCase(private val repository: ClipboardRepository) {
+class ClearHistoryUseCase(
+    private val repository: ClipboardRepository,
+    private val platform: ClipboardPlatform,
+) {
     operator fun invoke(all: Boolean) {
         val items = repository.items.value
         val remaining = if (all) emptyList() else items.filter { it.isPinned }
         repository.setItems(remaining)
-        if (repository.settings.value.clearSystemClipboard) repository.clearSystemClipboard()
+        if (repository.settings.value.clearSystemClipboard) platform.clearSystemClipboard()
     }
 }
 

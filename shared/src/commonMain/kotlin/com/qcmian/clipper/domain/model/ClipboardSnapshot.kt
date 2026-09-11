@@ -1,4 +1,4 @@
-package com.qcmian.clipper.data.model
+package com.qcmian.clipper.domain.model
 
 /**
  * A platform independent view of the system clipboard.

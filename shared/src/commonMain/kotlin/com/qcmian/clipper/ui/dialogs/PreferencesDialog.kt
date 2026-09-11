@@ -1,8 +1,6 @@
 package com.qcmian.clipper.ui.dialogs
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,17 +17,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,8 +35,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -56,22 +46,22 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.qcmian.clipper.data.model.ClipItem
+import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.action.ClipAction
 import com.qcmian.clipper.domain.action.modifierFlagsOf
-import com.qcmian.clipper.settings.AppSettings
-import com.qcmian.clipper.settings.HighlightMatch
-import com.qcmian.clipper.settings.MenuIcon
-import com.qcmian.clipper.settings.PinPosition
-import com.qcmian.clipper.settings.PopupPosition
-import com.qcmian.clipper.settings.SearchMode
-import com.qcmian.clipper.settings.SearchVisibility
-import com.qcmian.clipper.settings.ShortcutSpec
-import com.qcmian.clipper.settings.SortBy
+import com.qcmian.clipper.domain.model.AppSettings
+import com.qcmian.clipper.domain.model.HighlightMatch
+import com.qcmian.clipper.domain.model.MenuIcon
+import com.qcmian.clipper.domain.model.PinPosition
+import com.qcmian.clipper.domain.model.PopupPosition
+import com.qcmian.clipper.domain.model.SearchMode
+import com.qcmian.clipper.domain.model.SearchVisibility
+import com.qcmian.clipper.domain.model.ShortcutSpec
+import com.qcmian.clipper.domain.model.SortBy
 import com.qcmian.clipper.ui.ModifierFlags
-import com.qcmian.clipper.ui.components.rememberImageBitmap
+import com.qcmian.clipper.ui.components.rememberApplicationIcon
+import com.qcmian.clipper.ui.components.rememberApplicationName
 import com.qcmian.clipper.ui.icons.ClipperIcon
 import com.qcmian.clipper.ui.icons.ClipperIconKind
 import com.qcmian.clipper.ui.shortcutCharacterOf
@@ -657,8 +647,8 @@ fun PreferencesContent(
                         } else {
                             settings.ignoredApps.forEach { bundleId ->
                                 IgnoredApplicationRow(
-                                    name = applicationName(bundleId) ?: bundleId,
-                                    iconBase64 = applicationIcon(bundleId),
+                                    name = rememberApplicationName(applicationName, bundleId) ?: bundleId,
+                                    iconBase64 = rememberApplicationIcon(applicationIcon, bundleId),
                                     onRemove = {
                                         onSettingsChange {
                                             it.copy(ignoredApps = it.ignoredApps - bundleId)
@@ -755,352 +745,3 @@ fun PreferencesContent(
     }
 }
 
-/**
- * One row of Maccy's `IgnoreApplicationsSettingsView`: the application icon, the resolved
- * application name and the button that removes it from the ignore list.
- */
-@Composable
-private fun IgnoredApplicationRow(
-    name: String,
-    iconBase64: String?,
-    onRemove: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    val icon = rememberImageBitmap(iconBase64)
-
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (icon != null) {
-            Image(
-                bitmap = icon,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-        } else {
-            ClipperIcon(ClipperIconKind.APP, size = 18.dp, tint = colors.onSurfaceVariant)
-        }
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onRemove),
-            contentAlignment = Alignment.Center,
-        ) {
-            ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun PinRow(
-    item: ClipItem,
-    availablePins: List<String>,
-    isSelected: Boolean,
-    onSelect: () -> Unit,
-    onPinChange: (String?) -> Unit,
-    onTitleChange: (String) -> Unit,
-    onContentChange: (String) -> Unit,
-    onDelete: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    var expanded by remember { mutableStateOf(false) }
-    var title by remember(item.id, item.title) { mutableStateOf(item.title) }
-    // `PinValueView`: only plain text entries expose an editable content field.
-    val editable = item.text != null && item.imageBase64 == null && item.files.isEmpty()
-    var content by remember(item.id, item.text) { mutableStateOf(item.text.orEmpty()) }
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            // `PinsSettingsPane`'s table selection: clicking the row makes it the target of
-            // the Delete key.
-            .clickable(onClick = onSelect)
-            .background(
-                if (isSelected) colors.primary.copy(alpha = 0.10f) else Color.Transparent,
-                RoundedCornerShape(6.dp),
-            )
-            .padding(vertical = 3.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // Key picker
-            Box {
-                Box(
-                    modifier = Modifier
-                        .width(44.dp)
-                        .height(28.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .border(1.dp, colors.outline, RoundedCornerShape(6.dp))
-                        .clickable { expanded = true },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = (item.pin ?: "—").uppercase(),
-                        fontSize = 12.sp,
-                        color = colors.onSurface,
-                    )
-                }
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    (listOfNotNull(item.pin) + availablePins).forEach { pin ->
-                        DropdownMenuItem(
-                            text = { Text(pin.uppercase(), fontSize = 12.sp) },
-                            onClick = {
-                                expanded = false
-                                onPinChange(pin)
-                            },
-                        )
-                    }
-                }
-            }
-
-            // Alias
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, colors.outline, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                BasicTextField(
-                    value = title,
-                    onValueChange = {
-                        title = it
-                        onTitleChange(it)
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 12.sp,
-                        color = colors.onSurface,
-                    ),
-                    cursorBrush = SolidColor(colors.primary),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onDelete),
-                contentAlignment = Alignment.Center,
-            ) {
-                ClipperIcon(ClipperIconKind.TRASH, size = 13.dp, tint = colors.onSurfaceVariant)
-            }
-        }
-
-        if (editable) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp)
-                    .height(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, colors.outline, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                BasicTextField(
-                    value = content,
-                    onValueChange = {
-                        content = it
-                        onContentChange(it)
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 12.sp,
-                        color = colors.onSurface,
-                    ),
-                    cursorBrush = SolidColor(colors.primary),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        } else {
-            Text(
-                text = "该置顶项不是纯文本，无法编辑内容。",
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-    }
-}
-
-/** Port of Maccy's `KeyboardShortcuts.Recorder` row. */
-@Composable
-private fun ShortcutRow(
-    title: String,
-    spec: ShortcutSpec,
-    recording: Boolean,
-    onRecord: () -> Unit,
-    onReset: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        Box(
-            modifier = Modifier
-                .height(28.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .border(
-                    width = 1.dp,
-                    color = if (recording) colors.primary else colors.outline,
-                    shape = RoundedCornerShape(6.dp),
-                )
-                .clickable(onClick = onRecord)
-                .padding(horizontal = 10.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = if (recording) "按下新快捷键…" else spec.label,
-                fontSize = 12.sp,
-                color = if (recording) colors.primary else colors.onSurface,
-            )
-        }
-        Spacer(Modifier.width(6.dp))
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .clickable(onClick = onReset),
-            contentAlignment = Alignment.Center,
-        ) {
-            ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun SectionTitle(text: String) {
-    Spacer(Modifier.height(14.dp))
-    Text(
-        text = text,
-        fontSize = 11.sp,
-        color = MaterialTheme.colorScheme.primary,
-    )
-    HorizontalDivider(
-        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
-    )
-}
-
-@Composable
-private fun SwitchRow(
-    title: String,
-    checked: Boolean,
-    description: String? = null,
-    enabled: Boolean = true,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (enabled) colors.onSurface else colors.onSurfaceVariant,
-            )
-            if (description != null) {
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant,
-                )
-            }
-        }
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
-    }
-}
-
-@Composable
-private fun SliderRow(
-    title: String,
-    valueLabel: String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit,
-    enabled: Boolean = true,
-) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (enabled) colors.onSurface else colors.onSurfaceVariant,
-            )
-            Text(
-                text = valueLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.onSurfaceVariant,
-            )
-        }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = range,
-            enabled = enabled,
-            modifier = Modifier.width(200.dp),
-        )
-    }
-}
-
-@Composable
-private fun <T> ChipBlock(
-    title: String,
-    values: List<T>,
-    selected: T,
-    label: (T) -> String,
-    onSelect: (T) -> Unit,
-    enabled: Boolean = true,
-) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            values.forEach { value ->
-                FilterChip(
-                    selected = value == selected,
-                    onClick = { onSelect(value) },
-                    enabled = enabled,
-                    label = {
-                        Text(label(value), style = MaterialTheme.typography.labelMedium)
-                    },
-                )
-            }
-        }
-    }
-}

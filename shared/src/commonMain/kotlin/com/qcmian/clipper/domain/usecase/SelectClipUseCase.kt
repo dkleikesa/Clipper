@@ -1,14 +1,13 @@
 package com.qcmian.clipper.domain.usecase
 
-import com.qcmian.clipper.data.model.ClipItem
-import com.qcmian.clipper.data.model.ClipboardSnapshot
-import com.qcmian.clipper.data.repository.ClipboardRepository
+import com.qcmian.clipper.domain.model.ClipItem
+import com.qcmian.clipper.domain.model.ClipboardSnapshot
+import com.qcmian.clipper.domain.repository.ClipboardPlatform
+import com.qcmian.clipper.domain.repository.ClipboardRepository
 import com.qcmian.clipper.domain.action.ClipAction
 import com.qcmian.clipper.domain.action.pastes
 import com.qcmian.clipper.domain.action.removesFormatting
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /** What [SelectClipUseCase] did with an activation. */
 enum class SelectResult {
@@ -28,22 +27,29 @@ enum class SelectResult {
 /**
  * Port of Maccy's `History.select`: writes an item back to the system clipboard and, when the
  * resolved [ClipAction] asks for it, sends the paste keystroke to the previously focused app.
+ *
+ * The delayed paste is expressed with a plain [delay] inside a suspending function, so the
+ * caller decides which scope (and therefore which lifecycle) it runs on.
  */
 class SelectClipUseCase(
     private val repository: ClipboardRepository,
-    private val scope: CoroutineScope,
+    private val platform: ClipboardPlatform,
 ) {
     /**
      * @param onHidePanel invoked before a synthetic paste so the panel steps aside and the
      *   keystroke reaches the application that was focused before.
      */
-    operator fun invoke(item: ClipItem, action: ClipAction, onHidePanel: () -> Unit): SelectResult {
+    suspend operator fun invoke(
+        item: ClipItem,
+        action: ClipAction,
+        onHidePanel: () -> Unit,
+    ): SelectResult {
         // Port of `History.select`: an unsupported modifier combination does nothing.
         if (action == ClipAction.UNKNOWN) return SelectResult.IGNORED
 
         val settings = repository.settings.value
         val removeFormatting = action.removesFormatting(settings)
-        if (!repository.writeClipboard(snapshotFor(item, removeFormatting))) {
+        if (!platform.writeClipboard(snapshotFor(item, removeFormatting))) {
             repository.setStatusMessage("This platform can't copy that kind of content")
             return SelectResult.UNSUPPORTED
         }
@@ -53,11 +59,9 @@ class SelectClipUseCase(
 
         if (!action.pastes(settings)) return SelectResult.COPIED
 
-        scope.launch {
-            delay(PASTE_DELAY_MILLIS)
-            if (!repository.paste()) {
-                repository.setStatusMessage("Pasting is not supported on this platform")
-            }
+        delay(PASTE_DELAY_MILLIS)
+        if (!platform.paste()) {
+            repository.setStatusMessage("Pasting is not supported on this platform")
         }
         return SelectResult.PASTING
     }

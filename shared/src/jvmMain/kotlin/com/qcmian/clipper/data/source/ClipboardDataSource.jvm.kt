@@ -20,7 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.swing.Swing
-import com.qcmian.clipper.data.model.ClipboardSnapshot
+import com.qcmian.clipper.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.util.decodeBase64
 import com.qcmian.clipper.util.encodeBase64
 

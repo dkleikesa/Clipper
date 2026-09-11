@@ -30,12 +30,6 @@ import com.qcmian.clipper.ui.Popup
 import com.qcmian.clipper.ui.icons.ClipperIcon
 import com.qcmian.clipper.ui.icons.ClipperIconKind
 
-/** Search box height, `SearchFieldView`'s fixed 23pt. */
-val SearchFieldHeight = 23.dp
-
-/** Roughly the height of the paused banner. */
-val BannerHeight = 34.dp
-
 /**
  * Port of Maccy's `HeaderView` / `ListHeaderView`: the title, the search field and the preview
  * toggle. Maccy collapses the header to zero height instead of removing it, so the search

@@ -1,6 +1,6 @@
 package com.qcmian.clipper.domain.usecase
 
-import com.qcmian.clipper.data.repository.ClipboardRepository
+import com.qcmian.clipper.domain.repository.ClipboardRepository
 
 /**
  * Port of `AppDelegate.applicationWillTerminate` plus a synchronous flush: applies the

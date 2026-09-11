@@ -1,14 +1,16 @@
 package com.qcmian.clipper.data.repository
 
-import com.qcmian.clipper.data.model.ClipItem
-import com.qcmian.clipper.data.model.ClipboardSnapshot
-import com.qcmian.clipper.data.model.SourceApplication
-import com.qcmian.clipper.data.model.removingUnsafeTitleScalars
 import com.qcmian.clipper.data.source.ClipStorageDataSource
 import com.qcmian.clipper.data.source.ClipboardDataSource
 import com.qcmian.clipper.data.source.NativeDataSource
+import com.qcmian.clipper.domain.model.AppSettings
+import com.qcmian.clipper.domain.model.ClipItem
+import com.qcmian.clipper.domain.model.ClipboardSnapshot
+import com.qcmian.clipper.domain.model.SourceApplication
+import com.qcmian.clipper.domain.model.removingUnsafeTitleScalars
+import com.qcmian.clipper.domain.repository.ClipboardPlatform
+import com.qcmian.clipper.domain.repository.ClipboardRepository
 import com.qcmian.clipper.domain.sort.ClipSorter
-import com.qcmian.clipper.settings.AppSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -33,7 +35,7 @@ class DefaultClipboardRepository(
     private val storage: ClipStorageDataSource,
     private val native: NativeDataSource,
     private val scope: CoroutineScope,
-) : ClipboardRepository {
+) : ClipboardRepository, ClipboardPlatform {
 
     private val _items = MutableStateFlow<List<ClipItem>>(emptyList())
     override val items: StateFlow<List<ClipItem>> = _items.asStateFlow()

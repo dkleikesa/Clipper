@@ -1,6 +1,6 @@
 package com.qcmian.clipper.data.source
 
-import com.qcmian.clipper.data.model.ClipboardSnapshot
+import com.qcmian.clipper.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.util.decodeBase64
 import com.qcmian.clipper.util.encodeBase64
 import kotlinx.coroutines.CoroutineScope

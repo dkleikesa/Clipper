@@ -36,12 +36,13 @@ import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.data.model.ClipItem
+import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.model.SearchResult
-import com.qcmian.clipper.settings.PinPosition
-import com.qcmian.clipper.ui.components.BannerHeight
+import com.qcmian.clipper.domain.model.PinPosition
 import com.qcmian.clipper.ui.components.EmptyState
 import com.qcmian.clipper.ui.components.FooterRows
 import com.qcmian.clipper.ui.components.HistoryHeader
@@ -50,9 +51,9 @@ import com.qcmian.clipper.ui.components.PausedBanner
 import com.qcmian.clipper.ui.components.PinsSeparator
 import com.qcmian.clipper.ui.components.PreviewPane
 import com.qcmian.clipper.ui.components.PreviewSlideout
-import com.qcmian.clipper.ui.components.SearchFieldHeight
 import com.qcmian.clipper.ui.components.StatusToast
 import com.qcmian.clipper.ui.components.footerEntries
+import com.qcmian.clipper.ui.components.rememberApplicationIcon
 import com.qcmian.clipper.ui.dialogs.AboutDialog
 import com.qcmian.clipper.ui.dialogs.ConfirmDialog
 import com.qcmian.clipper.ui.dialogs.PreferencesDialog
@@ -119,6 +120,17 @@ fun HistoryScreen(
 
     LaunchedEffect(state.previewOpen) { onPreviewOpenChange(state.previewOpen) }
 
+    val density = LocalDensity.current
+
+    // Measured block heights, the counterpart of Maccy's `readHeight(appState, into: \.popup.*)`
+    // in `HeaderView`, `FooterView` and `HistoryListView`. They start at zero, exactly like
+    // `Popup.height`: the panel first opens at its minimum height and the measurements then
+    // resize it so it hugs the content.
+    var headerHeight by remember { mutableStateOf(0.dp) }
+    var topPinsHeight by remember { mutableStateOf(0.dp) }
+    var bottomPinsHeight by remember { mutableStateOf(0.dp) }
+    var footerHeight by remember { mutableStateOf(0.dp) }
+
     val footerEntries = footerEntries(flags, state.showQuit)
     val shortcuts = shortcutMap(results, settings.pasteByDefault)
 
@@ -131,30 +143,31 @@ fun HistoryScreen(
         Popup.verticalSeparatorPadding - 1.dp
     }
 
-    // Maccy's popup hugs its content: `Popup.preferredHeight` grows with the list up to the
-    // configured window height and never shrinks below three items.
-    val pinnedCount = state.pinnedEntries.size
-    val showSeparator = pinnedCount in 1 until results.size
+    // Port of `Popup.suitableHeight(for:)` + `Popup.preferredHeight(for:)`.
+    //
+    // Maccy measures the scrolling list too, because its `ScrollView` lays out every row. A
+    // `LazyColumn` only lays out the rows that are visible and therefore cannot report a total
+    // height, so the unscrolled rows are estimated from `Popup.itemHeight` and the image rows
+    // from `imageMaxHeight`. Everything else is measured, which is what removes the drift the
+    // old fully static estimate had.
     val imageRowHeight = settings.imageMaxHeight.dp + ImageRowPadding
-    val rowsHeight = results.fold(0.dp) { total, result ->
-        total + if (result.item.imageBase64 != null) imageRowHeight else Popup.itemHeight
+    val rowHeight: (SearchResult) -> Dp = { result ->
+        if (result.item.imageBase64 != null) imageRowHeight else Popup.itemHeight
     }
-    val separatorHeight = if (showSeparator) Popup.verticalSeparatorPadding * 2 + 1.dp else 0.dp
-    val headerHeight = Popup.verticalPadding +
-        (if (state.searchVisible) SearchFieldHeight else 0.dp) +
-        (if (settings.ignoreEvents) BannerHeight else 0.dp)
-    val footerHeight = if (settings.showFooter) {
-        1.dp + Popup.verticalSeparatorPadding + Popup.itemHeight * footerEntries.size + Popup.verticalPadding
-    } else {
-        0.dp
-    }
-    val baseMinimumHeight = headerHeight + footerHeight + Popup.itemHeight * 3
-    val minimumHeight = if (state.previewOpen && state.selectedItem != null) {
-        baseMinimumHeight.coerceAtLeast(Popup.minimumPreviewHeight)
-    } else {
-        baseMinimumHeight
-    }
-    val preferredHeight = (headerHeight + footerHeight + Popup.verticalSeparatorPadding * 2 + rowsHeight + separatorHeight)
+    val listHeight = state.unpinnedEntries.fold(0.dp) { total, entry -> total + rowHeight(entry.value) } +
+        Popup.verticalSeparatorPadding + listBottomPadding
+
+    val chromeHeight = headerHeight + topPinsHeight + bottomPinsHeight + footerHeight
+    val suitableHeight = listHeight + chromeHeight
+    val threeItemHeight = chromeHeight + Popup.itemHeight * 3
+    val minimumHeight = (
+        if (state.previewOpen && state.selectedItem != null) {
+            threeItemHeight.coerceAtLeast(Popup.minimumPreviewHeight)
+        } else {
+            threeItemHeight
+        }
+        ).coerceAtLeast(headerHeight + Popup.verticalPadding)
+    val preferredHeight = suitableHeight
         .coerceAtLeast(minimumHeight)
         .coerceAtMost(settings.windowHeight.dp)
 
@@ -193,7 +206,7 @@ fun HistoryScreen(
             showColorSwatch = settings.showHexColorSwatch,
             maxImageHeight = settings.imageMaxHeight.dp,
             appIconBase64 = if (settings.showApplicationIcons) {
-                applicationIcon(item.application?.bundleId)
+                rememberApplicationIcon(applicationIcon, item.application?.bundleId)
             } else {
                 null
             },
@@ -210,6 +223,12 @@ fun HistoryScreen(
             onHover = { onAction(ClipboardUiAction.HoverHistory(indexed.index)) },
         )
     }
+
+    // Resolved once per selected item, off the composition thread.
+    val previewAppIcon = rememberApplicationIcon(
+        load = applicationIcon,
+        bundleId = state.selectedItem?.application?.bundleId,
+    )
 
     BoxWithConstraints(modifier.fillMaxSize()) {
         val wide = maxWidth >= OverlayThreshold
@@ -247,7 +266,7 @@ fun HistoryScreen(
                 if (previewOnLeft && wide && state.previewOpen) {
                     PreviewSlideout(
                         item = state.selectedItem,
-                        appIconBase64 = state.selectedItem?.application?.let { applicationIcon(it.bundleId) },
+                        appIconBase64 = previewAppIcon,
                         previewWidth = settings.previewWidth,
                         onLeft = true,
                         onTogglePin = { onAction(ClipboardUiAction.TogglePinSelected) },
@@ -258,30 +277,39 @@ fun HistoryScreen(
                 }
 
                 Column(Modifier.weight(1f).fillMaxHeight()) {
-                    HistoryHeader(
-                        title = "Clipper",
-                        showTitle = settings.showTitle,
-                        visible = state.searchVisible,
-                        query = state.query,
-                        onQueryChange = { value -> onAction(ClipboardUiAction.UpdateQuery(value)) },
-                        onCompositionChange = { composing = it },
-                        focusRequester = searchFocusRequester,
-                        previewOpen = state.previewOpen,
-                        previewOnLeft = previewOnLeft,
-                        onTogglePreview = { onAction(ClipboardUiAction.TogglePreview) },
-                    )
-
-                    if (settings.ignoreEvents) {
-                        PausedBanner(
-                            onlyNext = settings.ignoreOnlyNextEvent,
-                            onResume = {
-                                onAction(
-                                    ClipboardUiAction.UpdateSettings {
-                                        it.copy(ignoreEvents = false, ignoreOnlyNextEvent = false)
-                                    },
-                                )
-                            },
+                    // Port of `HeaderView.readHeight(appState, into: \.popup.headerHeight)`.
+                    // The paused banner is a replica addition, so it is folded into the same
+                    // measured block.
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { headerHeight = with(density) { it.height.toDp() } },
+                    ) {
+                        HistoryHeader(
+                            title = "Clipper",
+                            showTitle = settings.showTitle,
+                            visible = state.searchVisible,
+                            query = state.query,
+                            onQueryChange = { value -> onAction(ClipboardUiAction.UpdateQuery(value)) },
+                            onCompositionChange = { composing = it },
+                            focusRequester = searchFocusRequester,
+                            previewOpen = state.previewOpen,
+                            previewOnLeft = previewOnLeft,
+                            onTogglePreview = { onAction(ClipboardUiAction.TogglePreview) },
                         )
+
+                        if (settings.ignoreEvents) {
+                            PausedBanner(
+                                onlyNext = settings.ignoreOnlyNextEvent,
+                                onResume = {
+                                    onAction(
+                                        ClipboardUiAction.UpdateSettings {
+                                            it.copy(ignoreEvents = false, ignoreOnlyNextEvent = false)
+                                        },
+                                    )
+                                },
+                            )
+                        }
                     }
 
                     Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -289,16 +317,24 @@ fun HistoryScreen(
                             EmptyState(searching = state.query.isNotEmpty())
                         } else {
                             Column(Modifier.fillMaxSize()) {
-                                if (pinsAtTop && state.pinnedEntries.isNotEmpty()) {
+                                if (pinsAtTop && (state.pinnedEntries.isNotEmpty() || pinsSeparator)) {
+                                    // Port of `HistoryListView`'s top block `readHeight`
+                                    // (`popup.extraTopHeight`): the fixed pins and their divider.
                                     Column(
                                         Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = Popup.horizontalPadding),
+                                            .onSizeChanged { topPinsHeight = with(density) { it.height.toDp() } },
                                     ) {
-                                        state.pinnedEntries.forEach { entryRow(it) }
+                                        Column(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = Popup.horizontalPadding),
+                                        ) {
+                                            state.pinnedEntries.forEach { entryRow(it) }
+                                        }
+                                        if (pinsSeparator) PinsSeparator()
                                     }
                                 }
-                                if (pinsAtTop && pinsSeparator) PinsSeparator()
 
                                 LazyColumn(
                                     state = listState,
@@ -315,14 +351,22 @@ fun HistoryScreen(
                                     }
                                 }
 
-                                if (!pinsAtTop && state.pinnedEntries.isNotEmpty()) {
-                                    if (pinsSeparator) PinsSeparator()
+                                if (!pinsAtTop && (state.pinnedEntries.isNotEmpty() || pinsSeparator)) {
+                                    // Port of `HistoryListView`'s bottom block `readHeight`
+                                    // (`popup.extraBottomHeight`).
                                     Column(
                                         Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = Popup.horizontalPadding),
+                                            .onSizeChanged { bottomPinsHeight = with(density) { it.height.toDp() } },
                                     ) {
-                                        state.pinnedEntries.forEach { entryRow(it) }
+                                        if (pinsSeparator) PinsSeparator()
+                                        Column(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = Popup.horizontalPadding),
+                                        ) {
+                                            state.pinnedEntries.forEach { entryRow(it) }
+                                        }
                                     }
                                 }
                             }
@@ -332,9 +376,7 @@ fun HistoryScreen(
                             Surface(color = colors.background, modifier = Modifier.fillMaxSize()) {
                                 PreviewPane(
                                     item = state.selectedItem,
-                                    appIconBase64 = state.selectedItem?.application?.let {
-                                        applicationIcon(it.bundleId)
-                                    },
+                                    appIconBase64 = previewAppIcon,
                                     onTogglePin = { onAction(ClipboardUiAction.TogglePinSelected) },
                                     onDelete = { onAction(ClipboardUiAction.DeleteSelected) },
                                     onCopyExtractedText = { onAction(ClipboardUiAction.CopyExtractedText) },
@@ -355,6 +397,10 @@ fun HistoryScreen(
                                 // `FooterItemView.onHover`: hovering the footer closes the preview.
                                 if (state.previewOpen) onAction(ClipboardUiAction.TogglePreview)
                             },
+                            // Port of `FooterView.readHeight(appState, into: \.popup.footerHeight)`.
+                            modifier = Modifier.onSizeChanged {
+                                footerHeight = with(density) { it.height.toDp() }
+                            },
                         )
                     }
                 }
@@ -362,7 +408,7 @@ fun HistoryScreen(
                 if (!previewOnLeft && wide && state.previewOpen) {
                     PreviewSlideout(
                         item = state.selectedItem,
-                        appIconBase64 = state.selectedItem?.application?.let { applicationIcon(it.bundleId) },
+                        appIconBase64 = previewAppIcon,
                         previewWidth = settings.previewWidth,
                         onLeft = false,
                         onTogglePin = { onAction(ClipboardUiAction.TogglePinSelected) },

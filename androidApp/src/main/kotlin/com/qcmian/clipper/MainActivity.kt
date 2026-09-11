@@ -5,19 +5,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.tooling.preview.Preview
-import com.qcmian.clipper.data.source.ClipperAndroid
+import com.qcmian.clipper.di.AppContainer
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        // Required before the shared code can reach the Android clipboard and preferences.
-        ClipperAndroid.init(this)
-
+        // The graph is owned by the Application, so it survives configuration changes.
+        val container = (application as ClipperApplication).container
         setContent {
-            App()
+            App(container = container)
         }
     }
 }
@@ -25,5 +25,6 @@ class MainActivity : ComponentActivity() {
 @Preview
 @Composable
 fun AppAndroidPreview() {
-    App()
+    // Previews have no Application; a throwaway container is enough there.
+    App(container = remember { AppContainer() })
 }

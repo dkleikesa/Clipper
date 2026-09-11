@@ -1,6 +1,6 @@
 package com.qcmian.clipper.macos
 
-import com.qcmian.clipper.data.model.SourceApplication
+import com.qcmian.clipper.domain.model.SourceApplication
 import java.io.File
 
 /**

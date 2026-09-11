@@ -1,9 +1,9 @@
 package com.qcmian.clipper.ui.state
 
-import com.qcmian.clipper.data.model.ClipItem
+import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.model.SearchResult
-import com.qcmian.clipper.settings.AppSettings
-import com.qcmian.clipper.settings.SearchVisibility
+import com.qcmian.clipper.domain.model.AppSettings
+import com.qcmian.clipper.domain.model.SearchVisibility
 
 /** Which modal is currently on screen, if any. */
 enum class ClipboardDialog { PREFERENCES, ABOUT }

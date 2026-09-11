@@ -18,11 +18,13 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
-import com.qcmian.clipper.data.source.GlobalShortcut
+import com.qcmian.clipper.domain.model.PopupPosition
 import com.qcmian.clipper.data.source.ScreenRect
-import com.qcmian.clipper.data.source.createNativeDataSource
-import com.qcmian.clipper.settings.PopupPosition
+import com.qcmian.clipper.di.AppContainer
+import com.qcmian.clipper.macos.GlobalShortcut
+import com.qcmian.clipper.macos.MacGlobalHotKey
 import com.qcmian.clipper.ui.ClipperController
+import com.qcmian.clipper.ui.Popup
 import kotlinx.coroutines.delay
 import java.awt.GraphicsEnvironment
 import java.awt.MouseInfo
@@ -44,6 +46,8 @@ private const val NS_OPTION_MASK = 1 shl 19
 private const val NS_MODIFIER_MASK = NS_SHIFT_MASK or (1 shl 18) or NS_OPTION_MASK or (1 shl 20)
 
 fun main() = application {
+    // Application scoped: one graph for the whole process, never rebuilt by a recomposition.
+    val container = remember { AppContainer() }
     var windowVisible by remember { mutableStateOf(true) }
     var previewOpen by remember { mutableStateOf(false) }
     var preferredHeight by remember { mutableStateOf(400.dp) }
@@ -53,9 +57,9 @@ fun main() = application {
     var frontmostWindowRect by remember { mutableStateOf<ScreenRect?>(null) }
 
     val controller = remember { ClipperController() }
-    val native = remember { createNativeDataSource() }
+    val native = container.native
 
-    val settings = controller.settings
+    val settings = controller.hostUiState.settings
 
     val windowState = rememberWindowState(
         width = settings.windowWidth.dp,
@@ -67,8 +71,8 @@ fun main() = application {
     // glyph is tinted for the current theme instead.
     val trayTint = if (isSystemInDarkTheme()) Color.White else Color.Black
     // `AppDelegate.isStatusItemDisabled`: the icon is dimmed while capture is paused.
-    val trayColor = if (controller.isStatusItemDisabled) trayTint.copy(alpha = 0.4f) else trayTint
-    val trayIcon = rememberVectorPainter(menuIconVector(controller.menuIcon, trayColor))
+    val trayColor = if (controller.hostUiState.isStatusItemDisabled) trayTint.copy(alpha = 0.4f) else trayTint
+    val trayIcon = rememberVectorPainter(menuIconVector(controller.hostUiState.menuIcon, trayColor))
 
     fun hidePanel() {
         windowVisible = false
@@ -93,7 +97,7 @@ fun main() = application {
     // the user records a different shortcut.
     DisposableEffect(native, settings.popupShortcut) {
         val handle = GlobalShortcut.fromSpec(settings.popupShortcut)?.let { shortcut ->
-            native.registerGlobalHotKey(shortcut) {
+            MacGlobalHotKey.register(shortcut) {
                 if (!windowVisible) {
                     // `Popup.handleFirstKeyDown`: open and wait to see if the key is held.
                     captureFrontmostWindow()
@@ -142,11 +146,14 @@ fun main() = application {
         onDispose { controller.resetPositionAction = {} }
     }
 
-    // Maccy's floating panel hugs its content and widens by the slideout width when the
-    // preview opens.
+    // Port of `SlideoutController.computeSizeWithPreview` + `FloatingPanel.windowWillResize`:
+    // the window is the content width, plus the slideout width while the preview is open, and
+    // both sides never shrink below their own minimum (`minimumContentWidth` / `minimumSlideoutWidth`).
     LaunchedEffect(previewOpen, preferredHeight, settings.windowWidth, settings.previewWidth) {
+        val contentWidth = settings.windowWidth.dp.coerceAtLeast(Popup.minimumContentWidth)
+        val slideoutWidth = settings.previewWidth.dp.coerceAtLeast(Popup.minimumPreviewWidth)
         windowState.size = DpSize(
-            width = (settings.windowWidth + if (previewOpen) settings.previewWidth else 0).dp,
+            width = contentWidth + if (previewOpen) slideoutWidth else 0.dp,
             height = preferredHeight,
         )
     }
@@ -197,7 +204,7 @@ fun main() = application {
                 }
 
                 override fun windowLostFocus(event: WindowEvent?) {
-                    if (!windowVisible || controller.isModalOpen) return
+                    if (!windowVisible || controller.hostUiState.isModalOpen) return
                     // Ignore the transient focus loss right after the panel is shown.
                     if (System.currentTimeMillis() - lastFocusGainedAt < 250) return
                     hidePanel()
@@ -210,6 +217,7 @@ fun main() = application {
         // Hiding the window (instead of disposing it) keeps the clipboard listener alive,
         // so a "paste automatically" action reaches the previously focused application.
         App(
+            container = container,
             onRequestHideWindow = { hidePanel() },
             onQuit = ::exitApplication,
             onPreviewOpenChange = { previewOpen = it },
@@ -221,7 +229,7 @@ fun main() = application {
     }
 
     if (settings.showInStatusBar) {
-        val recentCopy = controller.recentCopyText
+        val recentCopy = controller.hostUiState.recentCopyText
         Tray(
             icon = trayIcon,
             state = rememberTrayState(),
@@ -248,7 +256,7 @@ fun main() = application {
                     },
                 )
                 Item(
-                    text = if (controller.isPaused) "恢复记录" else "暂停记录",
+                    text = if (controller.hostUiState.isPaused) "恢复记录" else "暂停记录",
                     onClick = { controller.togglePause() },
                 )
                 Separator()
