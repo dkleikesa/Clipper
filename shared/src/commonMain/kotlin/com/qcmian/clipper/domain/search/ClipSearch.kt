@@ -2,9 +2,9 @@ package com.qcmian.clipper.domain.search
 
 import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.model.SearchResult
-import com.qcmian.clipper.domain.model.SearchMode
+import com.qcmian.clipper.settings.SearchMode
 
-/** Port of Maccy's `Search`. */
+/** 对应 Maccy 的 `Search`。 */
 object ClipSearch {
     fun search(query: String, items: List<ClipItem>, mode: SearchMode): List<SearchResult> {
         if (query.isEmpty()) return items.map { SearchResult(it) }
@@ -35,7 +35,7 @@ object ClipSearch {
             }
         }
 
-    /** Port of `Search.simpleSearch(_:within:options: .regularExpression)`, case sensitive. */
+    /** 对应 `Search.simpleSearch(_:within:options: .regularExpression)`，区分大小写。 */
     private fun regexp(query: String, items: List<ClipItem>): List<SearchResult> {
         val regex = runCatching { Regex(query) }.getOrNull() ?: return emptyList()
         return items.mapNotNull { item ->
@@ -45,10 +45,9 @@ object ClipSearch {
     }
 
     /**
-     * Port of `Search.fuzzySearch(_:within:)`. Maccy scores with Fuse's bitap algorithm:
-     * `score = errors / pattern.length`, and anything above the `0.7` threshold is
-     * rejected. The same metric is reproduced with an approximate substring edit distance,
-     * so the accepted matches and the ranking line up with `Fuse(threshold: 0.7)`.
+     * 对应 `Search.fuzzySearch(_:within:)`。Maccy 用 Fuse 的 bitap 算法打分：
+     * `score = errors / pattern.length`，超过 `0.7` 阈值的直接拒绝。这里用近似的子串编辑距离
+     * 复现同一度量，使命中的集合与排序与 `Fuse(threshold: 0.7)` 一致。
      */
     private fun fuzzy(query: String, items: List<ClipItem>): List<SearchResult> {
         val needle = query.lowercase()
@@ -68,8 +67,8 @@ object ClipSearch {
     private data class FuzzyMatch(val score: Double, val ranges: List<IntRange>)
 
     /**
-     * Minimum number of edits (substitution / insertion / deletion) needed to turn
-     * [needle] into some substring of [haystack], divided by `needle.length`.
+     * 把 [needle] 变成 [haystack] 的某个子串所需的最少编辑次数（替换 / 插入 / 删除），
+     * 再除以 `needle.length`。
      */
     private fun fuzzyMatch(needle: String, haystack: String): FuzzyMatch? {
         val m = needle.length
@@ -78,8 +77,8 @@ object ClipSearch {
 
         val maxErrors = (m * FUZZY_THRESHOLD).toInt()
 
-        // Cheap rejection: a character that is entirely absent has to be paid for with at
-        // least one edit, so more missing characters than `maxErrors` cannot match.
+        // 低成本预筛：完全缺失的字符至少要付一次编辑代价，因此缺失字符数超过 `maxErrors`
+        // 就不可能命中。
         val available = HashMap<Char, Int>()
         for (character in haystack) available[character] = (available[character] ?: 0) + 1
         var missing = 0
@@ -89,9 +88,8 @@ object ClipSearch {
         }
         if (missing > maxErrors) return null
 
-        // dp[i][j] = edits needed to match needle[0..i) with a suffix of haystack[0..j).
-        // The empty pattern matches anywhere for free, which turns this into a substring
-        // match rather than a full-string one.
+        // dp[i][j] = 用 haystack[0..j) 的某个后缀匹配 needle[0..i) 所需的编辑次数。
+        // 空前缀可以零代价匹配任意位置，因此这变成子串匹配而非整串匹配。
         val dp = Array(m + 1) { IntArray(n + 1) }
         for (i in 1..m) dp[i][0] = i
 
@@ -116,7 +114,7 @@ object ClipSearch {
         }
         if (best > maxErrors) return null
 
-        // Walk the table back to recover the matched character offsets for highlighting.
+        // 回溯表格，还原出匹配到的字符偏移，用于高亮。
         val indices = mutableListOf<Int>()
         var i = m
         var j = bestEnd
@@ -158,9 +156,9 @@ object ClipSearch {
 
     private data class ScoredResult(val result: SearchResult, val score: Double)
 
-    /** Maccy's `Search.fuzzySearchLimit`. */
+    /** Maccy 的 `Search.fuzzySearchLimit`。 */
     private const val FUZZY_SEARCH_LIMIT = 5_000
 
-    /** Maccy's `Fuse(threshold: 0.7)`. */
+    /** Maccy 的 `Fuse(threshold: 0.7)`。 */
     private const val FUZZY_THRESHOLD = 0.7
 }

@@ -7,23 +7,23 @@ import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 
 /**
- * Port of Maccy's `NSRunningApplication.windowFrame`: looks up the bounds of the main window
- * of the frontmost application through `CGWindowListCopyWindowInfo`.
+ * 对应 Maccy 的 `NSRunningApplication.windowFrame`：通过 `CGWindowListCopyWindowInfo`
+ * 查出最前应用主窗口的边界。
  *
- * Every call is defensive and degrades to `null` when CoreGraphics or CoreFoundation is not
- * available, so the caller simply falls back to another popup position.
+ * 每次调用都是防御式的，当 CoreGraphics 或 CoreFoundation 不可用时降级为 `null`，
+ * 于是调用方只是退回到另一种弹窗位置。
  */
 object MacWindow {
-    /** `kCGWindowListOptionOnScreenOnly`. */
+    /** `kCGWindowListOptionOnScreenOnly`。 */
     private const val WINDOW_LIST_ON_SCREEN_ONLY = 1
 
-    /** `kCGWindowListExcludeDesktopElements`. */
+    /** `kCGWindowListExcludeDesktopElements`。 */
     private const val WINDOW_LIST_EXCLUDE_DESKTOP_ELEMENTS = 16
 
-    /** `kCFStringEncodingUTF8`. */
+    /** `kCFStringEncodingUTF8`。 */
     private const val CF_STRING_ENCODING_UTF8 = 0x0800_0100
 
-    /** `kCFNumberDoubleType`, `CFNumberGetValue` converts any CFNumber to it. */
+    /** `kCFNumberDoubleType`，`CFNumberGetValue` 能把任意 CFNumber 转成它。 */
     private const val CF_NUMBER_DOUBLE_TYPE = 13
 
     private val coreGraphics: NativeLibrary? = runCatching {
@@ -42,7 +42,7 @@ object MacWindow {
     private val numberGetValue: Function? = coreFoundation?.getFunction("CFNumberGetValue")
     private val release: Function? = coreFoundation?.getFunction("CFRelease")
 
-    /** Bounds of the first on-screen window owned by [pid], in screen points. */
+    /** [pid] 拥有的第一个屏幕内窗口的边界，单位为屏幕点。 */
     fun frontmostWindowRect(pid: Long): ScreenRect? {
         val listCopy = windowListCopy ?: return null
         if (pid <= 0) return null

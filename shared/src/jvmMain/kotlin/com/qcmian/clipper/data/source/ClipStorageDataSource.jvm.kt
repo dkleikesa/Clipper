@@ -1,50 +1,31 @@
 package com.qcmian.clipper.data.source
 
-import com.qcmian.clipper.domain.model.ClipItem
-import com.qcmian.clipper.domain.model.AppSettings
-import com.qcmian.clipper.util.decodeJsonOrNull
-import com.qcmian.clipper.util.encodeJson
+import androidx.room3.Room
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import com.qcmian.clipper.data.local.ClipperDatabase
+import com.qcmian.clipper.data.local.RoomClipStorageDataSource
 import com.qcmian.clipper.util.formatBytes
 import java.io.File
 
+private const val DATABASE_NAME = "clipper.db"
+
 /**
- * File based storage living in `~/.clipper`, mirroring Maccy's application support
- * directory layout.
+ * 位于 `~/.clipper` 的数据库，对应 Maccy 的应用支持目录布局。
  */
-private class JvmClipStorageDataSource : ClipStorageDataSource {
-    private val directory = File(System.getProperty("user.home") ?: ".", ".clipper")
-    private val itemsFile = File(directory, "history.json")
-    private val settingsFile = File(directory, "settings.json")
+private fun databaseFile(): File =
+    File(File(System.getProperty("user.home") ?: ".", ".clipper"), DATABASE_NAME)
 
-    override fun loadItems(): List<ClipItem> =
-        decodeJsonOrNull<List<ClipItem>>(read(itemsFile)).orEmpty()
-
-    override fun saveItems(items: List<ClipItem>) {
-        write(itemsFile, encodeJson(items))
-    }
-
-    override fun loadSettings(): AppSettings =
-        decodeJsonOrNull<AppSettings>(read(settingsFile)) ?: AppSettings()
-
-    override fun saveSettings(settings: AppSettings) {
-        write(settingsFile, encodeJson(settings))
-    }
-
-    override fun storageSize(): String? {
-        val bytes = runCatching { itemsFile.length() }.getOrNull() ?: return null
-        // Maccy returns an empty string when the store is effectively empty.
-        return if (bytes > 1) formatBytes(bytes) else ""
-    }
-
-    private fun read(file: File): String? =
-        runCatching { if (file.isFile) file.readText() else null }.getOrNull()
-
-    private fun write(file: File, content: String) {
-        runCatching {
-            directory.mkdirs()
-            file.writeText(content)
-        }
-    }
+private fun createDatabase(): ClipperDatabase {
+    val file = databaseFile()
+    file.parentFile?.mkdirs()
+    return Room.databaseBuilder<ClipperDatabase>(name = file.absolutePath)
+        .setDriver(BundledSQLiteDriver())
+        .build()
 }
 
-actual fun createClipStorageDataSource(): ClipStorageDataSource = JvmClipStorageDataSource()
+actual fun createClipStorageDataSource(): ClipStorageDataSource =
+    RoomClipStorageDataSource(createDatabase()) {
+        val bytes = databaseFile().length()
+        // 存储实际为空时，Maccy 返回空字符串。
+        if (bytes > 1) formatBytes(bytes) else ""
+    }

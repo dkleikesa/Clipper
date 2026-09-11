@@ -1,4 +1,4 @@
-package com.qcmian.clipper
+package com.qcmian.clipper.desktop.ui
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -8,13 +8,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathBuilder
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.domain.model.MenuIcon
+import com.qcmian.clipper.settings.MenuIcon
 
 /**
- * The four status bar glyphs of Maccy's `MenuIcon` enum, drawn as vectors.
+ * Maccy `MenuIcon` 枚举中的四个状态栏图形，以矢量方式绘制。
  *
- * macOS template images invert automatically with the menu bar appearance; Compose Desktop
- * does not expose that, so the caller passes the colour matching the current theme.
+ * macOS 的模板图片会随菜单栏外观自动反相；Compose Desktop 不暴露该能力，
+ * 因此由调用方传入与当前主题匹配的颜色。
  */
 fun menuIconVector(icon: MenuIcon, color: Color): ImageVector = when (icon) {
     MenuIcon.MACCY -> clipperLogo(color)
@@ -108,7 +108,7 @@ private fun paperclipIcon(color: Color): ImageVector = builder("Paperclip").appl
     }
 }.build()
 
-/** Draws a circle with two half arcs, which is how `PathBuilder` expresses one. */
+/** 用两段半圆弧画一个圆，这是 `PathBuilder` 表达圆的方式。 */
 private fun PathBuilder.circle(centerX: Float, centerY: Float, radius: Float) {
     moveTo(centerX - radius, centerY)
     arcTo(

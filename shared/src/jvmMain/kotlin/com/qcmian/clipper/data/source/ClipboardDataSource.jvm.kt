@@ -25,10 +25,10 @@ import com.qcmian.clipper.util.decodeBase64
 import com.qcmian.clipper.util.encodeBase64
 
 /**
- * Desktop (JVM) clipboard support built on AWT.
+ * 基于 AWT 的桌面端（JVM）剪贴板支持。
  *
- * Like Maccy, the clipboard is inspected on a timer instead of relying on ownership
- * notifications, which behave inconsistently across desktop environments.
+ * 与 Maccy 一样，剪贴板由定时器轮询，而不依赖所有权通知——
+ * 后者在不同桌面环境下行为并不一致。
  */
 private class JvmClipboardDataSource : ClipboardDataSource {
     private val clipboard: Clipboard = Toolkit.getDefaultToolkit().systemClipboard
@@ -51,9 +51,8 @@ private class JvmClipboardDataSource : ClipboardDataSource {
 
         if (text == null && image == null && files.isEmpty()) return false
 
-        // The fingerprint is intentionally *not* refreshed here: the polling loop will
-        // observe the write and the repository will move the selected item to the top,
-        // which is exactly what Maccy does.
+        // 这里刻意*不*刷新指纹：轮询循环会观察到这次写入，仓库随后把选中的条目排到最前面，
+        // 这正是 Maccy 的行为。
         return runCatching {
             clipboard.setContents(ClipTransferable(text, image, files), null)
         }.isSuccess
@@ -103,8 +102,8 @@ private class JvmClipboardDataSource : ClipboardDataSource {
         val text = readText(flavors)
         val imageBase64 = readImage(flavors)
         val files = readFiles(flavors)
-        // AWT only exposes its own mime types, not the native pasteboard types, but that is
-        // still enough for the "ignored pasteboard types" preference to be useful.
+        // AWT 只暴露它自己的 mime 类型，而不是系统原生粘贴板类型，但这已足以让
+        // 「忽略的剪贴板类型」偏好发挥作用。
         val types = flavors.map { it.mimeType }
         return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files, types = types)
     }
@@ -163,7 +162,7 @@ private class JvmClipboardDataSource : ClipboardDataSource {
     }
 }
 
-/** Carries every representation the item has, so pasting into any app works. */
+/** 携带该条目拥有的每一种表示，使其能粘贴进任何应用。 */
 private class ClipTransferable(
     private val text: String?,
     private val image: BufferedImage?,

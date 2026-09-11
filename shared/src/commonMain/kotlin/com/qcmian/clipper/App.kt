@@ -20,34 +20,30 @@ import com.qcmian.clipper.ui.state.ClipboardUiAction
 import com.qcmian.clipper.ui.theme.ClipperTheme
 
 /**
- * Entry point shared by every target.
+ * 所有目标共用的入口。
  *
- * It creates the state holder from the host provided [container] and forwards the host
- * callbacks; the actual UI lives in [HistoryScreen] and is a pure function of the state.
+ * 它用宿主提供的 [container] 创建状态持有者，并转发宿主的回调；真正的界面在 [HistoryScreen]，
+ * 是状态的纯函数。
  *
- * @param container the dependency graph owned by the host (Application on Android, the process
- *   entry point on the other targets) so it outlives every composition.
- * @param onRequestHideWindow lets the host hide its window before a "paste automatically"
- *   action is delivered, so the keystroke reaches the previously focused application.
- * @param onQuit the "退出" footer row. `null` hides the row on platforms that cannot quit.
- * @param onPreviewOpenChange reports the preview slideout state so a desktop host can widen
- *   its window the same way Maccy does.
- * @param autoPreview whether the preview may slide out on its own. Only hosts that can show
- *   it next to the list should enable it.
- * @param previewOnLeft mirrors `SlideoutController.computePlacement`: the preview slides out
- *   on the left when there is no room for it on the right of the popup.
- * @param controller lets a host (the desktop tray) observe and drive the panel.
- * @param onPreferredHeightChange reports the height the popup would like to have so a desktop
- *   host can hug its content the way Maccy's floating panel does.
+ * @param container 由宿主（Android 上是 `Application`，其它目标是进程入口）持有的依赖图，
+ *   因此它的存活时间超过任何一次组合。
+ * @param onRequestHideWindow 让宿主在「自动粘贴」动作送达之前隐藏窗口，
+ *   使按键能到达此前聚焦的应用。
+ * @param onQuit 「退出」页脚行。无法退出的平台上传入 `null` 会隐藏该行。
+ * @param onPreviewOpenChange 上报预览滑出面板的状态，使桌面宿主能像 Maccy 那样加宽窗口。
+ * @param previewOnLeft 对应 `SlideoutController.computePlacement`：弹窗右侧放不下时，
+ *   预览改从左侧滑出。
+ * @param controller 让宿主（桌面托盘）观察并驱动面板。
+ * @param onPreferredHeightChange 上报弹窗希望得到的高度，使桌面宿主能像 Maccy 的浮动面板那样
+ *   贴合内容。
  */
 @Composable
 fun App(
-    /** Application scoped dependency graph, created by the host (never by a composable). */
+    /** 应用级依赖图，由宿主创建（绝不由 composable 创建）。 */
     container: AppContainer,
     onRequestHideWindow: () -> Unit = {},
     onQuit: (() -> Unit)? = null,
     onPreviewOpenChange: (Boolean) -> Unit = {},
-    autoPreview: Boolean = false,
     previewOnLeft: Boolean = false,
     controller: ClipperController? = null,
     onPreferredHeightChange: (Dp) -> Unit = {},
@@ -59,7 +55,6 @@ fun App(
                 platform = container.platform,
                 useCases = container.useCases,
                 showQuit = onQuit != null,
-                autoPreview = autoPreview,
             )
         }
 
@@ -69,15 +64,14 @@ fun App(
             viewModel.onRequestHideWindow = onRequestHideWindow
             viewModel.onQuitRequest = onQuit ?: {}
             onDispose {
-                // Port of `AppDelegate.applicationWillTerminate`: flush the debounced writes
-                // and apply the "clear history on quit" preference. Only hosts that can
-                // actually quit opt in.
+                // 对应 `AppDelegate.applicationWillTerminate`：把防抖的写入落盘，
+                // 并应用「退出时清空历史」偏好。只有真正能退出的宿主才会走到这里。
                 if (onQuit != null) viewModel.onQuit() else container.repository.flush()
             }
         }
 
-        // The host drives the panel through these counters (`PopupState.toggle/cycle`);
-        // forward them as ordinary actions so the ViewModel stays the only state owner.
+        // 宿主通过这些计数器驱动面板（`PopupState.toggle/cycle`）；把它们当作普通动作转发，
+        // 使 ViewModel 保持为唯一的状态所有者。
         val openRequests = controller?.openRequests ?: 0
         val cycleRequests = controller?.cycleRequests ?: 0
         val acceptRequests = controller?.acceptRequests ?: 0
@@ -96,7 +90,7 @@ fun App(
             if (hideRequests > 0) viewModel.onAction(ClipboardUiAction.Hidden)
         }
 
-        // The tray menu calls into these slots.
+        // 托盘菜单会调用这些槽位。
         LaunchedEffect(controller, viewModel) {
             controller?.let { host ->
                 host.togglePauseAction = { onlyNext ->
@@ -104,10 +98,11 @@ fun App(
                 }
                 host.togglePreviewAction = { viewModel.onAction(ClipboardUiAction.TogglePreview) }
                 host.clearSearchAction = { viewModel.onAction(ClipboardUiAction.ClearSearch) }
+                host.quitAction = { viewModel.onQuit() }
             }
         }
 
-        // `AppState.menuIconText`: the most recent unpinned copy, shortened like Maccy does.
+        // `AppState.menuIconText`：最近一条未置顶的复制，按 Maccy 的方式缩短。
         val recentCopyText = remember(state.results, state.settings.showRecentCopyInMenuBar) {
             if (!state.settings.showRecentCopyInMenuBar) {
                 ""
@@ -122,9 +117,8 @@ fun App(
             }
         }
 
-        // One projection instead of a dozen mirrors: the host visible slice of the state is
-        // handed to the controller as a single immutable value, so there is exactly one
-        // source of truth for it.
+        // 用一个投影取代十几个镜像字段：面向宿主的那部分状态以单个不可变值交给控制器，
+        // 因此它只有一个数据源。
         SideEffect {
             controller?.hostUiState = HostUiState(
                 settings = state.settings,

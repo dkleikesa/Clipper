@@ -26,13 +26,13 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.model.isHexColor
-import com.qcmian.clipper.domain.model.HighlightMatch
+import com.qcmian.clipper.settings.HighlightMatch
 import com.qcmian.clipper.ui.KeyShortcut
 import com.qcmian.clipper.ui.hexToColor
 
 /**
- * Port of Maccy's `HistoryItemView`. A row is either a colour swatch followed by the title,
- * or the image thumbnail on its own — never both a title and a thumbnail.
+ * 对应 Maccy 的 `HistoryItemView`。一行要么是色块加标题，要么只有图片缩略图——
+ * 绝不会同时出现标题与缩略图。
  */
 @Composable
 fun HistoryRow(
@@ -42,17 +42,17 @@ fun HistoryRow(
     isSelected: Boolean,
     highlight: HighlightMatch,
     showColorSwatch: Boolean,
-    /** Maccy's `imageMaxHeight` preference. */
+    /** Maccy 的 `imageMaxHeight` 偏好。 */
     maxImageHeight: Dp,
-    /** Base64 PNG of the source application icon, `null` when icons are off or unknown. */
+    /** 来源应用图标的 base64 PNG；图标关闭或未知时为 `null`。 */
     appIconBase64: String?,
     onClick: () -> Unit,
     onHover: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val appIcon = rememberImageBitmap(appIconBase64)
-    // Maccy runs `ColorImage.from(item.title)` on every item; requiring the `#` prefix keeps
-    // plain three-letter words from being mistaken for a hex colour.
+    // Maccy 会对每个条目执行 `ColorImage.from(item.title)`；这里要求带 `#` 前缀，
+    // 以免普通的三个字母的单词被误认成十六进制颜色。
     val swatch = if (showColorSwatch && isHexColor(item.title)) hexToColor(item.title) else null
     val thumbnail = rememberImageBitmap(item.imageBase64)
 
@@ -99,14 +99,14 @@ private fun ColorSwatch(color: Color) {
 }
 
 /**
- * Decodes [encoded] once per payload and keeps the bitmap in [ImageCache], so scrolling a row
- * back into view does not decode the same image again.
+ * 对每个载荷只解码一次 [encoded]，并把位图保存在 [ImageCache] 中，
+ * 这样某一行重新滚入视野时不会重复解码同一张图片。
  */
 @Composable
 internal fun rememberImageBitmap(encoded: String?): ImageBitmap? =
     remember(encoded) { encoded?.let(ImageCache::decode) }
 
-/** Port of `HistoryItemDecorator.highlight(_:_:)`. */
+/** 对应 `HistoryItemDecorator.highlight(_:_:)`。 */
 private fun highlightedTitle(
     title: String,
     ranges: List<IntRange>,
@@ -126,8 +126,8 @@ private fun highlightedTitle(
         )
     }
 
-    // Port of `HistoryItemDecorator.highlight`: the attributed title is capped at 500
-    // characters, so offsets beyond that are dropped.
+    // 对应 `HistoryItemDecorator.highlight`：带属性的标题上限为 500 个字符，
+    // 因此超出部分的偏移会被丢弃。
     val visible = title.take(HIGHLIGHT_LENGTH)
     return buildAnnotatedString {
         append(visible)
@@ -139,5 +139,5 @@ private fun highlightedTitle(
     }
 }
 
-/** Maccy's `HistoryItemDecorator.highlight` title cap. */
+/** Maccy `HistoryItemDecorator.highlight` 的标题长度上限。 */
 private const val HIGHLIGHT_LENGTH = 500

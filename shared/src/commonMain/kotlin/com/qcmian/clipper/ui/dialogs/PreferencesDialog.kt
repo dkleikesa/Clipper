@@ -50,15 +50,15 @@ import androidx.compose.ui.window.Dialog
 import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.action.ClipAction
 import com.qcmian.clipper.domain.action.modifierFlagsOf
-import com.qcmian.clipper.domain.model.AppSettings
-import com.qcmian.clipper.domain.model.HighlightMatch
-import com.qcmian.clipper.domain.model.MenuIcon
-import com.qcmian.clipper.domain.model.PinPosition
-import com.qcmian.clipper.domain.model.PopupPosition
-import com.qcmian.clipper.domain.model.SearchMode
-import com.qcmian.clipper.domain.model.SearchVisibility
-import com.qcmian.clipper.domain.model.ShortcutSpec
-import com.qcmian.clipper.domain.model.SortBy
+import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.settings.HighlightMatch
+import com.qcmian.clipper.settings.MenuIcon
+import com.qcmian.clipper.settings.PinPosition
+import com.qcmian.clipper.settings.PopupPosition
+import com.qcmian.clipper.settings.SearchMode
+import com.qcmian.clipper.settings.SearchVisibility
+import com.qcmian.clipper.settings.ShortcutSpec
+import com.qcmian.clipper.settings.SortBy
 import com.qcmian.clipper.ui.ModifierFlags
 import com.qcmian.clipper.ui.components.rememberApplicationIcon
 import com.qcmian.clipper.ui.components.rememberApplicationName
@@ -68,8 +68,8 @@ import com.qcmian.clipper.ui.shortcutCharacterOf
 import kotlin.math.roundToInt
 
 /**
- * The counterpart of Maccy's preferences window (General / Storage / Appearance / Pins /
- * Ignore / Advanced panes), condensed into a single scrollable dialog.
+ * 对应 Maccy 的偏好设置窗口（通用 / 存储 / 外观 / 置顶 / 忽略 / 高级 六个分页），
+ * 这里压缩成一个可滚动的对话框。
  */
 @Composable
 fun PreferencesDialog(
@@ -127,7 +127,7 @@ fun PreferencesDialog(
     }
 }
 
-/** The dialog body, split out so it can be rendered and previewed on its own. */
+/** 对话框主体，独立出来以便单独渲染与预览。 */
 @Composable
 fun PreferencesContent(
     settings: AppSettings,
@@ -152,12 +152,12 @@ fun PreferencesContent(
 ) {
     val colors = MaterialTheme.colorScheme
 
-    // `KeyboardShortcuts.Recorder`: while a slot is being recorded every key press is
-    // captured here instead of reaching the text fields below.
+    // `KeyboardShortcuts.Recorder`：某个槽位正在录制时，所有按键都在这里被截获，
+    // 而不会落到下面的文本输入框。
     var recording by remember { mutableStateOf<String?>(null) }
-    // `PinsSettingsPane`'s table selection: the selected pin row is the one the Delete key
-    // removes. A pin can disappear through another path (⌥P in the list, a delete from the
-    // list, …), so the selection is only honoured while the item is still pinned.
+    // `PinsSettingsPane` 的表格选中：被选中的置顶行就是 Delete 键要删除的那一行。
+    // 置顶项可能通过其它途径消失（列表里按 ⌥P、从列表删除……），
+    // 因此只有当该条目仍处于置顶状态时才认可这次选中。
     var selectedPin by remember { mutableStateOf<String?>(null) }
     val effectiveSelectedPin = selectedPin?.takeIf { id -> pinnedItems.any { it.id == id } }
     val recorderFocus = remember { FocusRequester() }
@@ -165,9 +165,8 @@ fun PreferencesContent(
         if (recording != null) runCatching { recorderFocus.requestFocus() }
     }
 
-    // The selected pin row is removed with the Delete key, handled in the bubble phase on the
-    // root column below. That handler only ever sees the key while the dialog owns the focus,
-    // so the column takes it as soon as the dialog opens.
+    // 被选中的置顶行由 Delete 键删除，处理放在下面根 Column 的冒泡阶段。
+    // 该处理器只在对话框持有焦点时才会收到按键，因此对话框一打开就让根 Column 取得焦点。
     LaunchedEffect(Unit) {
         runCatching { recorderFocus.requestFocus() }
     }
@@ -178,10 +177,10 @@ fun PreferencesContent(
         if (slot == null) {
             false
         } else if (event.type != KeyEventType.KeyDown || modifierKeys.isModifierKey(event)) {
-            // Swallow modifier-only presses so the recorder keeps waiting.
+            // 吞掉只按修饰键的事件，让录制器继续等待。
             true
         } else if (event.key == Key.Escape) {
-            // Escape cancels the recording instead of being captured as a shortcut.
+            // Escape 取消录制，而不是把它当作快捷键捕获。
             recording = null
             true
         } else {
@@ -208,9 +207,8 @@ fun PreferencesContent(
         }
     }
 
-    // Port of `PinsSettingsPane.onDeleteCommand`. Unlike the recorder above this runs in the
-    // bubble phase, so a focused alias/content field consumes Backspace/Delete first and
-    // editing text can never delete the row.
+    // 对应 `PinsSettingsPane.onDeleteCommand`。与上面的录制器不同，它运行在冒泡阶段，
+    // 因此处于焦点的别名 / 内容输入框会先消费 Backspace/Delete，编辑文本时绝不会误删该行。
     val deleteSelectedPin: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { event ->
         val id = effectiveSelectedPin
         if (id != null &&
@@ -280,7 +278,7 @@ fun PreferencesContent(
                         valueLabel = "${settings.historySize} 条未置顶记录" +
                             (storageSize?.takeIf { it.isNotEmpty() }?.let { " · 占用 $it" } ?: ""),
                         value = settings.historySize.toFloat(),
-                        // Maccy's `StorageSettingsPane` allows 1…999.
+                        // Maccy 的 `StorageSettingsPane` 允许 1…999。
                         range = 1f..999f,
                         onValueChange = { value ->
                             val size = value.roundToInt().coerceAtLeast(1)
@@ -307,8 +305,8 @@ fun PreferencesContent(
                         description = "只保留纯文本。",
                         checked = settings.removeFormattingByDefault,
                     ) { value -> onSettingsChange { it.copy(removeFormattingByDefault = value) } }
-                    // Port of `GeneralSettingsPane`'s "Modifiers" explanation, which shows
-                    // which combination performs each action under the current preferences.
+                    // 对应 `GeneralSettingsPane` 的「修饰键」说明，它展示当前偏好下
+                    // 每种动作对应的按键组合。
                     Text(
                         text = "按 ${modifierFlagsOf(ClipAction.COPY, settings)} 复制，" +
                             "${modifierFlagsOf(ClipAction.PASTE, settings)} 粘贴，" +
@@ -433,9 +431,8 @@ fun PreferencesContent(
                             Text("重置弹窗位置")
                         }
                     }
-                    // `AppearanceSettingsPane.screenPicker(for:)`: the screen picker is only
-                    // offered for the two positions that are anchored to a whole screen, and
-                    // only when there is more than one screen to choose from.
+                    // `AppearanceSettingsPane.screenPicker(for:)`：只为那两个锚定到整块屏幕的
+                    // 位置提供屏幕选择器，并且仅在有多块屏幕可选时才显示。
                     if (screenCount > 1 &&
                         (settings.popupPosition == PopupPosition.SCREEN_CENTER ||
                             settings.popupPosition == PopupPosition.LAST_POSITION)
@@ -458,7 +455,7 @@ fun PreferencesContent(
                         values = MenuIcon.entries,
                         selected = settings.menuIcon,
                         label = { it.label },
-                        // `AppearanceSettingsPane` disables the picker together with the icon.
+                        // `AppearanceSettingsPane` 会在隐藏图标的同时禁用该选择器。
                         enabled = settings.showInStatusBar,
                         onSelect = { value -> onSettingsChange { it.copy(menuIcon = value) } },
                     )
@@ -475,15 +472,11 @@ fun PreferencesContent(
                         onSelect = { value -> onSettingsChange { it.copy(pinTo = value) } },
                     )
                     SwitchRow(
-                        title = "显示标题",
-                        checked = settings.showTitle,
-                    ) { value -> onSettingsChange { it.copy(showTitle = value) } }
-                    SwitchRow(
                         title = "显示页脚",
                         checked = settings.showFooter,
                     ) { value -> onSettingsChange { it.copy(showFooter = value) } }
-                    // Port of `AppearanceSettingsPane`'s `OpenPreferencesWarning`, which tells
-                    // the user how to get the footer back once it is hidden.
+                    // 对应 `AppearanceSettingsPane` 的 `OpenPreferencesWarning`：
+                    // 页脚隐藏后，告诉用户如何把它找回来。
                     if (!settings.showFooter) {
                         Text(
                             text = "页脚已隐藏。按 ⌘, 打开偏好设置即可重新启用。",
@@ -511,25 +504,10 @@ fun PreferencesContent(
                         title = "图片最大高度",
                         valueLabel = "${settings.imageMaxHeight} pt",
                         value = settings.imageMaxHeight.toFloat(),
-                        // Maccy's `AppearanceSettingsPane` allows 1…200.
+                        // Maccy 的 `AppearanceSettingsPane` 允许 1…200。
                         range = 1f..200f,
                         onValueChange = { value ->
                             onSettingsChange { it.copy(imageMaxHeight = value.roundToInt()) }
-                        },
-                    )
-                    SwitchRow(
-                        title = "自动展开预览",
-                        description = "选中项稳定后自动滑出预览面板。",
-                        checked = settings.openPreviewAutomatically,
-                    ) { value -> onSettingsChange { it.copy(openPreviewAutomatically = value) } }
-                    SliderRow(
-                        title = "预览延迟",
-                        valueLabel = "${settings.previewDelay} 毫秒",
-                        value = settings.previewDelay.toFloat(),
-                        range = 200f..5_000f,
-                        enabled = settings.openPreviewAutomatically,
-                        onValueChange = { value ->
-                            onSettingsChange { it.copy(previewDelay = value.roundToInt()) }
                         },
                     )
                     SliderRow(
@@ -628,8 +606,8 @@ fun PreferencesContent(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     )
 
-                    // Port of `IgnoreApplicationsSettingsView`: the list of applications whose
-                    // copies are skipped, plus the application picker that adds new ones.
+                    // 对应 `IgnoreApplicationsSettingsView`：列出复制内容会被跳过的应用，
+                    // 以及用于添加新条目的应用选择器。
                     if (supportsApplicationInfo) {
                         Text(
                             text = "忽略应用",
@@ -702,8 +680,8 @@ fun PreferencesContent(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     )
-                    // Port of `IgnorePasteboardTypesSettingsView`'s
-                    // `Defaults.reset(.ignoredPasteboardTypes)` button.
+                    // 对应 `IgnorePasteboardTypesSettingsView` 的
+                    // `Defaults.reset(.ignoredPasteboardTypes)` 按钮。
                     TextButton(
                         onClick = {
                             ignoredTypesText =

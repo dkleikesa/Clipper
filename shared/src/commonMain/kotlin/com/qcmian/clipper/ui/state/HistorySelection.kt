@@ -1,10 +1,9 @@
 package com.qcmian.clipper.ui.state
 
 /**
- * Which row of the history list — or which footer item — is highlighted.
+ * 当前高亮的是历史列表的哪一行——或是哪个页脚项。
  *
- * `footerIndex` is `-1` while the list owns the highlight, exactly like Maccy's
- * `NavigationManager`/`Footer` pair.
+ * 由列表持有高亮时，`footerIndex` 为 `-1`，与 Maccy 的 `NavigationManager`/`Footer` 组合一致。
  */
 data class HistorySelection(
     val historyIndex: Int = 0,
@@ -14,23 +13,23 @@ data class HistorySelection(
 }
 
 /**
- * Port of Maccy's `NavigationManager`: the highlight movement rules of the history panel.
+ * 对应 Maccy 的 `NavigationManager`：历史面板的高亮移动规则。
  *
- * Extracted from `ClipboardViewModel` so the rules read on their own — every function is pure
- * and the caller decides when to write the result back to its state, and therefore which of
- * the `select` side effects (keyboard navigation flag, auto preview) that implies.
+ * 从 `ClipboardViewModel` 中抽离出来，使规则本身可以独立阅读——每个函数都是纯函数，
+ * 由调用方决定何时把结果写回自己的状态，因而也决定了要触发哪些 `select` 副作用
+ * （键盘导航标志、自动预览）。
  */
 object HistoryNavigation {
 
-    /** `NavigationManager.select(item:)`: the list takes the highlight back. */
+    /** `NavigationManager.select(item:)`：列表重新接过高亮。 */
     fun history(index: Int, lastIndex: Int): HistorySelection =
         HistorySelection(historyIndex = index.coerceIn(0, maxOf(0, lastIndex)), footerIndex = -1)
 
-    /** Moves the highlight to a footer row, keeping the remembered list position. */
+    /** 把高亮移到某个页脚行，同时保留记住的列表位置。 */
     fun footer(current: HistorySelection, index: Int, footerCount: Int): HistorySelection =
         current.copy(footerIndex = index.coerceIn(0, maxOf(0, footerCount - 1)))
 
-    /** `NavigationManager.highlightNext(allowCycle:)`. */
+    /** `NavigationManager.highlightNext(allowCycle:)`。 */
     fun next(
         current: HistorySelection,
         lastIndex: Int,
@@ -39,7 +38,7 @@ object HistoryNavigation {
     ): HistorySelection = when {
         current.footerIndex >= 0 -> when {
             current.footerIndex < footerCount - 1 -> footer(current, current.footerIndex + 1, footerCount)
-            // Maccy wraps around inside the footer.
+            // Maccy 会在页脚内部循环。
             footerCount > 0 -> footer(current, 0, footerCount)
             else -> current
         }
@@ -50,7 +49,7 @@ object HistoryNavigation {
         else -> current
     }
 
-    /** `NavigationManager.highlightPrevious`. */
+    /** `NavigationManager.highlightPrevious`。 */
     fun previous(current: HistorySelection, lastIndex: Int): HistorySelection = when {
         current.footerIndex > 0 -> current.copy(footerIndex = current.footerIndex - 1)
         current.footerIndex == 0 -> history(maxOf(0, lastIndex), lastIndex)
@@ -58,7 +57,7 @@ object HistoryNavigation {
         else -> current
     }
 
-    /** `NavigationManager.highlightLast`: the last history item hands over to the footer. */
+    /** `NavigationManager.highlightLast`：最后一条历史会交棒给页脚。 */
     fun last(current: HistorySelection, lastIndex: Int, footerCount: Int): HistorySelection = when {
         current.footerIndex >= 0 -> current.copy(footerIndex = maxOf(0, footerCount - 1))
         lastIndex >= 0 && current.historyIndex == lastIndex && footerCount > 0 -> current.copy(footerIndex = 0)

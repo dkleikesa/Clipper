@@ -3,8 +3,8 @@ package com.qcmian.clipper.data.source
 import com.qcmian.clipper.domain.model.ClipboardSnapshot
 
 /**
- * Used when a platform clipboard is unavailable (for example when the Android context
- * was never initialised). Keeps the application functional instead of crashing.
+ * 平台剪贴板不可用时使用（例如 Android 的 context 从未初始化）。
+ * 让应用保持可用，而不是直接崩溃。
  */
 internal class FallbackClipboardDataSource : ClipboardDataSource {
     private var current: ClipboardSnapshot? = null

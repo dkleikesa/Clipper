@@ -16,8 +16,8 @@ import platform.UIKit.UIImagePNGRepresentation
 import platform.UIKit.UIPasteboard
 
 /**
- * iOS clipboard support. `UIPasteboard` has no change notification, so the pasteboard is
- * polled through its `changeCount`, the same way Maccy polls the macOS pasteboard.
+ * iOS 剪贴板支持。`UIPasteboard` 没有变更通知，因此通过 `changeCount` 轮询粘贴板，
+ * 与 Maccy 轮询 macOS 粘贴板的方式相同。
  */
 private class IosClipboardDataSource : ClipboardDataSource {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -56,8 +56,8 @@ private class IosClipboardDataSource : ClipboardDataSource {
             else -> false
         }
 
-        // `lastChangeCount` is intentionally not refreshed so the polling loop observes the
-        // write and the repository moves the selected item back to the top.
+        // 这里刻意不刷新 `lastChangeCount`，好让轮询循环观察到这次写入，
+        // 从而让仓库把选中的条目重新排到最前面。
         return written
     }
 
@@ -97,7 +97,7 @@ private class IosClipboardDataSource : ClipboardDataSource {
             ?.toByteArray()
             ?.let { encodeBase64(it) }
         val files = pasteboard.URLs.orEmpty().mapNotNull { (it as? NSURL)?.path }
-        // iOS exposes the real pasteboard type identifiers, the same strings Maccy matches on.
+        // iOS 会暴露真正的粘贴板类型标识，与 Maccy 用来匹配的是同一批字符串。
         val types = pasteboard.pasteboardTypes.orEmpty().mapNotNull { it as? String }
         return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files, types = types)
     }

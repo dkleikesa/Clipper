@@ -31,14 +31,11 @@ import com.qcmian.clipper.ui.icons.ClipperIcon
 import com.qcmian.clipper.ui.icons.ClipperIconKind
 
 /**
- * Port of Maccy's `HeaderView` / `ListHeaderView`: the title, the search field and the preview
- * toggle. Maccy collapses the header to zero height instead of removing it, so the search
- * field keeps focus and typing brings it back into view on its own.
+ * 对应 Maccy 的 `HeaderView` / `ListHeaderView`：搜索框与预览开关。Maccy 是把头部折叠为
+ * 零高度而不是移除它，这样搜索框能保持焦点，一输入就会自动把它带回视野。
  */
 @Composable
 fun HistoryHeader(
-    title: String,
-    showTitle: Boolean,
     visible: Boolean,
     query: String,
     onQueryChange: (String) -> Unit,
@@ -57,15 +54,6 @@ fun HistoryHeader(
             .then(if (visible) Modifier else Modifier.height(0.dp).clipToBounds()),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (showTitle) {
-            Text(
-                text = title,
-                fontSize = 13.sp,
-                color = colors.onSurfaceVariant,
-            )
-            Spacer(Modifier.width(5.dp))
-        }
-
         SearchField(
             query = query,
             onQueryChange = onQueryChange,
@@ -83,8 +71,8 @@ fun HistoryHeader(
                 .padding(horizontal = 4.dp),
             contentAlignment = Alignment.Center,
         ) {
-            // `HeaderView` mirrors the slideout placement: `sidebar.left` when the preview
-            // sits on the right, `sidebar.right` when it is docked on the left.
+            // `HeaderView` 会镜像滑出面板的位置：预览在右侧时用 `sidebar.left`，
+            // 停靠在左侧时用 `sidebar.right`。
             ClipperIcon(
                 if (previewOnLeft) ClipperIconKind.SIDEBAR_RIGHT else ClipperIconKind.SIDEBAR_LEFT,
                 size = 15.dp,
@@ -95,7 +83,7 @@ fun HistoryHeader(
     }
 }
 
-/** The banner Maccy shows while capture is paused, with its "resume" affordance. */
+/** Maccy 在记录暂停时显示的横幅，带「恢复」操作。 */
 @Composable
 fun PausedBanner(onlyNext: Boolean, onResume: () -> Unit) {
     val colors = MaterialTheme.colorScheme
@@ -127,7 +115,7 @@ fun PausedBanner(onlyNext: Boolean, onResume: () -> Unit) {
     }
 }
 
-/** The placeholder shown when the history or the search result set is empty. */
+/** 历史为空或搜索结果为空时显示的占位内容。 */
 @Composable
 fun EmptyState(searching: Boolean) {
     val colors = MaterialTheme.colorScheme
@@ -158,7 +146,7 @@ fun EmptyState(searching: Boolean) {
     }
 }
 
-/** The divider Maccy draws between the pinned block and the scrolling history. */
+/** Maccy 在置顶区块与可滚动历史之间画的分隔线。 */
 @Composable
 fun PinsSeparator() {
     HorizontalDivider(
@@ -170,7 +158,7 @@ fun PinsSeparator() {
     )
 }
 
-/** The transient toast shown at the bottom of the panel, e.g. "pasting is not supported". */
+/** 显示在面板底部的临时提示，例如「此平台不支持粘贴」。 */
 @Composable
 fun StatusToast(message: String) {
     val colors = MaterialTheme.colorScheme

@@ -12,11 +12,10 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
-import com.qcmian.clipper.domain.model.ShortcutSpec
+import com.qcmian.clipper.settings.ShortcutSpec
 
 /**
- * The modifier keys currently held down. Counterpart of `NSEvent.ModifierFlags`, including
- * the `⌃⌥⇧⌘` rendering order used by AppKit.
+ * 当前按下的修饰键。对应 `NSEvent.ModifierFlags`，包含 AppKit 使用的 `⌃⌥⇧⌘` 渲染顺序。
  */
 class ModifierFlags {
     var control by mutableStateOf(false)
@@ -30,7 +29,7 @@ class ModifierFlags {
 
     val isEmpty: Boolean get() = !control && !option && !shift && !command
 
-    /** `⌃⌥⇧⌘` in AppKit's order. */
+    /** AppKit 顺序下的 `⌃⌥⇧⌘`。 */
     val description: String
         get() = buildString {
             if (control) append('\u2303')
@@ -47,7 +46,7 @@ class ModifierFlags {
             if (command) add("command")
         }
 
-    /** `true` when [event] only carries a modifier key. */
+    /** 当 [event] 只是按下某个修饰键本身时返回 `true`。 */
     fun isModifierKey(event: KeyEvent): Boolean = when (event.key) {
         Key.ShiftLeft, Key.ShiftRight,
         Key.AltLeft, Key.AltRight,
@@ -59,8 +58,7 @@ class ModifierFlags {
     }
 
     /**
-     * Keeps the flags in sync with the platform. Modifier keys arrive as their own key
-     * events, every other event carries the current flags.
+     * 让这些标志与平台保持同步。修饰键以独立的按键事件到达，其它事件则携带当前的修饰键状态。
      */
     fun update(event: KeyEvent) {
         val pressed = event.type == KeyEventType.KeyDown
@@ -85,7 +83,7 @@ class ModifierFlags {
             command == shortcut.command
 }
 
-/** A single rendered shortcut, equivalent to one `KeyShortcut` in Maccy. */
+/** 单个被渲染出来的快捷键，等价于 Maccy 中的一个 `KeyShortcut`。 */
 data class KeyShortcut(
     val character: String,
     val control: Boolean = false,
@@ -93,7 +91,7 @@ data class KeyShortcut(
     val shift: Boolean = false,
     val command: Boolean = false,
 ) {
-    /** `⌥⌘`, rendered as its own text run by `KeyboardShortcutView`. */
+    /** `⌥⌘`，由 `KeyboardShortcutView` 渲染成独立的一段文本。 */
     val modifiers: String
         get() = buildString {
             if (control) append('\u2303')
@@ -102,13 +100,13 @@ data class KeyShortcut(
             if (command) append('\u2318')
         }
 
-    /** `⌥⌘⌫`, the full description. */
+    /** `⌥⌘⌫`，完整的描述。 */
     val label: String get() = modifiers + character
 }
 
 /**
- * Port of `KeyShortcut.create(character:)`: the plain ⌘ variant, the ⌥ variant and the
- * "paste without formatting" variant.
+ * 对应 `KeyShortcut.create(character:)`：普通的 ⌘ 变体、⌥ 变体，
+ * 以及「不带格式粘贴」变体。
  */
 fun keyShortcuts(character: String, pasteByDefault: Boolean): List<KeyShortcut> = listOf(
     KeyShortcut(character = character, command = true),
@@ -120,7 +118,7 @@ fun keyShortcuts(character: String, pasteByDefault: Boolean): List<KeyShortcut> 
     },
 )
 
-/** Port of `KeyShortcut.isVisible(_:_:)`: picks the variant matching the pressed modifiers. */
+/** 对应 `KeyShortcut.isVisible(_:_:)`：挑出与当前按下修饰键匹配的那个变体。 */
 fun visibleShortcut(shortcuts: List<KeyShortcut>, flags: ModifierFlags): KeyShortcut? {
     if (shortcuts.isEmpty()) return null
     if (shortcuts.size == 1) return shortcuts.first()
@@ -130,7 +128,7 @@ fun visibleShortcut(shortcuts: List<KeyShortcut>, flags: ModifierFlags): KeyShor
     return shortcuts.firstOrNull { flags.matches(it) } ?: commandVariant
 }
 
-/** The recordable character of a key event, `null` when the key only carries a modifier. */
+/** 按键事件中可被录制的字符；当该键只是修饰键时为 `null`。 */
 private val RECORDABLE_KEYS: Map<Key, String> = buildMap {
     put(Key.A, "A"); put(Key.B, "B"); put(Key.C, "C"); put(Key.D, "D"); put(Key.E, "E")
     put(Key.F, "F"); put(Key.G, "G"); put(Key.H, "H"); put(Key.I, "I"); put(Key.J, "J")
@@ -146,8 +144,7 @@ private val RECORDABLE_KEYS: Map<Key, String> = buildMap {
     put(Key.Backslash, "\\"); put(Key.Minus, "-"); put(Key.Equals, "="); put(Key.Grave, "`")
     put(Key.Spacebar, " ")
     put(Key.Backspace, "\u232b")
-    // Maccy's `KeyboardShortcuts.Recorder` accepts every key, so the function keys and the
-    // navigation cluster are recordable as well.
+    // Maccy 的 `KeyboardShortcuts.Recorder` 接受任意按键，因此功能键与导航键区也可录制。
     put(Key.F1, "F1"); put(Key.F2, "F2"); put(Key.F3, "F3"); put(Key.F4, "F4")
     put(Key.F5, "F5"); put(Key.F6, "F6"); put(Key.F7, "F7"); put(Key.F8, "F8")
     put(Key.F9, "F9"); put(Key.F10, "F10"); put(Key.F11, "F11"); put(Key.F12, "F12")
@@ -159,25 +156,25 @@ private val RECORDABLE_KEYS: Map<Key, String> = buildMap {
     put(Key.Delete, "\u2326"); put(Key.Escape, "\u238b")
 }
 
-/** The character a recorded key event represents, or `null` when it cannot be recorded. */
+/** 一次录制的按键事件所代表的字符；无法录制时为 `null`。 */
 fun shortcutCharacterOf(event: KeyEvent): String? = RECORDABLE_KEYS[event.key]
 
-/** Normalises a recorded character: single letters are uppercased, symbols stay as they are. */
+/** 规范化录制的字符：单个字母转为大写，符号保持原样。 */
 fun normalizeShortcutCharacter(character: String): String =
     if (character.length == 1) character.uppercase() else character
 
-/** The Compose `Key` a recorded character maps back to. */
+/** 某个录制字符反向映射回的 Compose `Key`。 */
 fun keyForShortcutCharacter(character: String): Key? {
     val normalized = normalizeShortcutCharacter(character)
     return RECORDABLE_KEYS.entries.firstOrNull { it.value == normalized }?.key
 }
 
 /**
- * Port of Maccy's `KeyChord` matching for the shortcuts the user can record
- * (`pin`, `delete`, `togglePreview`).
+ * 对应 Maccy 的 `KeyChord` 匹配逻辑，用于用户可录制的快捷键
+ * （`pin`、`delete`、`togglePreview`）。
  *
- * On platforms without a ⌘ key, `Ctrl` doubles as `⌘`, which is why [ShortcutSpec.command]
- * also accepts Ctrl unless the shortcut explicitly asks for [ShortcutSpec.control].
+ * 在没有 ⌘ 键的平台上，`Ctrl` 兼作 `⌘`，因此 [ShortcutSpec.command] 也接受 Ctrl，
+ * 除非该快捷键显式要求 [ShortcutSpec.control]。
  */
 fun matchesShortcut(event: KeyEvent, spec: ShortcutSpec): Boolean {
     val expected = keyForShortcutCharacter(spec.character) ?: return false

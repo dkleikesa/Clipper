@@ -3,8 +3,8 @@ package com.qcmian.clipper.domain.model
 import com.qcmian.clipper.domain.model.ClipItem
 
 /**
- * A match of the current query inside an item's title.
- * [ranges] are the character offsets that should be highlighted in the UI.
+ * 当前查询在条目标题中的一处匹配。
+ * [ranges] 是需要高亮的字符区间。
  */
 data class SearchResult(
     val item: ClipItem,

@@ -1,83 +1,86 @@
 package com.qcmian.clipper.domain.repository
 
-import com.qcmian.clipper.domain.model.AppSettings
 import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.domain.model.SourceApplication
+import com.qcmian.clipper.settings.AppSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * The single source of truth for the clipboard history and the user preferences.
+ * 剪贴板历史与用户偏好的唯一数据源。
  *
- * This is the data layer entry point for *reading and writing the history*: it owns
- * persistence and exposes the in-memory state as [StateFlow]. Host capabilities — writing the
- * system clipboard, resolving application icons, text recognition — live in
- * [ClipboardPlatform] instead, so a consumer only depends on the half it actually uses.
- * It deliberately contains no UI state and no Compose dependency.
+ * 这是数据层中用于*读写历史*的入口：它负责持久化，并以 [StateFlow] 暴露内存中的状态。
+ * 宿主能力——写系统剪贴板、解析应用图标、文字识别——放在 [ClipboardPlatform] 中，
+ * 这样使用方只需依赖自己实际用到的那一半。它刻意不包含任何 UI 状态，也不依赖 Compose。
  */
 interface ClipboardRepository {
-    /** The history, already ordered by the current sort / pin preferences. */
+    /** 历史记录，已按当前的排序 / 置顶偏好排好序。 */
     val items: StateFlow<List<ClipItem>>
 
-    /** The user preferences. */
+    /** 用户偏好。 */
     val settings: StateFlow<AppSettings>
 
-    /** A transient message the UI may show, e.g. "pasting is not supported here". */
+    /** 可供 UI 显示的临时消息，例如「此平台不支持粘贴」。 */
     val statusMessage: StateFlow<String?>
 
-    /** Every new copy the platform reports, for the domain layer to interpret. */
+    /** 平台上报的每一次新复制，供领域层解读。 */
     val snapshots: Flow<ClipboardSnapshot>
 
-    /** Starts observing the system clipboard. */
+    /** 开始监听系统剪贴板。 */
     fun start()
 
-    /** Stops observing the system clipboard. */
+    /** 停止监听系统剪贴板。 */
     fun stop()
 
-    /** Writes the pending state to storage immediately instead of waiting for the debounce. */
+    /** 立即把待写状态写入存储，而不等待防抖。 */
     fun flush()
 
-    /** Replaces the history; the list is re-sorted and trimmed before it is persisted. */
+    /**
+     * 与 [flush] 类似，但会挂起直到写入完成。即将终止进程的宿主会用它，
+     * 以免丢失最后一次变更。
+     */
+    suspend fun flushNow()
+
+    /** 替换整份历史；列表在持久化前会重新排序并按上限裁剪。 */
     fun setItems(items: List<ClipItem>)
 
-    /** Replaces the preferences and pushes the platform side settings. */
+    /** 替换偏好设置，并把平台侧设置同步下去。 */
     fun setSettings(settings: AppSettings)
 
-    /** Shows (or clears) the transient status message. */
+    /** 显示（或清除）临时状态消息。 */
     fun setStatusMessage(message: String?)
 }
 
 /**
- * The part of the data layer that reaches out to the host: the system clipboard, the source
- * application, application icons and text recognition.
+ * 数据层中负责触达宿主的那部分：系统剪贴板、来源应用、应用图标与文字识别。
  *
- * Split out of [ClipboardRepository] so that the use cases which never touch them — sorting,
- * clearing the history, updating the preferences — do not depend on a twenty member interface.
+ * 从 [ClipboardRepository] 中拆出来，使那些从不接触这些能力的用例——排序、清空历史、
+ * 更新偏好——不必依赖一个二十个成员的接口。
  */
 interface ClipboardPlatform {
-    /** Approximate size of the persisted history, `null` when the platform cannot tell. */
+    /** 已持久化历史的近似大小，平台无法给出时为 `null`。 */
     val storageSize: String?
 
-    /** How many screens the "popup screen" preference can point at. */
+    /** 「弹窗屏幕」偏好可以指向的屏幕数量。 */
     val screenCount: Int
 
-    /** Whether the host can register the app as a login item. */
+    /** 宿主是否能把应用注册为开机自启项。 */
     val supportsLaunchAtLogin: Boolean
 
-    /** Whether the host can tell which application a copy came from. */
+    /** 宿主是否能判断一次复制来自哪个应用。 */
     val supportsApplicationInfo: Boolean
 
-    /** Whether image text recognition is available. */
+    /** 是否能进行图片文字识别。 */
     val supportsTextRecognition: Boolean
 
-    /** Places [snapshot] on the system clipboard. `false` when the platform cannot. */
+    /** 把 [snapshot] 放入系统剪贴板。平台不支持时返回 `false`。 */
     fun writeClipboard(snapshot: ClipboardSnapshot): Boolean
 
-    /** Clears the system clipboard. */
+    /** 清空系统剪贴板。 */
     fun clearSystemClipboard()
 
-    /** Best effort "press paste" into the previously focused application. */
+    /** 尽力向此前聚焦的应用「按一次粘贴」。 */
     fun paste(): Boolean
 
     fun applicationIcon(bundleId: String?): String?
@@ -88,9 +91,9 @@ interface ClipboardPlatform {
 
     fun openUrl(url: String): Boolean
 
-    /** Text recognised inside an encoded image, used as the title of image entries. */
+    /** 在编码后的图片中识别出的文字，用作图片条目的标题。 */
     suspend fun recognizeText(imageBase64: String): String?
 
-    /** The application the last copy came from, `null` when the platform cannot tell. */
+    /** 最近一次复制来源的应用，平台无法判断时为 `null`。 */
     fun currentSourceApplication(): SourceApplication?
 }

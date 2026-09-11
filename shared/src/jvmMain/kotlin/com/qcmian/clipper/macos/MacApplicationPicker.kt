@@ -4,11 +4,11 @@ import com.qcmian.clipper.domain.model.SourceApplication
 import java.io.File
 
 /**
- * Port of the `.fileImporter(allowedContentTypes: [.application])` Maccy puts next to its
- * ignore list: an `NSOpenPanel` restricted to application bundles.
+ * 对应 Maccy 放在忽略列表旁的 `.fileImporter(allowedContentTypes: [.application])`：
+ * 一个限制只能选择应用包的 `NSOpenPanel`。
  *
- * The panel runs modal on the calling thread, which is the AWT event thread for Compose
- * Desktop, so it is safe to open it straight from a click handler.
+ * 该面板在调用线程上以模态方式运行，对 Compose Desktop 来说就是 AWT 事件线程，
+ * 因此直接从点击处理器里打开也是安全的。
  */
 object MacApplicationPicker {
     private const val NS_MODAL_RESPONSE_OK = 1L
@@ -18,7 +18,7 @@ object MacApplicationPicker {
         MacNative.loadFramework("/System/Library/Frameworks/AppKit.framework/AppKit")
     }
 
-    /** Shows the picker and returns the chosen application, or `null` when cancelled. */
+    /** 显示选择器并返回所选应用；取消时返回 `null`。 */
     fun pick(): SourceApplication? {
         if (!loaded) return null
 
@@ -40,7 +40,7 @@ object MacApplicationPicker {
         return fromPath(path)
     }
 
-    /** Reads the bundle identifier and the display name out of the selected `.app`. */
+    /** 从选中的 `.app` 中读出 bundle 标识符与显示名。 */
     fun fromPath(path: String): SourceApplication? {
         val bundle = MacNative.send(
             MacNative.clazz("NSBundle"),

@@ -14,10 +14,10 @@ import com.qcmian.clipper.ui.KeyShortcut
 import com.qcmian.clipper.ui.ModifierFlags
 import com.qcmian.clipper.ui.Popup
 
-/** The actions Maccy exposes in the footer. */
-enum class FooterAction { CLEAR, CLEAR_ALL, PREFERENCES, ABOUT, QUIT }
+/** Maccy 在页脚中提供的动作。 */
+enum class FooterAction { CLEAR, CLEAR_ALL, PREFERENCES, QUIT }
 
-/** One footer row, equivalent to a Maccy `FooterItem`. */
+/** 一个页脚行，等价于 Maccy 的一个 `FooterItem`。 */
 data class FooterEntry(
     val action: FooterAction,
     val title: String,
@@ -25,10 +25,9 @@ data class FooterEntry(
 )
 
 /**
- * Port of Maccy's `FooterView`. The rows are ordinary list rows, so they look and navigate
- * exactly like the history entries. The first row swaps between "清除" and "全部清除"
- * depending on the modifiers that are held down, which is why Maccy shows `⌥⇧⌘⌫` while
- * Shift is pressed.
+ * 对应 Maccy 的 `FooterView`。这些行就是普通的列表行，因此外观与导航方式都与历史条目完全一致。
+ * 第一行会在「清除」与「全部清除」之间随按下的修饰键切换，这正是 Maccy 在按住 Shift 时
+ * 显示 `⌥⇧⌘⌫` 的原因。
  */
 @Composable
 fun FooterRows(
@@ -64,7 +63,7 @@ fun FooterRows(
     }
 }
 
-/** Mirrors `FooterView.clearAllModifiersPressed`. */
+/** 对应 `FooterView.clearAllModifiersPressed`。 */
 fun clearAllModifiersPressed(flags: ModifierFlags): Boolean {
     val pressed = flags.pressedNames
     if (pressed.isEmpty()) return false
@@ -94,7 +93,6 @@ fun footerEntries(flags: ModifierFlags, showQuit: Boolean): List<FooterEntry> {
             )
         }
         add(FooterEntry(FooterAction.PREFERENCES, "偏好设置…", KeyShortcut(",", command = true)))
-        add(FooterEntry(FooterAction.ABOUT, "关于", null))
         if (showQuit) {
             add(FooterEntry(FooterAction.QUIT, "退出", KeyShortcut("Q", command = true)))
         }

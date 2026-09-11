@@ -17,13 +17,12 @@ import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.ui.Popup
 import kotlin.math.roundToInt
 
-/** Upper bound for the draggable preview width, mirroring Maccy's practical limit. */
+/** 可拖拽预览宽度的上限，对应 Maccy 的实际限制。 */
 private const val PreviewMaxWidth = 900
 
 /**
- * Port of `SlideoutView` + `SlideoutController.startResize(.slideout)`: the preview pane with
- * its draggable divider, docked on the right by default and on the left when there is no room
- * for it next to the popup.
+ * 对应 `SlideoutView` + `SlideoutController.startResize(.slideout)`：带可拖拽分隔条的预览面板，
+ * 默认停靠在右侧；当弹窗旁边放不下时改为停靠在左侧。
  */
 @Composable
 fun PreviewSlideout(
@@ -50,7 +49,7 @@ fun PreviewSlideout(
     if (onLeft) PreviewDivider(previewWidth, onLeft, onWidthChange)
 }
 
-/** The divider that stores `Defaults[.previewWidth]` while it is dragged. */
+/** 拖动时把宽度写回 `Defaults[.previewWidth]` 的分隔条。 */
 @Composable
 private fun PreviewDivider(currentWidth: Int, onLeft: Boolean, onWidthChange: (Int) -> Unit) {
     val colors = MaterialTheme.colorScheme
@@ -63,7 +62,7 @@ private fun PreviewDivider(currentWidth: Int, onLeft: Boolean, onWidthChange: (I
             .draggable(
                 orientation = Orientation.Horizontal,
                 state = rememberDraggableState { delta ->
-                    // Dragging the divider towards the list always shrinks the preview.
+                    // 把分隔条往列表方向拖，总是让预览变小。
                     val signed = if (onLeft) -delta else delta
                     val next = currentWidth - signed / density.density
                     val clamped = next.roundToInt().coerceIn(

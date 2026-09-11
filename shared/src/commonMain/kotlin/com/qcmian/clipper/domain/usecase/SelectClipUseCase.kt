@@ -9,42 +9,41 @@ import com.qcmian.clipper.domain.action.pastes
 import com.qcmian.clipper.domain.action.removesFormatting
 import kotlinx.coroutines.delay
 
-/** What [SelectClipUseCase] did with an activation. */
+/** [SelectClipUseCase] 对一次激活做了什么。 */
 enum class SelectResult {
-    /** An unsupported modifier combination; nothing happened. */
+    /** 不支持的修饰键组合；什么也没发生。 */
     IGNORED,
 
-    /** The platform cannot represent the content; nothing was written. */
+    /** 平台无法表示该内容；没有写入任何东西。 */
     UNSUPPORTED,
 
-    /** The item is on the clipboard and the panel should close. */
+    /** 条目已放入剪贴板，面板应关闭。 */
     COPIED,
 
-    /** The item is on the clipboard and a paste keystroke was scheduled. */
+    /** 条目已放入剪贴板，并已安排一次粘贴按键。 */
     PASTING,
 }
 
 /**
- * Port of Maccy's `History.select`: writes an item back to the system clipboard and, when the
- * resolved [ClipAction] asks for it, sends the paste keystroke to the previously focused app.
+ * 对应 Maccy 的 `History.select`：把某条记录写回系统剪贴板；当解析出的 [ClipAction]
+ * 要求时，再把粘贴按键发送给此前聚焦的应用。
  *
- * The delayed paste is expressed with a plain [delay] inside a suspending function, so the
- * caller decides which scope (and therefore which lifecycle) it runs on.
+ * 延迟粘贴用挂起函数里的普通 [delay] 表达，因此由调用方决定它运行在哪个作用域
+ * （也就决定了生命周期）。
  */
 class SelectClipUseCase(
     private val repository: ClipboardRepository,
     private val platform: ClipboardPlatform,
 ) {
     /**
-     * @param onHidePanel invoked before a synthetic paste so the panel steps aside and the
-     *   keystroke reaches the application that was focused before.
+     * @param onHidePanel 在合成粘贴之前调用，让面板先让开，使按键能到达此前聚焦的应用。
      */
     suspend operator fun invoke(
         item: ClipItem,
         action: ClipAction,
         onHidePanel: () -> Unit,
     ): SelectResult {
-        // Port of `History.select`: an unsupported modifier combination does nothing.
+        // 对应 `History.select`：不支持的修饰键组合什么都不做。
         if (action == ClipAction.UNKNOWN) return SelectResult.IGNORED
 
         val settings = repository.settings.value
@@ -54,7 +53,7 @@ class SelectClipUseCase(
             return SelectResult.UNSUPPORTED
         }
 
-        // Port of `History.select`: every branch closes the popup, copying included.
+        // 对应 `History.select`：所有分支都会关闭弹窗，复制也不例外。
         onHidePanel()
 
         if (!action.pastes(settings)) return SelectResult.COPIED
@@ -75,9 +74,9 @@ class SelectClipUseCase(
             )
         }
 
-        // Port of `Clipboard.clearFormatting(_:)`: keep the plain string *and* the file URLs
-        // so "paste without formatting" still pastes files. When the item carries no string
-        // representation, behave exactly like a normal copy.
+        // 对应 `Clipboard.clearFormatting(_:)`：保留纯字符串*以及*文件 URL，
+        // 这样「不带格式粘贴」仍然能粘贴文件。当条目没有任何字符串表示时，
+        // 表现得与普通复制完全一致。
         if (item.text == null) {
             return ClipboardSnapshot(
                 text = if (item.imageBase64 == null && item.files.isEmpty()) item.previewableText else null,

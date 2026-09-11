@@ -3,7 +3,6 @@ package com.qcmian.clipper.data.repository
 import com.qcmian.clipper.data.source.ClipStorageDataSource
 import com.qcmian.clipper.data.source.ClipboardDataSource
 import com.qcmian.clipper.data.source.NativeDataSource
-import com.qcmian.clipper.domain.model.AppSettings
 import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.domain.model.SourceApplication
@@ -11,6 +10,9 @@ import com.qcmian.clipper.domain.model.removingUnsafeTitleScalars
 import com.qcmian.clipper.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.domain.repository.ClipboardRepository
 import com.qcmian.clipper.domain.sort.ClipSorter
+import com.qcmian.clipper.settings.AppSettings
+import kotlin.concurrent.Volatile
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -23,12 +25,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Default [ClipboardRepository]: keeps the history in memory as a [StateFlow], mirrors it to
- * the platform storage with a debounce and forwards every clipboard change to [snapshots].
+ * [ClipboardRepository] 的默认实现：以 [StateFlow] 在内存中持有历史，带防抖地镜像到平台存储，
+ * 并把每一次剪贴板变化转发到 [snapshots]。
  *
- * All business rules (what to record, how to merge duplicates, what an activation does) live
- * in the domain layer; this class only moves data around and enforces the two invariants it
- * owns: the history is always sorted and never exceeds the configured size.
+ * 所有业务规则（记录什么、如何合并重复项、激活时做什么）都在领域层；本类只负责搬运数据，
+ * 并维护它自己负责的两条不变量：历史始终有序，且永不超过配置的上限。
  */
 class DefaultClipboardRepository(
     private val clipboard: ClipboardDataSource,
@@ -40,7 +41,7 @@ class DefaultClipboardRepository(
     private val _items = MutableStateFlow<List<ClipItem>>(emptyList())
     override val items: StateFlow<List<ClipItem>> = _items.asStateFlow()
 
-    private val _settings = MutableStateFlow(storage.loadSettings())
+    private val _settings = MutableStateFlow(AppSettings())
     override val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     private val _statusMessage = MutableStateFlow<String?>(null)
@@ -50,6 +51,12 @@ class DefaultClipboardRepository(
     override val snapshots: Flow<ClipboardSnapshot> = _snapshots.asSharedFlow()
 
     private var started = false
+
+    /** [load] 完成后为 `true`；防止 [flush] 覆盖掉已存储的状态。 */
+    @Volatile
+    private var loaded = false
+
+    private var startJob: Job? = null
     private var itemsPersistJob: Job? = null
     private var settingsPersistJob: Job? = null
 
@@ -59,32 +66,60 @@ class DefaultClipboardRepository(
     override val supportsApplicationInfo: Boolean get() = native.supportsApplicationInfo
     override val supportsTextRecognition: Boolean get() = native.supportsTextRecognition
 
-    init {
-        // Port of `Storage.sanitizeTitles()`: heal titles persisted before the unsafe
-        // scalars were filtered out, otherwise the layout can hang on macOS 26.
-        val restored = storage.loadItems()
-            .map { it.copy(title = it.title.removingUnsafeTitleScalars()) }
-        _items.value = normalise(restored, _settings.value)
-    }
-
     override fun start() {
         if (started) return
         started = true
-        applyPlatformSettings(_settings.value)
-        clipboard.start { snapshot -> _snapshots.tryEmit(snapshot) }
+        // 读取历史与偏好是阻塞式 IO。它运行在 [scope]——容器传入的、固定在 IO 上的作用域——
+        // 而不是在构建依赖图的那个线程上（对 Android 而言是主线程）。剪贴板监听只会在存储
+        // 状态就绪之后才启动，因此早期的复制不会拿过期的偏好来判断。
+        startJob = scope.launch {
+            if (!loaded) load()
+            if (!started) return@launch
+            applyPlatformSettings(_settings.value)
+            clipboard.start { snapshot -> _snapshots.tryEmit(snapshot) }
+        }
     }
 
     override fun stop() {
         if (!started) return
         started = false
+        startJob?.cancel()
         clipboard.stop()
     }
 
     override fun flush() {
         itemsPersistJob?.cancel()
         settingsPersistJob?.cancel()
+        // 还没有加载任何数据：此时持久化会用空的内存状态覆盖已存历史。
+        if (!loaded) return
+        // 存储是挂起的（Room），因此最后一次写入改为在 [scope] 上派发，而不阻塞调用方。
+        // 不能容忍丢失的宿主请改用 [flushNow]。
+        val items = _items.value
+        val settings = _settings.value
+        scope.launch {
+            storage.saveItems(items)
+            storage.saveSettings(settings)
+        }
+    }
+
+    override suspend fun flushNow() {
+        itemsPersistJob?.cancel()
+        settingsPersistJob?.cancel()
+        if (!loaded) return
         storage.saveItems(_items.value)
         storage.saveSettings(_settings.value)
+    }
+
+    /** 加载已持久化的历史与偏好。运行在 [scope] 上，绝不在调用方线程上执行。 */
+    private suspend fun load() {
+        val settings = storage.loadSettings()
+        _settings.value = settings
+        // 对应 `Storage.sanitizeTitles()`：修复在不安全标量被过滤之前持久化的标题，
+        // 否则在 macOS 26 上排版会卡死。
+        val restored = storage.loadItems()
+            .map { it.copy(title = it.title.removingUnsafeTitleScalars()) }
+        _items.value = normalise(restored, settings)
+        loaded = true
     }
 
     override fun setItems(items: List<ClipItem>) {
@@ -132,19 +167,26 @@ class DefaultClipboardRepository(
         runCatching { native.openUrl(url) }.getOrDefault(false)
 
     override suspend fun recognizeText(imageBase64: String): String? =
-        runCatching { native.recognizeText(imageBase64) }.getOrNull()
+        try {
+            native.recognizeText(imageBase64)
+        } catch (cancellation: CancellationException) {
+            // 绝不吞掉取消异常，否则会破坏外层的结构化并发。
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
 
-    /** The application the last copy came from, `null` when the platform cannot tell. */
+    /** 上一次复制来源的应用；平台无法判断时为 `null`。 */
     override fun currentSourceApplication(): SourceApplication? {
         if (!native.supportsApplicationInfo) return null
         return runCatching { native.frontmostApplication() }.getOrNull()
     }
 
     // ---------------------------------------------------------------------------------
-    // Invariants
+    // 不变量
     // ---------------------------------------------------------------------------------
 
-    /** Sorts the history by the current preferences and trims it to the configured size. */
+    /** 按当前偏好排序历史，并裁剪到配置的上限。 */
     private fun normalise(items: List<ClipItem>, settings: AppSettings): List<ClipItem> {
         val sorted = ClipSorter.sort(items, settings.sortBy, settings.pinTo)
         val maxSize = settings.historySize
@@ -156,7 +198,7 @@ class DefaultClipboardRepository(
         return sorted.filterNot { it.id in overflow }
     }
 
-    /** Pushes the settings that live on the platform side (poll interval, login item). */
+    /** 下发位于平台侧的设置（轮询间隔、开机自启项）。 */
     private fun applyPlatformSettings(value: AppSettings) {
         clipboard.pollIntervalMillis = value.clipboardCheckIntervalMillis.toLong().coerceAtLeast(50L)
         if (native.supportsLaunchAtLogin) {

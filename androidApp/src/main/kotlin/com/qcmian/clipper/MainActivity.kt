@@ -14,7 +14,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        // The graph is owned by the Application, so it survives configuration changes.
+        // 依赖图由 Application 持有，因此能跨配置变更存活。
         val container = (application as ClipperApplication).container
         setContent {
             App(container = container)
@@ -25,6 +25,6 @@ class MainActivity : ComponentActivity() {
 @Preview
 @Composable
 fun AppAndroidPreview() {
-    // Previews have no Application; a throwaway container is enough there.
+    // 预览没有 Application，用一个临时容器就足够了。
     App(container = remember { AppContainer() })
 }

@@ -1,20 +1,19 @@
 package com.qcmian.clipper.domain.action
 
-import com.qcmian.clipper.domain.model.AppSettings
+import com.qcmian.clipper.settings.AppSettings
 
 /**
- * What happens when a history item is activated. Mirrors Maccy's `HistoryItemAction`,
- * including `unknown` (an unsupported modifier combination that must leave the panel
- * untouched) and `default` (a plain activation with no modifier held down).
+ * 激活一条历史记录时会发生什么。对应 Maccy 的 `HistoryItemAction`，包含 `unknown`
+ * （不支持的修饰键组合，必须保持面板不变）与 `default`（未按任何修饰键的普通激活）。
  */
 enum class ClipAction { DEFAULT, COPY, PASTE, PASTE_WITHOUT_FORMATTING, UNKNOWN }
 
 /**
- * Port of `HistoryItemAction.init(_:)`: resolves the action for the exact modifier
- * combination that is held down. [meta] is `⌘` (or `Ctrl` on platforms without one).
+ * 对应 `HistoryItemAction.init(_:)`：为当前按下的确切修饰键组合解析出动作。
+ * [meta] 是 `⌘`（没有该键的平台上是 `Ctrl`）。
  *
- * The preferences `pasteByDefault` and `removeFormattingByDefault` both change the
- * meaning of every combination, so all twelve Maccy cases are reproduced here.
+ * 偏好项 `pasteByDefault` 与 `removeFormattingByDefault` 都会改变每一种组合的含义，
+ * 因此这里完整复现了 Maccy 的十二种情况。
  */
 fun defaultAction(settings: AppSettings, shift: Boolean, alt: Boolean, meta: Boolean): ClipAction {
     val paste = settings.pasteByDefault
@@ -49,8 +48,8 @@ fun defaultAction(settings: AppSettings, shift: Boolean, alt: Boolean, meta: Boo
             else -> ClipAction.UNKNOWN
         }
 
-        // No modifier at all: `History.select` applies `removeFormattingByDefault` and
-        // pastes only when `pasteByDefault` is on.
+        // 完全不按修饰键：`History.select` 按 `removeFormattingByDefault` 处理，
+        // 且只有 `pasteByDefault` 开启时才粘贴。
         !shift && !alt && !meta -> ClipAction.DEFAULT
 
         else -> ClipAction.UNKNOWN
@@ -58,9 +57,8 @@ fun defaultAction(settings: AppSettings, shift: Boolean, alt: Boolean, meta: Boo
 }
 
 /**
- * Port of `History.select`: only the plain activation and the explicit
- * "paste without formatting" strip the formatting. An explicit `⌘`-copy never does,
- * even when `removeFormattingByDefault` is enabled.
+ * 对应 `History.select`：只有普通激活与显式的「不带格式粘贴」会去掉格式。
+ * 即便开启了 `removeFormattingByDefault`，显式的 `⌘` 复制也从不这么做。
  */
 fun ClipAction.removesFormatting(settings: AppSettings): Boolean = when (this) {
     ClipAction.PASTE_WITHOUT_FORMATTING -> true
@@ -68,7 +66,7 @@ fun ClipAction.removesFormatting(settings: AppSettings): Boolean = when (this) {
     else -> false
 }
 
-/** Port of `History.select`: whether the action also triggers a paste. */
+/** 对应 `History.select`：该动作是否同时触发一次粘贴。 */
 fun ClipAction.pastes(settings: AppSettings): Boolean = when (this) {
     ClipAction.PASTE, ClipAction.PASTE_WITHOUT_FORMATTING -> true
     ClipAction.DEFAULT -> settings.pasteByDefault
@@ -76,8 +74,8 @@ fun ClipAction.pastes(settings: AppSettings): Boolean = when (this) {
 }
 
 /**
- * Port of `HistoryItemAction.modifierFlags`: the modifier combination that triggers
- * [action], used by the preferences window to explain the current mapping.
+ * 对应 `HistoryItemAction.modifierFlags`：会触发 [action] 的修饰键组合，
+ * 偏好设置窗口用它来解释当前的映射关系。
  */
 fun modifierFlagsOf(action: ClipAction, settings: AppSettings): String {
     val paste = settings.pasteByDefault

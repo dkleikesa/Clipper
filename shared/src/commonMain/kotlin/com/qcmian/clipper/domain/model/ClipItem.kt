@@ -3,17 +3,16 @@ package com.qcmian.clipper.domain.model
 import kotlinx.serialization.Serializable
 
 /**
- * A single entry of the clipboard history.
+ * 剪贴板历史中的单条记录。
  *
- * Mirrors Maccy's `HistoryItem`: it keeps every representation that was found on the
- * system clipboard (plain text, an encoded image and/or a list of files) together with
- * the bookkeeping fields used for de-duplication and sorting.
+ * 对应 Maccy 的 `HistoryItem`：保存系统剪贴板上找到的每一种表示（纯文本、编码后的图片和/或
+ * 文件列表），以及用于去重和排序的记账字段。
  */
 @Serializable
 data class ClipItem(
     val id: String,
     val text: String? = null,
-    /** Raw (PNG/JPEG) image bytes, base64 encoded so the item stays serializable. */
+    /** 原始（PNG/JPEG）图片字节，以 base64 编码，使条目保持可序列化。 */
     val imageBase64: String? = null,
     val files: List<String> = emptyList(),
     val firstCopiedAt: Long = 0L,
@@ -22,9 +21,8 @@ data class ClipItem(
     val pin: String? = null,
     val title: String = "",
     /**
-     * The application the content was copied from. Maccy fills this in through
-     * `NSWorkspace.frontmostApplication`; platforms without an equivalent leave it `null`
-     * and the preview simply hides the "应用:" line.
+     * 内容复制来源的应用。Maccy 通过 `NSWorkspace.frontmostApplication` 填写；没有等价能力的
+     * 平台保持 `null`，预览会隐藏「应用:」这一行。
      */
     val application: SourceApplication? = null,
 ) {
@@ -32,9 +30,8 @@ data class ClipItem(
     val isUnpinned: Boolean get() = pin == null
 
     /**
-     * Text used for previews and for search. Port of `HistoryItem.previewableText`:
-     * images carry no text representation, so their title stays empty until text
-     * recognition fills it in.
+     * 用于预览和搜索的文本。对应 `HistoryItem.previewableText`：图片没有文本表示，
+     * 因此在文字识别填入之前，其标题保持为空。
      */
     val previewableText: String
         get() = when {
@@ -52,7 +49,7 @@ data class ClipItem(
             else -> ClipKind.TEXT
         }
 
-    /** `true` when this item already contains everything the [other] item provides. */
+    /** 当本条目已包含 [other] 提供的全部内容时返回 `true`。 */
     fun supersedes(other: ClipItem): Boolean {
         val hasContent = other.text != null || other.imageBase64 != null || other.files.isNotEmpty()
         if (!hasContent) return false
@@ -62,9 +59,8 @@ data class ClipItem(
     }
 
     /**
-     * Builds the one-line title displayed in the list. Port of `HistoryItem.generateTitle()`,
-     * including the `showSpecialSymbols` preference: when enabled, leading/trailing spaces
-     * become `·` and newlines/tabs become `⏎`/`⇥`.
+     * 构建列表显示的单行标题。对应 `HistoryItem.generateTitle()`，包含 `showSpecialSymbols`
+     * 偏好：开启时首尾空格显示为 `·`，换行与制表符显示为 `⏎`/`⇥`。
      */
     fun generateTitle(showSpecialSymbols: Boolean = true): String {
         val raw = previewableText.take(MAX_TITLE_LENGTH).removingUnsafeTitleScalars()
@@ -85,16 +81,14 @@ data class ClipItem(
 enum class ClipKind { TEXT, LINK, COLOR, IMAGE, FILE }
 
 /**
- * Unicode scalars that hang CoreText's line truncation on macOS 26, see Maccy #1520.
+ * 会让 CoreText 在 macOS 26 上做单行截断时卡死的 Unicode 标量，见 Maccy #1520。
  *
- * U+FFFC OBJECT REPLACEMENT CHARACTER is the placeholder for an inline attachment, so rich
- * text with embedded images carries one per attachment in its plain text flavour. Two or
- * more of them next to non-Latin text send the typesetter into an infinite loop when the
- * title is laid out with a single line and middle truncation.
+ * U+FFFC（对象替换字符）是内联附件的占位符，因此带内嵌图片的富文本，其纯文本表示中每个附件
+ * 都会带一个。两个及以上紧邻非拉丁文字时，会让排版器在「单行 + 中间截断」布局标题时陷入死循环。
  */
 private val UNSAFE_TITLE_SCALARS = setOf('\uFFFC')
 
-/** Port of `String.removingScalarsUnsafeForTitleLayout()`, filtered per scalar. */
+/** 对应 `String.removingScalarsUnsafeForTitleLayout()`，按标量逐个过滤。 */
 fun String.removingUnsafeTitleScalars(): String =
     if (none { it in UNSAFE_TITLE_SCALARS }) this else filterNot { it in UNSAFE_TITLE_SCALARS }
 

@@ -6,11 +6,10 @@ import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 
 /**
- * A very small Objective-C runtime bridge built on JNA.
+ * 建立在 JNA 之上的一个非常小的 Objective-C 运行时桥接。
  *
- * Only the handful of `objc_msgSend` shapes this project needs are exposed. Every call is
- * defensive: when the runtime or a class is missing the helper returns `null` so the caller
- * degrades gracefully instead of crashing.
+ * 只暴露本项目需要的那几种 `objc_msgSend` 形态。每次调用都是防御式的：
+ * 当运行时或某个类缺失时，辅助函数返回 `null`，让调用方优雅降级而不是崩溃。
  */
 internal object MacNative {
     private val runtime: NativeLibrary = runCatching {
@@ -21,7 +20,7 @@ internal object MacNative {
     private val getClass: Function = runtime.getFunction("objc_getClass")
     private val registerName: Function = runtime.getFunction("sel_registerName")
 
-    /** Forces a framework to load so [clazz] can find its classes. */
+    /** 强制加载某个框架，使 [clazz] 能找到它的类。 */
     fun loadFramework(path: String): Boolean =
         runCatching { NativeLibrary.getInstance(path); true }.getOrDefault(false)
 
@@ -31,14 +30,14 @@ internal object MacNative {
     fun selector(name: String): Pointer? =
         runCatching { registerName.invokePointer(arrayOf(name)) }.getOrNull()
 
-    /** `objc_msgSend` returning an object pointer. */
+    /** 返回对象指针的 `objc_msgSend`。 */
     fun send(receiver: Pointer?, name: String, vararg args: Any?): Pointer? {
         if (receiver == null) return null
         val selector = selector(name) ?: return null
         return runCatching { msgSend.invokePointer(arrayOf(receiver, selector, *args)) }.getOrNull()
     }
 
-    /** `objc_msgSend` returning an `NSInteger` / `NSUInteger`. */
+    /** 返回 `NSInteger` / `NSUInteger` 的 `objc_msgSend`。 */
     fun sendLong(receiver: Pointer?, name: String, vararg args: Any?): Long {
         if (receiver == null) return 0L
         val selector = selector(name) ?: return 0L
@@ -47,7 +46,7 @@ internal object MacNative {
         }.getOrDefault(0L)
     }
 
-    /** `objc_msgSend` returning a `BOOL`, which is one byte on every supported architecture. */
+    /** 返回 `BOOL` 的 `objc_msgSend`；在所有受支持的架构上它都是一个字节。 */
     fun sendBool(receiver: Pointer?, name: String, vararg args: Any?): Boolean {
         if (receiver == null) return false
         val selector = selector(name) ?: return false
@@ -56,7 +55,7 @@ internal object MacNative {
         }.getOrDefault(false)
     }
 
-    /** Allocates an `NSString` from UTF-8 bytes; JNA's implicit encoding is not relied upon. */
+    /** 用 UTF-8 字节分配一个 `NSString`；不依赖 JNA 的隐式编码。 */
     fun nsString(value: String): Pointer? {
         val clazz = clazz("NSString") ?: return null
         val allocated = send(clazz, "alloc") ?: return null
@@ -67,13 +66,13 @@ internal object MacNative {
         return send(allocated, "initWithUTF8String:", buffer)
     }
 
-    /** Reads an `NSString` through `UTF8String`. */
+    /** 通过 `UTF8String` 读取一个 `NSString`。 */
     fun string(pointer: Pointer?): String? {
         val utf8 = send(pointer, "UTF8String") ?: return null
         return runCatching { utf8.getString(0) }.getOrNull()
     }
 
-    /** Materialises an `NSArray` into a list of element pointers. */
+    /** 把 `NSArray` 实体化为元素指针列表。 */
     fun array(pointer: Pointer?): List<Pointer> {
         if (pointer == null) return emptyList()
         val count = sendLong(pointer, "count")
@@ -81,7 +80,7 @@ internal object MacNative {
         return (0 until count).mapNotNull { send(pointer, "objectAtIndex:", it) }
     }
 
-    /** Allocates an `NSMutableArray` filled with the given strings. */
+    /** 用给定字符串填充并分配一个 `NSMutableArray`。 */
     fun stringArray(values: List<String>): Pointer? {
         val array = send(clazz("NSMutableArray"), "array") ?: return null
         values.forEach { value ->

@@ -3,8 +3,8 @@ package com.qcmian.clipper.ui
 import androidx.compose.ui.graphics.Color
 
 /**
- * Parses a `#RGB`, `#RRGGBB` or `#AARRGGBB` string into a [Color].
- * Used to render the color swatch for copied hex colors, like Maccy's `ColorImage`.
+ * 把 `#RGB`、`#RRGGBB` 或 `#AARRGGBB` 字符串解析为 [Color]。
+ * 用于为复制的十六进制颜色渲染色块，与 Maccy 的 `ColorImage` 一致。
  */
 fun hexToColor(value: String): Color? {
     val hex = value.trim().removePrefix("#")
@@ -13,7 +13,7 @@ fun hexToColor(value: String): Color? {
         6, 8 -> hex
         else -> return null
     }
-    // Drop a leading alpha channel: the swatch only needs the opaque color.
+    // 丢弃开头的 alpha 通道：色块只需要不透明的颜色。
     val rgb = if (expanded.length == 6) expanded else expanded.substring(2)
     val value32 = rgb.toLongOrNull(16)?.toInt() ?: return null
     return Color(0xFF000000.toInt() or value32)

@@ -13,8 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * The confirmation Maccy shows before clearing the history, including the
- * `dialogSuppressionToggle` that stores `Defaults[.suppressClearAlert]`.
+ * Maccy 在清除历史前显示的确认框，包含用于保存 `Defaults[.suppressClearAlert]` 的
+ * `dialogSuppressionToggle`。
  */
 @Composable
 fun ConfirmDialog(

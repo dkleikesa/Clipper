@@ -3,7 +3,7 @@ package com.qcmian.clipper.util
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-/** The JSON codec used for every persisted payload. */
+/** 所有持久化载荷共用的 JSON 编解码器。 */
 internal val ClipperJson = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true

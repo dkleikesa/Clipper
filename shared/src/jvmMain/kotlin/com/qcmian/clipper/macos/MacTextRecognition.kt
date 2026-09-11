@@ -17,10 +17,10 @@ private interface CoreFoundationLibrary : Library {
 }
 
 /**
- * Port of `HistoryItem.performTextRecognition()` built on the Vision framework.
+ * 基于 Vision 框架的 `HistoryItem.performTextRecognition()` 移植。
  *
- * The synchronous `performRequests:error:` path is used on purpose: it avoids having to
- * build an Objective-C block for the completion handler, which JNA cannot express.
+ * 刻意使用同步的 `performRequests:error:` 路径：这样可以避免为完成回调构建
+ * Objective-C block——JNA 无法表达它。
  */
 object MacTextRecognition {
     private val imageIO: ImageIOLibrary? = runCatching {

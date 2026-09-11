@@ -1,13 +1,11 @@
 package com.qcmian.clipper.domain.model
 
 /**
- * A platform independent view of the system clipboard.
+ * 系统剪贴板的平台无关视图。
  *
- * `imageBase64` holds the raw encoded image bytes (PNG or JPEG) so that the value can be
- * persisted without depending on a platform image type.
+ * `imageBase64` 保存编码后的原始图片字节（PNG 或 JPEG），这样该值无需依赖平台图片类型即可持久化。
  *
- * [types] carries the pasteboard type identifiers the clipboard advertised, so the
- * "ignored pasteboard types" preference can be honoured the way Maccy does it.
+ * [types] 携带剪贴板声明的粘贴板类型标识，用于按 Maccy 的方式支持「忽略的剪贴板类型」偏好。
  */
 data class ClipboardSnapshot(
     val text: String? = null,

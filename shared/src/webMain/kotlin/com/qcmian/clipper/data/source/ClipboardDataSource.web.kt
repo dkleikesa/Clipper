@@ -13,11 +13,10 @@ import web.clipboard.writeText
 import web.navigator.navigator
 
 /**
- * Browser clipboard support.
+ * 浏览器剪贴板支持。
  *
- * The Clipboard API is asynchronous and only available in a secure context, so the
- * pasteboard is polled while the page is open. Browsers also require the document to be
- * focused for `readText` to resolve; failures are silently ignored.
+ * Clipboard API 是异步的，且只在安全上下文中可用，因此在页面打开期间轮询粘贴板。
+ * 浏览器还要求文档处于聚焦状态 `readText` 才会 resolve；失败会被静默忽略。
  */
 private class WebClipboardDataSource : ClipboardDataSource {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

@@ -5,8 +5,8 @@ import com.qcmian.clipper.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.domain.repository.ClipboardPlatform
 
 /**
- * Port of `Clipboard.copyInMaccy(history.searchQuery)`: when nothing is selected, pressing
- * Return copies the typed query itself onto the clipboard.
+ * 对应 `Clipboard.copyInMaccy(history.searchQuery)`：在没有选中任何条目时，
+ * 按回车会把输入框里的查询词本身复制到剪贴板。
  */
 class CopySearchQueryUseCase(private val platform: ClipboardPlatform) {
     operator fun invoke(query: String): Boolean {
@@ -16,8 +16,8 @@ class CopySearchQueryUseCase(private val platform: ClipboardPlatform) {
 }
 
 /**
- * Port of `ToolbarView`'s `text.viewfinder` action: puts the text recognised inside an
- * image (the item title) back onto the clipboard.
+ * 对应 `ToolbarView` 的 `text.viewfinder` 动作：把图片中识别出的文字（即条目标题）
+ * 放回剪贴板。
  */
 class CopyExtractedTextUseCase(private val platform: ClipboardPlatform) {
     operator fun invoke(item: ClipItem): Boolean {

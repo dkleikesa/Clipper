@@ -2,13 +2,13 @@ package com.qcmian.clipper.ui.state
 
 import com.qcmian.clipper.domain.model.ClipItem
 import com.qcmian.clipper.domain.model.SearchResult
-import com.qcmian.clipper.domain.model.AppSettings
-import com.qcmian.clipper.domain.model.SearchVisibility
+import com.qcmian.clipper.settings.AppSettings
+import com.qcmian.clipper.settings.SearchVisibility
 
-/** Which modal is currently on screen, if any. */
-enum class ClipboardDialog { PREFERENCES, ABOUT }
+/** 当前屏幕上显示的是哪个模态框（如果有）。 */
+enum class ClipboardDialog { PREFERENCES }
 
-/** The "clear history" confirmation, including what it is going to clear. */
+/** 「清除历史」的二次确认，包含将要清除的内容。 */
 data class ClearConfirmation(
     val message: String,
     val comment: String,
@@ -17,43 +17,42 @@ data class ClearConfirmation(
 )
 
 /**
- * The complete, immutable description of the history screen.
+ * 历史界面的完整不可变描述。
  *
- * The UI renders this object and nothing else; every user interaction is sent back as a
- * [ClipboardUiAction]. This is the single source of truth for the screen, produced by
- * `ClipboardViewModel`.
+ * UI 只渲染这个对象，除此之外什么都不读；每一次用户交互都以 [ClipboardUiAction] 的形式回传。
+ * 它是该界面的唯一数据源，由 `ClipboardViewModel` 生成。
  */
 data class ClipboardUiState(
     val settings: AppSettings = AppSettings(),
-    /** What the user has typed, updated on every keystroke. */
+    /** 用户输入的内容，每敲一个键就更新。 */
     val query: String = "",
-    /** The query actually applied to the history, throttled like Maccy's `Throttler`. */
+    /** 实际应用到历史上的查询词，按 Maccy 的 `Throttler` 节流。 */
     val appliedQuery: String = "",
-    /** The history filtered by [appliedQuery], in display order. */
+    /** 按 [appliedQuery] 过滤后的历史，已按显示顺序排列。 */
     val results: List<SearchResult> = emptyList(),
     val historySelection: Int = 0,
-    /** `-1` while the history list owns the highlight. */
+    /** 由历史列表持有高亮时为 `-1`。 */
     val footerSelection: Int = -1,
     val previewOpen: Boolean = false,
-    /** `false` once the mouse moved, so hovering starts selecting again. */
+    /** 鼠标移动后变为 `false`，这样悬停会重新开始选择。 */
     val keyboardNavigating: Boolean = true,
     val statusMessage: String? = null,
     val storageSize: String? = null,
     val screenCount: Int = 1,
     val supportsLaunchAtLogin: Boolean = false,
     val supportsApplicationInfo: Boolean = false,
-    /** Whether the host can quit, which adds the "退出" footer row. */
+    /** 宿主是否能退出应用，决定是否多出一行「退出」页脚。 */
     val showQuit: Boolean = false,
     val dialog: ClipboardDialog? = null,
     val confirmation: ClearConfirmation? = null,
-    /** Bumped whenever the search field should take focus again. */
+    /** 每当搜索框需要重新获得焦点时自增。 */
     val focusRequestToken: Int = 0,
 ) {
-    /** The fixed pins block, kept outside the scroll view like Maccy's `HistoryListView`. */
+    /** 固定的置顶区块，像 Maccy 的 `HistoryListView` 那样放在滚动区之外。 */
     val pinnedEntries: List<IndexedValue<SearchResult>>
         get() = results.withIndex().filter { it.value.item.isPinned }
 
-    /** The scrolling history below/above the pins block. */
+    /** 置顶区块下方（或上方）可滚动的历史。 */
     val unpinnedEntries: List<IndexedValue<SearchResult>>
         get() = results.withIndex().filterNot { it.value.item.isPinned }
 
@@ -65,15 +64,15 @@ data class ClipboardUiState(
 
     val isHistoryHighlighted: Boolean get() = footerSelection < 0
 
-    /** Port of `AppState.searchVisible`; it reads the throttled query, not the raw input. */
+    /** 对应 `AppState.searchVisible`；读取的是节流后的查询词，而不是原始输入。 */
     val searchVisible: Boolean
         get() = settings.showSearch &&
             (settings.searchVisibility == SearchVisibility.ALWAYS || appliedQuery.isNotEmpty())
 
-    /** `true` while a dialog is up, so the desktop panel must not auto-hide. */
+    /** 有对话框弹出时为 `true`，此时桌面端面板不得自动隐藏。 */
     val isModalOpen: Boolean get() = dialog != null || confirmation != null
 
-    /** `AppDelegate.isStatusItemDisabled`: paused or nothing is being recorded at all. */
+    /** `AppDelegate.isStatusItemDisabled`：已暂停，或者根本没有在记录任何内容。 */
     val isStatusItemDisabled: Boolean
         get() = settings.ignoreEvents ||
             (!settings.saveText && !settings.saveImages && !settings.saveFiles)

@@ -19,8 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * The icons used by the app. Everything is drawn with [Canvas] so the project does not
- * depend on a platform specific icon artifact.
+ * 应用使用的图标。全部用 [Canvas] 绘制，因此本项目不依赖任何平台专属的图标构件。
  */
 enum class ClipperIconKind {
     SEARCH,
@@ -30,13 +29,13 @@ enum class ClipperIconKind {
     PIN_SLASH,
     SIDEBAR_LEFT,
     SIDEBAR_RIGHT,
-    /** `text.viewfinder`, the "copy the text recognised inside an image" toolbar action. */
+    /** `text.viewfinder`，即工具栏中「复制图片里识别出的文字」的动作。 */
     TEXT_VIEWFINDER,
     SWATCH,
     IMAGE,
     COPY,
     PAUSE,
-    /** `questionmark.app.dashed`, the fallback shown when an application has no icon. */
+    /** `questionmark.app.dashed`，应用没有图标时显示的兜底图标。 */
     APP,
 }
 
@@ -193,7 +192,7 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
     }
 }
 
-/** The `pin` / `pin.slash` glyphs used by the preview toolbar. */
+/** 预览工具栏使用的 `pin` / `pin.slash` 图形。 */
 private fun DrawScope.drawPin(color: Color, s: Float, strokeWidth: Float, slashed: Boolean) {
     drawRoundRect(
         color = color,
@@ -231,7 +230,7 @@ private fun DrawScope.drawPin(color: Color, s: Float, strokeWidth: Float, slashe
     }
 }
 
-/** The `text.viewfinder` glyph: a viewfinder frame with two lines of text inside. */
+/** `text.viewfinder` 图形：一个取景框，内部有两行文字。 */
 private fun DrawScope.drawTextViewfinder(color: Color, s: Float, strokeWidth: Float) {
     val inset = s * 0.14f
     val arm = s * 0.20f
@@ -255,7 +254,7 @@ private fun DrawScope.drawTextViewfinder(color: Color, s: Float, strokeWidth: Fl
     drawLine(color, Offset(s * 0.34f, s * 0.58f), Offset(s * 0.57f, s * 0.58f), w, StrokeCap.Round)
 }
 
-/** The `sidebar.left` / `sidebar.right` glyphs used by the header's preview toggle. */
+/** 头部预览开关使用的 `sidebar.left` / `sidebar.right` 图形。 */
 private fun DrawScope.drawSidebar(color: Color, s: Float, strokeWidth: Float, panelOnLeft: Boolean) {
     val stroke = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
     val panelX = if (panelOnLeft) 0.13f else 0.59f
