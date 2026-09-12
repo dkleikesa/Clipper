@@ -29,9 +29,17 @@ compose.desktop {
             description = "Compose Multiplatform clipboard history manager"
             vendor = "qcmian"
 
+            // 打包产物（.dmg/.msi/.deb）的图标；与 shared 里 `ClipperAppIcon` 同一份设计稿。
             macOS {
                 bundleID = "com.qcmian.clipper"
                 dockName = "Clipper"
+                iconFile.set(project.file("icons/clipper.icns"))
+            }
+            windows {
+                iconFile.set(project.file("icons/clipper.ico"))
+            }
+            linux {
+                iconFile.set(project.file("icons/clipper.png"))
             }
         }
     }

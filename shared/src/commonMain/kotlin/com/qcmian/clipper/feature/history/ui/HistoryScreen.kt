@@ -120,15 +120,22 @@ fun HistoryScreen(
     var pointerMeta by remember { mutableStateOf(false) }
 
     // `BoxWithConstraints` 会在布局阶段对内容做子组合，因此搜索框的焦点修饰符
-    // 要等到第一帧之后才会挂上。
+    // 要等到第一帧之后才会挂上；没挂上时 `requestFocus()` 会抛
+    // "FocusRequester is not initialized"，所以统一包一层 runCatching。
     LaunchedEffect(Unit) {
         withFrameNanos { }
-        searchFocusRequester.requestFocus()
+        runCatching { searchFocusRequester.requestFocus() }
     }
 
     // `Popup.handleFirstKeyDown`：宿主请求显示面板后，搜索框重新获得焦点。
+    //
+    // 同样必须先等一帧：面板每次显示都会重新测量，`BoxWithConstraints` 随之在布局阶段重新
+    // 子组合，紧跟状态变化同步调用 `requestFocus()` 可能落在焦点修饰符挂上之前，
+    // 于是这次聚焦静默失效——表现为「一次能输入、一次不能」。
     LaunchedEffect(state.focusRequestToken) {
-        if (state.focusRequestToken > 0) searchFocusRequester.requestFocus()
+        if (state.focusRequestToken <= 0) return@LaunchedEffect
+        withFrameNanos { }
+        runCatching { searchFocusRequester.requestFocus() }
     }
 
     LaunchedEffect(state.previewOpen) { onPreviewOpenChange(state.previewOpen) }

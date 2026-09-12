@@ -16,6 +16,7 @@ import com.qcmian.clipper.desktop.domain.MODIFIER_POLL_MILLIS
 import com.qcmian.clipper.desktop.domain.PopupMode
 import com.qcmian.clipper.desktop.domain.nsModifierMask
 import com.qcmian.clipper.desktop.domain.RESIZE_SETTLE_MILLIS
+import com.qcmian.clipper.desktop.domain.TRAY_CLICK_GRACE_MILLIS
 import com.qcmian.clipper.desktop.domain.autoWindowSize
 import com.qcmian.clipper.desktop.domain.cursorPosition
 import com.qcmian.clipper.desktop.domain.nearlyEquals
@@ -49,6 +50,9 @@ import kotlinx.coroutines.runBlocking
 data class DesktopShellUiState(
     /** 面板是否显示。 */
     val windowVisible: Boolean = true,
+
+    /** 当前这次可见是否由托盘（点击 / 菜单）触发。热键呼出时托盘不画按下态。 */
+    val panelOpenedByTray: Boolean = false,
 
     /** 预览滑出面板是否打开；由 `App` 上报，仅用于计算窗口宽度。 */
     val previewOpen: Boolean = false,
@@ -116,7 +120,7 @@ class DesktopShellViewModel(
         viewModelScope.launch { observeUserResize() }
         viewModelScope.launch { observePlacement() }
         viewModelScope.launch { observePreviewSide() }
-        viewModelScope.launch { observeShowRequests() }
+        viewModelScope.launch { observeToggleRequests() }
     }
 
     // ---------------------------------------------------------------------------------
@@ -128,7 +132,9 @@ class DesktopShellViewModel(
         val state = _uiState.value
         if (!state.windowVisible) {
             captureFrontmostWindow()
-            _uiState.update { it.copy(windowVisible = true, popupMode = PopupMode.OPENING) }
+            _uiState.update {
+                it.copy(windowVisible = true, popupMode = PopupMode.OPENING, panelOpenedByTray = false)
+            }
             hotkey.requestOpen()
         } else {
             when (state.popupMode) {
@@ -148,16 +154,27 @@ class DesktopShellViewModel(
         }
     }
 
-    /** 显示面板（不进入循环模式）。对应托盘菜单的「显示 Clipper」。 */
+    /** 显示面板（不进入循环模式）。对应托盘菜单的「显示 Clipper」，属托盘触发。 */
     fun showPanel() {
         captureFrontmostWindow()
-        _uiState.update { it.copy(windowVisible = true, popupMode = PopupMode.TOGGLE) }
+        _uiState.update {
+            it.copy(windowVisible = true, popupMode = PopupMode.TOGGLE, panelOpenedByTray = true)
+        }
+        // 与热键打开一样通知面板：搜索框要重新获得焦点，弹出后立刻就能输入。
+        hotkey.requestOpen()
+    }
+
+    /** 点击菜单栏图标：面板已显示则收起，否则呼出。 */
+    fun togglePanel() {
+        if (_uiState.value.windowVisible) hidePanel() else showPanel()
     }
 
     /** 隐藏面板。[restoreFocus] 为 `false`（因点击别处而失焦）时不抢回焦点。 */
     fun hidePanel(restoreFocus: Boolean = true) {
         val pid = previousAppPid
-        _uiState.update { it.copy(windowVisible = false, popupMode = PopupMode.TOGGLE) }
+        _uiState.update {
+            it.copy(windowVisible = false, popupMode = PopupMode.TOGGLE, panelOpenedByTray = false)
+        }
         // `FloatingPanel.close()`：关闭弹窗时一并关闭预览。
         panel.requestHide()
         panel.clearSearch()
@@ -175,6 +192,9 @@ class DesktopShellViewModel(
         if (!state.windowVisible || panel.hostUiState.value.isModalOpen) return
         // 忽略面板刚显示之后那一次短暂的失焦。
         if (System.currentTimeMillis() - lastFocusGainedAt < FOCUS_GRACE_MILLIS) return
+        // 刚点过菜单栏图标：这次失焦是点击本身造成的，收起与否交给 [togglePanel] 决定。
+        // 否则会先在这里被隐藏、再被 toggle 重新打开，看起来就是「点托盘关不掉」。
+        if (System.currentTimeMillis() - panel.lastTrayClickAtMillis < TRAY_CLICK_GRACE_MILLIS) return
         // 用户已经点了别处，不能再把焦点抢回来。
         hidePanel(restoreFocus = false)
     }
@@ -350,12 +370,12 @@ class DesktopShellViewModel(
     }
 
     /**
-     * 托盘请求显示面板：托盘与窗口逻辑隔离，点击经
-     * [WindowController.requestShow] 通道转达，这里与热键打开共用 [showPanel] 路径。
+     * 托盘请求切换面板：托盘与窗口逻辑隔离，点击经
+     * [WindowController.requestToggle] 通道转达，由这里按当前可见性决定呼出还是收起。
      */
-    private suspend fun observeShowRequests() {
-        panel.showRequests.collect { count ->
-            if (count > 0) showPanel()
+    private suspend fun observeToggleRequests() {
+        panel.toggleRequests.collect { count ->
+            if (count > 0) togglePanel()
         }
     }
 

@@ -35,3 +35,9 @@ internal const val MODIFIER_POLL_MILLIS = 30L
 
 /** 面板刚显示后忽略那一次短暂失焦的时长（对应 `FloatingPanel.resignKey` 的时序）。 */
 internal const val FOCUS_GRACE_MILLIS = 250L
+
+/**
+ * 点击菜单栏图标会让面板先失焦。这段时间内的失焦由 [PopupMode] 的托盘切换逻辑接管，
+ * 不再当作「用户点了别处」而单独收起。
+ */
+internal const val TRAY_CLICK_GRACE_MILLIS = 250L
