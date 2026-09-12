@@ -3,8 +3,8 @@ package com.qcmian.clipper.desktop.domain
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.settings.AppSettings
-import com.qcmian.clipper.ui.Popup
+import com.qcmian.clipper.core.settings.AppSettings
+import com.qcmian.clipper.core.ui.Popup
 import kotlin.math.abs
 
 /** 面板的初始高度，与 `HistoryScreen` 的测量起点一致。 */

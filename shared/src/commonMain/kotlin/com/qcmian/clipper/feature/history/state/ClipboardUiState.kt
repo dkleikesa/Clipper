@@ -1,0 +1,79 @@
+package com.qcmian.clipper.feature.history.state
+
+import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.domain.model.SearchResult
+import com.qcmian.clipper.core.settings.AppSettings
+import com.qcmian.clipper.core.settings.SearchVisibility
+
+/** 当前屏幕上显示的是哪个模态框（如果有）。 */
+enum class ClipboardDialog { PREFERENCES }
+
+/** 「清除历史」的二次确认，包含将要清除的内容。 */
+data class ClearConfirmation(
+    val message: String,
+    val comment: String,
+    val all: Boolean,
+    val hidePanel: Boolean,
+)
+
+/**
+ * 历史界面的完整不可变描述。
+ *
+ * UI 只渲染这个对象，除此之外什么都不读；每一次用户交互都以 [ClipboardUiAction] 的形式回传。
+ * 它是该界面的唯一数据源，由 `ClipboardViewModel` 生成。
+ */
+data class ClipboardUiState(
+    val settings: AppSettings = AppSettings(),
+    /** 用户输入的内容，每敲一个键就更新。 */
+    val query: String = "",
+ /** 实际应用到历史上的查询词，按 节流。 */
+    val appliedQuery: String = "",
+    /** 按 [appliedQuery] 过滤后的历史，已按显示顺序排列。 */
+    val results: List<SearchResult> = emptyList(),
+    val historySelection: Int = 0,
+    /** 由历史列表持有高亮时为 `-1`。 */
+    val footerSelection: Int = -1,
+    val previewOpen: Boolean = false,
+    /** 鼠标移动后变为 `false`，这样悬停会重新开始选择。 */
+    val keyboardNavigating: Boolean = true,
+    val statusMessage: String? = null,
+    val storageSize: String? = null,
+    val screenCount: Int = 1,
+    val supportsLaunchAtLogin: Boolean = false,
+    val supportsApplicationInfo: Boolean = false,
+    /** 宿主是否能退出应用，决定是否多出一行「退出」页脚。 */
+    val showQuit: Boolean = false,
+    val dialog: ClipboardDialog? = null,
+    val confirmation: ClearConfirmation? = null,
+    /** 每当搜索框需要重新获得焦点时自增。 */
+    val focusRequestToken: Int = 0,
+) {
+ /** 固定的置顶区块，放在滚动区之外。 */
+    val pinnedEntries: List<IndexedValue<SearchResult>>
+        get() = results.withIndex().filter { it.value.item.isPinned }
+
+    /** 置顶区块下方（或上方）可滚动的历史。 */
+    val unpinnedEntries: List<IndexedValue<SearchResult>>
+        get() = results.withIndex().filterNot { it.value.item.isPinned }
+
+    val pinnedItems: List<ClipItem> get() = results.map { it.item }.filter { it.isPinned }
+
+    val selectedResult: SearchResult? get() = results.getOrNull(historySelection)
+
+    val selectedItem: ClipItem? get() = selectedResult?.item
+
+    val isHistoryHighlighted: Boolean get() = footerSelection < 0
+
+    /** 对应 `AppState.searchVisible`；读取的是节流后的查询词，而不是原始输入。 */
+    val searchVisible: Boolean
+        get() = settings.showSearch &&
+            (settings.searchVisibility == SearchVisibility.ALWAYS || appliedQuery.isNotEmpty())
+
+    /** 有对话框弹出时为 `true`，此时桌面端面板不得自动隐藏。 */
+    val isModalOpen: Boolean get() = dialog != null || confirmation != null
+
+    /** `AppDelegate.isStatusItemDisabled`：已暂停，或者根本没有在记录任何内容。 */
+    val isStatusItemDisabled: Boolean
+        get() = settings.ignoreEvents ||
+            (!settings.saveText && !settings.saveImages && !settings.saveFiles)
+}

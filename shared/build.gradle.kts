@@ -1,4 +1,3 @@
-import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -12,8 +11,7 @@ plugins {
 }
 
 kotlin {
-    // 创建本项目用到的中间源集：
-    // `iosMain`（两个 iOS 目标共用）与 `webMain`（JS 与 Wasm 共用）。
+    // 创建本项目用到的中间源集：`iosMain`（两个 iOS 目标共用）。
     applyDefaultHierarchyTemplate()
 
     compilerOptions {
@@ -32,15 +30,6 @@ kotlin {
     }
 
     jvm()
-
-    js {
-        browser()
-    }
-
-    @OptIn(ExperimentalWasmDsl::class)
-    wasmJs {
-        browser()
-    }
 
     android {
        namespace = "com.qcmian.clipper.shared"
@@ -88,9 +77,7 @@ kotlin {
             implementation(libs.androidx.room3.runtime)
             implementation(libs.androidx.sqlite)
         }
-        commonTest.dependencies {
-            implementation(libs.kotlin.test)
-        }
+  
         jvmMain.dependencies {
             implementation(libs.kotlinx.coroutinesSwing)
             implementation(libs.jna.platform)
@@ -98,12 +85,6 @@ kotlin {
         }
         iosMain.dependencies {
             implementation(libs.androidx.sqlite.bundled)
-        }
-        jsMain.dependencies {
-            implementation(libs.wrappers.browser)
-        }
-        wasmJsMain.dependencies {
-            implementation(libs.wrappers.browser)
         }
     }
 }
@@ -120,6 +101,4 @@ dependencies {
     add("kspJvm", libs.androidx.room3.compiler)
     add("kspIosArm64", libs.androidx.room3.compiler)
     add("kspIosSimulatorArm64", libs.androidx.room3.compiler)
-    add("kspJs", libs.androidx.room3.compiler)
-    add("kspWasmJs", libs.androidx.room3.compiler)
 }

@@ -2,7 +2,7 @@
 
 一个使用 **Compose Multiplatform** 实现的剪贴板历史管理器，按 macOS 开源项目
 [p0deje/Maccy](https://github.com/p0deje/Maccy) 的界面与交互 **1:1 复刻**，同一份 UI 代码运行在
-**Android / iOS / Desktop (JVM) / Web (Wasm & JS)** 上。
+**Android / iOS / Desktop (JVM)** 上。
 
 ## 功能
 
@@ -43,15 +43,14 @@
 | 置顶 / 取消置顶 | `⌥P`（可自定义） |
 | 删除选中项 | `⌥⌫`（可自定义） |
 | 清除未置顶 | `⌥⌘⌫` |
-| 全部清除 | `⌥⇧⌘⌫` |
 | 显示 / 隐藏预览 | `⌃Space`（可自定义） |
 | 清空搜索 | `⌃U` |
 | 删除搜索中的一个字符 / 一个词 | `⌃H` / `⌃W` |
-| 偏好设置 | `⌘,` |
+| 设置 | `⌘,` |
 | 清空搜索 / 关闭 | `Esc`（有搜索词时先清空，搜索为空时关闭） |
 
-页脚第一行会随按下的修饰键在「清除 `⌥⌘⌫`」与「全部清除 `⌥⇧⌘⌫`」之间切换，
-列表行的快捷键角标也会随修饰键在 `⌘x` / `⌥x` / `⌘⇧x` 之间切换——与 Maccy 相同。
+页脚的「清除」只删除未置顶的条目；清空全部数据（含置顶项）请到设置里操作。
+列表行的快捷键角标会随修饰键在 `⌘x` / `⌥x` / `⌘⇧x` 之间切换——与 Maccy 相同。
 
 ## 运行
 
@@ -61,10 +60,6 @@
 
 # Android
 ./gradlew :androidApp:assembleDebug
-
-# Web（Wasm / JS）
-./gradlew :webApp:wasmJsBrowserDevelopmentRun
-./gradlew :webApp:jsBrowserDevelopmentRun
 
 # iOS：用 Xcode 打开 iosApp 目录后运行
 ```
@@ -116,23 +111,23 @@
 | `IgnorePasteboardTypesSettingsView` 的 `Defaults.reset` | 偏好设置里的「恢复默认类型」按钮 |
 | `ApplicationImageCache` | `ui/components/ImageCache.kt` + `NativeDataSource.applicationIcon`（JVM 侧带 bundle id 缓存） |
 | `PreviewItemView.largeTextThreshold` / `LargeTextPreviewView` | `ui/components/PreviewPane.kt` 的 `LARGE_TEXT_LIMIT` |
-| `NSWorkspace.open(_:)` | `NativeDataSource.openUrl`（JVM / Android / iOS / Web 各自实现） |
+| `NSWorkspace.open(_:)` | `NativeDataSource.openUrl`（JVM / Android / iOS 各自实现） |
 
 Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能力，跨平台无法完全等价，
 因此 Clipper 只保留可移植的三种表示：**纯文本、编码后的图片、文件路径**。
 
 ## 原生能力实现方式
 
-| 能力 | 桌面端 | iOS | Android | Web |
-| --- | --- | --- | --- | --- |
-| 全局热键 | JNA 调 Carbon `RegisterEventHotKey` | — | — | — |
-| 来源应用 | JNA 调 `NSWorkspace.frontmostApplication` | — | — | — |
-| 应用图标 | 读取 `.app` 包内 `.icns` 并抽出最大 PNG 块 | — | — | — |
-| 图片 OCR | JNA 调 Vision `VNRecognizeTextRequest`（同步 `performRequests:`，避开 ObjC block） | `platform.Vision` | ML Kit `text-recognition` | — |
-| 剪贴板类型 | AWT `DataFlavor` mime types | `UIPasteboard.pasteboardTypes` | `ClipDescription` mime types | `text/plain` |
-| 开机自启 | JNA 调 `SMAppService`（未打包运行时会静默失败） | — | — | — |
-| 屏幕数量 | AWT `GraphicsEnvironment.screenDevices` | — | — | — |
-| 打开链接（About） | JNA 调 `NSWorkspace.openURL:`（非 macOS 回退到 AWT `Desktop.browse`） | `UIApplication.openURL:` | `Intent.ACTION_VIEW` | `window.open` |
+| 能力 | 桌面端 | iOS | Android |
+| --- | --- | --- | --- |
+| 全局热键 | JNA 调 Carbon `RegisterEventHotKey` | — | — |
+| 来源应用 | JNA 调 `NSWorkspace.frontmostApplication` | — | — |
+| 应用图标 | 读取 `.app` 包内 `.icns` 并抽出最大 PNG 块 | — | — |
+| 图片 OCR | JNA 调 Vision `VNRecognizeTextRequest`（同步 `performRequests:`，避开 ObjC block） | `platform.Vision` | ML Kit `text-recognition` |
+| 剪贴板类型 | AWT `DataFlavor` mime types | `UIPasteboard.pasteboardTypes` | `ClipDescription` mime types |
+| 开机自启 | JNA 调 `SMAppService`（未打包运行时会静默失败） | — | — |
+| 屏幕数量 | AWT `GraphicsEnvironment.screenDevices` | — | — |
+| 打开链接（About） | JNA 调 `NSWorkspace.openURL:`（非 macOS 回退到 AWT `Desktop.browse`） | `UIApplication.openURL:` | `Intent.ACTION_VIEW` |
 
 新增的桌面端依赖只有 `net.java.dev.jna:jna-platform`；Android 增加 `com.google.mlkit:text-recognition`。
 
@@ -190,13 +185,11 @@ Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能�
 | Desktop (JVM) | 轮询 AWT 剪贴板（默认 500ms，可调） | 读/写 | 读/写 | `Robot` 发送 `⌘V`/`Ctrl+V` | Room（`~/.clipper/clipper.db`） |
 | Android | `OnPrimaryClipChangedListener` | 读 | 读 | 不支持 | Room（`clipper.db`） |
 | iOS | 轮询 `UIPasteboard.changeCount`（默认 500ms） | 读/写 | 读/写 | 不支持 | Room（`clipper.db`） |
-| Web | 轮询 `navigator.clipboard`（默认 800ms） | 不支持 | 不支持 | 不支持 | `localStorage` |
 
 已知限制：
 
 * **Android 10+** 只在前台时才能收到剪贴板变更回调，其他应用中的复制会在 Clipper 回到前台时补采；
   图片内容无法写回剪贴板（需要 `FileProvider`），复制图片条目时会给出提示。
-* **浏览器** 的 `clipboard.readText()` 需要安全上下文（HTTPS/localhost）且页面处于聚焦状态。
 * **自动粘贴 / 全局热键** 依赖系统辅助功能权限：macOS 需要在「系统设置 → 隐私与安全性 → 辅助功能」中
   授权，否则合成的按键事件会被系统丢弃（与 Maccy 的行为一致）。
 * **桌面端失焦即隐藏**：面板失去焦点会自动收起（有弹窗时不收起）。用托盘菜单或全局热键重新呼出。
@@ -239,9 +232,7 @@ Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能�
   `StateFlow` 暴露状态，不再持有 Compose 状态），底层是三个数据源接口。
 * **持久化**：Android / iOS / Desktop 统一使用 **Room（SQLite）**：`clip_history` 存历史，
   `app_settings` 存设置（单行 JSON）。驱动分别为 `BundledSQLiteDriver`，数据库文件位置由各
-  平台源集提供；`ClipStorageDataSource` 因此改为挂起接口。Web 端暂用 `localStorage`
-  （`androidx.sqlite:sqlite-web` 的 `WebWorkerSQLiteDriver` 需要调用方自行编译一个 worker
-  入口，官方尚未发布可直接使用的 worker 产物）。
+  平台源集提供；`ClipStorageDataSource` 因此改为挂起接口。
 * **依赖注入**：`di/AppContainer` 手动装配，无需 DI 框架。
 * **桌面宿主同样分层**：`desktopApp/desktop/domain`（`WindowPlacement.kt`、`WindowSizing.kt`）
   是窗口定位 / 尺寸的纯函数；`desktopApp/desktop/viewmodel`（`DesktopShellViewModel.kt`，官方
@@ -278,9 +269,7 @@ shared/src/
   jvmMain/         AWT 剪贴板、文件存储、macOS 原生层（JNA）
   androidMain/     ClipboardManager、SharedPreferences、ML Kit OCR
   iosMain/         UIPasteboard、NSUserDefaults、Vision OCR
-  webMain/         Clipboard API 与 localStorage（JS 与 Wasm 共用）
 androidApp/     Android 入口
 desktopApp/     Desktop 入口：`main.kt` 组合根 + `desktop/{ui,viewmodel,domain}`
 iosApp/         iOS 入口
-webApp/         Web 入口
 ```

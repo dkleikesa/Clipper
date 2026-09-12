@@ -1,7 +1,7 @@
 package com.qcmian.clipper
 
 import android.app.Application
-import com.qcmian.clipper.data.source.ClipperAndroid
+import com.qcmian.clipper.core.data.source.ClipperAndroid
 import com.qcmian.clipper.di.AppContainer
 
 /**

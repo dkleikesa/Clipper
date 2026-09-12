@@ -8,10 +8,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathBuilder
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.settings.MenuIcon
+import com.qcmian.clipper.core.settings.MenuIcon
 
 /**
- * Maccy `MenuIcon` 枚举中的四个状态栏图形，以矢量方式绘制。
+ * 四个菜单栏图标，以矢量方式绘制。
  *
  * macOS 的模板图片会随菜单栏外观自动反相；Compose Desktop 不暴露该能力，
  * 因此由调用方传入与当前主题匹配的颜色。
