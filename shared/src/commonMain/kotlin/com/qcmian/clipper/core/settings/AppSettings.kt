@@ -12,8 +12,8 @@ enum class SearchMode(val label: String) {
 
 /**。 */
 enum class SortBy(val label: String) {
-    LAST_COPIED_AT("最后复制时间"),
-    FIRST_COPIED_AT("首次复制时间"),
+    LAST_COPIED_AT("最后复制"),
+    FIRST_COPIED_AT("首次复制"),
     NUMBER_OF_COPIES("复制次数"),
 }
 
@@ -44,14 +44,6 @@ enum class PopupPosition(val label: String) {
     WINDOW_CENTER("应用窗口中心"),
     SCREEN_CENTER("屏幕中心"),
     LAST_POSITION("上次位置"),
-}
-
-/**。 */
-enum class MenuIcon(val label: String) {
-    MACCY("Clipper"),
-    CLIPBOARD("剪贴板"),
-    SCISSORS("剪刀"),
-    PAPERCLIP("回形针"),
 }
 
 /**
@@ -128,7 +120,6 @@ data class AppSettings(
     val showApplicationIcons: Boolean = false,
     val imageMaxHeight: Int = 40,
     val popupPosition: PopupPosition = PopupPosition.CURSOR,
-    val menuIcon: MenuIcon = MenuIcon.MACCY,
     val showRecentCopyInMenuBar: Boolean = false,
     /** 对应 `Defaults[.showInStatusBar]`：显示或隐藏菜单栏 / 托盘图标。 */
     val showInStatusBar: Boolean = true,

@@ -59,7 +59,6 @@ import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.domain.action.modifierFlagsOf
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.HighlightMatch
-import com.qcmian.clipper.core.settings.MenuIcon
 import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.settings.PopupPosition
 import com.qcmian.clipper.core.settings.SearchMode
@@ -483,15 +482,6 @@ fun PreferencesContent(
                     description = "关闭后 Clipper 只在快捷键下工作。",
                     checked = settings.showInStatusBar,
                 ) { value -> onSettingsChange { it.copy(showInStatusBar = value) } }
-                SegmentedBlock(
-                    title = "菜单栏图标",
-                    values = MenuIcon.entries,
-                    selected = settings.menuIcon,
-                    label = { it.label },
-                    // `AppearanceSettingsPane` 会在隐藏图标的同时禁用该选择器。
-                    enabled = settings.showInStatusBar,
-                    onSelect = { value -> onSettingsChange { it.copy(menuIcon = value) } },
-                )
                 SwitchRow(
                     title = "在菜单栏显示最近复制",
                     description = "把最新一条复制内容放到托盘提示中。",

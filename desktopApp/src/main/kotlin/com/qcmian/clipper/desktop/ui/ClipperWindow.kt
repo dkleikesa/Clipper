@@ -1,6 +1,5 @@
 package com.qcmian.clipper.desktop.ui
 
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -8,7 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
@@ -50,8 +49,17 @@ fun ApplicationScope.ClipperWindow(
         onCloseRequest = { onCloseRequest() },
         visible = windowVisible,
         title = "Clipper",
+        // 任务栏图标：与打包的 ico、Android、iOS 同一份「炭火夜市」设计稿，直接矢量栅格化。
+        // 只在 Windows / Linux 设置——macOS 上 AWT 的 setIconImage 会反过来覆盖 Dock 图标，
+        // 把 bundle 里的 .icns 换成一张被系统缩进玻璃 squircle 的小图，四周多出一圈留白。
+        icon = if (System.getProperty("os.name").orEmpty().startsWith("Mac")) {
+            null
+        } else {
+            rememberVectorPainter(ClipperAppIcon)
+        },
         // 隐藏系统标题栏（最大化 / 最小化 / 关闭按钮），让面板只显示内容本身。
         undecorated = true,
+        transparent = true,
         // 浮层层级：快捷键呼出时始终盖在当前焦点应用之上。
         alwaysOnTop = true,
         state = windowState,
@@ -89,9 +97,16 @@ fun ApplicationScope.ClipperWindow(
         // 「按住热键循环」的修饰键状态机由 ViewModel 持有，这里只驱动它的生命周期。
         LaunchedEffect(uiState.windowVisible, uiState.popupMode) { viewModel.watchModifiers() }
 
+        // 每一次「呼出面板」（热键或托盘）都会自增；用来判断这次显示是不是新的一次。
+        val openRequests by hotkeyController.openRequests.collectAsStateWithLifecycle()
+
         // 对应 `FloatingPanel.makeKeyAndOrderFront`：显示时把本应用带到前台并取得键盘焦点，
         // 面板才能成为 key window——键盘输入可到达面板，点击窗口外部也会触发失焦收起。
-        LaunchedEffect(uiState.windowVisible) {
+        //
+        // 必须同时依赖 [openRequests]：点击托盘会让面板先失焦，那次隐藏可能和随后的显示
+        // 挤在同一帧里，`windowVisible` 观察不到 false→true 的变化，于是这里不会重跑，
+        // 应用也没被重新激活，看起来就是「点了托盘但窗口没出来」。
+        LaunchedEffect(uiState.windowVisible, openRequests) {
             if (uiState.windowVisible) {
                 runCatching { MacWorkspace.activateSelf() }
                 window.toFront()
@@ -110,6 +125,10 @@ fun ApplicationScope.ClipperWindow(
             windowController = windowController,
             hotkeyController = hotkeyController,
             onPreferredHeightChange = viewModel::onPreferredHeightChanged,
+            // panelVisible：面板可见性（原始值）；statusItemActive：托盘按下态只认
+            // 「托盘触发的可见」——热键呼出时面板虽然可见，托盘保持常态。
+            panelVisible = uiState.windowVisible,
+            statusItemActive = uiState.windowVisible && uiState.panelOpenedByTray,
         )
     }
 }

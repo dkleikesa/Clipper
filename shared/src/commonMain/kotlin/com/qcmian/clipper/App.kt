@@ -51,6 +51,13 @@ fun App(
     windowController: WindowController? = null,
     hotkeyController: HotkeyController? = null,
     onPreferredHeightChange: (Dp) -> Unit = {},
+    /** 面板当前是否可见。桌面宿主据此给托盘图标画按下态；其它平台无此概念。 */
+    panelVisible: Boolean = true,
+    /**
+     * 托盘是否应处于按下态。桌面宿主传「可见 且 由托盘触发」——热键呼出时面板虽然可见，
+     * 托盘保持常态。不传时与 [panelVisible] 一致（旧宿主 / 其它平台）。
+     */
+    statusItemActive: Boolean = panelVisible,
 ) {
     ClipperTheme {
         val viewModel = viewModel {
@@ -119,9 +126,10 @@ fun App(
                 settings = state.settings,
                 isPaused = state.settings.ignoreEvents,
                 isStatusItemDisabled = state.isStatusItemDisabled,
+                isStatusItemActive = statusItemActive,
+                isWindowVisible = panelVisible,
                 isPreviewOpen = state.previewOpen,
                 isModalOpen = state.isModalOpen,
-                menuIcon = state.settings.menuIcon,
                 recentCopyText = recentCopyText,
             ))
         }

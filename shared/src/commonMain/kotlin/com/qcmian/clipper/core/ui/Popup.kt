@@ -4,8 +4,8 @@ import androidx.compose.ui.unit.dp
 
 /** 弹窗的布局常量。 */
 object Popup {
-    val verticalPadding = 5.dp
-    val horizontalPadding = 5.dp
+    val verticalPadding = 8.dp
+    val horizontalPadding = 8.dp
     val verticalSeparatorPadding = 6.dp
     val horizontalSeparatorPadding = 6.dp
 

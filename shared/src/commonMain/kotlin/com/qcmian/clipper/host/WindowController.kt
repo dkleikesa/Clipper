@@ -1,7 +1,8 @@
 package com.qcmian.clipper.host
 
 import com.qcmian.clipper.core.settings.AppSettings
-import com.qcmian.clipper.core.settings.MenuIcon
+import com.qcmian.clipper.core.util.currentTimeMillis
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,15 @@ data class HostUiState(
      */
     val isStatusItemDisabled: Boolean = false,
 
+    /**
+     * 面板当前是否可见。可见时托盘图标画出按下态背景，对应菜单栏项的 `highlighted`。
+     * 只有桌面宿主有这个概念，其它平台保持默认值。
+     */
+    val isStatusItemActive: Boolean = false,
+
+    /** 面板是否可见（不区分触发来源）。托盘点击时用它预推翻转后的按下态。 */
+    val isWindowVisible: Boolean = false,
+
     /** 预览滑出面板当前是否打开。 */
     val isPreviewOpen: Boolean = false,
 
@@ -34,9 +44,6 @@ data class HostUiState(
      */
     val isModalOpen: Boolean = false,
 
-    /** `Defaults[.menuIcon]`。 */
-    val menuIcon: MenuIcon = MenuIcon.MACCY,
-
     /** `AppState.menuIconText`，在 `showRecentCopyInMenuBar` 开启时显示。 */
     val recentCopyText: String = "",
 )
@@ -45,7 +52,7 @@ data class HostUiState(
  * 面板窗口的宿主通道：宿主（托盘、应用根）观察并驱动窗口的生命周期，
  * 窗口的 ViewModel 借它把面板状态投影给 [App]，并接收面板能力的回调。
  *
- * 与 [HotkeyController] 的分工：这里传递的是「窗口事件」（显示、隐藏、退出、
+ * 与 [HotkeyController] 的分工：这里传递的是「窗口事件」（切换显示、隐藏、退出、
  * 窗口内容的搜索/退出能力），与按键无关；按键意图见 [HotkeyController]。
  */
 class WindowController {
@@ -54,10 +61,18 @@ class WindowController {
     /** 由 `App` 从界面状态镜像过来；宿主只读取它。 */
     val hostUiState: StateFlow<HostUiState> = _hostUiState.asStateFlow()
 
-    private val _showRequests = MutableStateFlow(0)
+    private val _toggleRequests = MutableStateFlow(0)
 
-    /** 托盘请求显示面板（点击图标）时自增。 */
-    val showRequests: StateFlow<Int> = _showRequests.asStateFlow()
+    /** 托盘请求切换面板（点击图标）时自增。 */
+    val toggleRequests: StateFlow<Int> = _toggleRequests.asStateFlow()
+
+    /**
+     * 最近一次托盘点击的时刻。窗口侧据此认出「这次失焦是点菜单栏图标造成的」，
+     * 从而不在切换逻辑之外单独收起面板。
+     */
+    @Volatile
+    var lastTrayClickAtMillis: Long = 0L
+        private set
 
     private val _hideRequests = MutableStateFlow(0)
 
@@ -83,9 +98,10 @@ class WindowController {
         _hostUiState.value = value
     }
 
-    /** 对应托盘的点击：窗口侧 ViewModel 观察该请求后显示面板。 */
-    fun requestShow() {
-        _showRequests.value++
+    /** 对应托盘的点击：窗口侧 ViewModel 观察该请求后按当前可见性呼出或收起面板。 */
+    fun requestToggle() {
+        lastTrayClickAtMillis = currentTimeMillis()
+        _toggleRequests.value++
     }
 
     /** 对应 `FloatingPanel.close()`：关闭弹窗的同时也关闭预览滑出面板。 */
