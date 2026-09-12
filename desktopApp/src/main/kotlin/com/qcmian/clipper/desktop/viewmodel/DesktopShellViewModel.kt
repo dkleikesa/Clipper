@@ -7,14 +7,14 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.qcmian.clipper.data.source.ScreenRect
+import com.qcmian.clipper.core.data.source.ScreenRect
 import com.qcmian.clipper.desktop.domain.CYCLE_INTERVAL_MILLIS
 import com.qcmian.clipper.desktop.domain.CYCLE_START_DELAY_MILLIS
 import com.qcmian.clipper.desktop.domain.FOCUS_GRACE_MILLIS
 import com.qcmian.clipper.desktop.domain.InitialPanelHeight
 import com.qcmian.clipper.desktop.domain.MODIFIER_POLL_MILLIS
-import com.qcmian.clipper.desktop.domain.NS_MODIFIER_MASK
 import com.qcmian.clipper.desktop.domain.PopupMode
+import com.qcmian.clipper.desktop.domain.nsModifierMask
 import com.qcmian.clipper.desktop.domain.RESIZE_SETTLE_MILLIS
 import com.qcmian.clipper.desktop.domain.autoWindowSize
 import com.qcmian.clipper.desktop.domain.cursorPosition
@@ -22,10 +22,11 @@ import com.qcmian.clipper.desktop.domain.nearlyEquals
 import com.qcmian.clipper.desktop.domain.resolvePosition
 import com.qcmian.clipper.desktop.domain.screenBounds
 import com.qcmian.clipper.di.AppContainer
-import com.qcmian.clipper.macos.GlobalShortcut
-import com.qcmian.clipper.macos.MacGlobalHotKey
-import com.qcmian.clipper.macos.MacWorkspace
-import com.qcmian.clipper.ui.ClipperController
+import com.qcmian.clipper.core.platform.macos.GlobalShortcut
+import com.qcmian.clipper.core.platform.macos.MacGlobalHotKey
+import com.qcmian.clipper.core.platform.macos.MacWorkspace
+import com.qcmian.clipper.host.HotkeyController
+import com.qcmian.clipper.host.WindowController
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,18 +59,18 @@ data class DesktopShellUiState(
     /** 预览是否改从左侧滑出（右侧放不下时）。 */
     val previewOnLeft: Boolean = false,
 
-    /** 当前弹窗交互阶段（对应 Maccy 的 `PopupState`）。 */
+ /** 当前弹窗交互阶段。 */
     val popupMode: PopupMode = PopupMode.TOGGLE,
 )
 
 /**
  * 桌面外壳的 ViewModel：窗口的可见性、位置、尺寸，全局热键状态机与焦点恢复都集中在这里，
- * 对应 Maccy 的 `FloatingPanel` 加上 `AppDelegate` 里与窗口相关的部分。
+ * 加上 `AppDelegate` 里与窗口相关的部分。
  *
  * 状态管理遵循单向数据流：对外以 [StateFlow] 暴露单一 [DesktopShellUiState]（状态下行），
- * 视图通过本类的意图函数上报事件（事件上行）。仅两处 Compose snapshot 状态是平台桥接：
- * [windowState]（Compose Desktop 窗口 API 本身）与 `controller.hostUiState`（由 `App` 写入
- * 的投影），对它们的观察统一经 `snapshotFlow` 桥接为 Flow 后再与 [uiState] 组合。
+ * 视图通过本类的意图函数上报事件（事件上行）。仅一处 Compose snapshot 状态是平台桥接：
+ * [windowState]（Compose Desktop 窗口 API 本身），经 `snapshotFlow` 桥接为 Flow 后
+ * 与 [uiState]、控制器的 StateFlow 组合。
  *
  * 定位与尺寸这类纯计算放在同包的 Model（`WindowPlacement` / `WindowSizing`）里。
  *
@@ -78,7 +79,10 @@ data class DesktopShellUiState(
  */
 class DesktopShellViewModel(
     private val container: AppContainer,
-    private val controller: ClipperController,
+    /** 窗口事件通道：显示 / 隐藏 / 退出请求与面板投影。 */
+    private val panel: WindowController,
+    /** 按键意图通道：热键状态机向面板转发打开 / 循环 / 接受。 */
+    private val hotkey: HotkeyController,
     /** 由宿主创建、交给本类读写的窗口状态（位置 / 尺寸）。 */
     val windowState: WindowState,
 ) : ViewModel() {
@@ -104,10 +108,8 @@ class DesktopShellViewModel(
 
     private var lastFocusGainedAt = System.currentTimeMillis()
 
-    private val settings get() = controller.hostUiState.settings
-
     init {
-        controller.resetPositionAction = { lastPosition.value = null }
+        panel.resetPositionAction = { lastPosition.value = null }
         captureFrontmostWindow()
         viewModelScope.launch { observeShortcut() }
         viewModelScope.launch { observeWindowSize() }
@@ -127,20 +129,21 @@ class DesktopShellViewModel(
         if (!state.windowVisible) {
             captureFrontmostWindow()
             _uiState.update { it.copy(windowVisible = true, popupMode = PopupMode.OPENING) }
-            controller.requestOpen()
+            hotkey.requestOpen()
         } else {
             when (state.popupMode) {
                 // 第一次重复：切到循环模式并高亮下一条。
                 PopupMode.OPENING -> {
                     _uiState.update { it.copy(popupMode = PopupMode.CYCLE) }
-                    controller.requestCycle()
+                    hotkey.requestCycle()
                 }
 
-                PopupMode.CYCLE -> controller.requestCycle()
+                PopupMode.CYCLE -> hotkey.requestCycle()
 
                 // 面板已稳定显示：再按快捷键把窗口移动到鼠标所在位置。
                 PopupMode.TOGGLE ->
-                    windowState.position = cursorPosition(windowState.size, settings.popupScreen)
+                    windowState.position =
+                        cursorPosition(windowState.size, panel.hostUiState.value.settings.popupScreen)
             }
         }
     }
@@ -156,14 +159,11 @@ class DesktopShellViewModel(
         val pid = previousAppPid
         _uiState.update { it.copy(windowVisible = false, popupMode = PopupMode.TOGGLE) }
         // `FloatingPanel.close()`：关闭弹窗时一并关闭预览。
-        controller.requestHide()
-        controller.clearSearch()
+        panel.requestHide()
+        panel.clearSearch()
         // 把焦点还给此前聚焦的应用：合成粘贴（⌘V）才会落到它上面。
         if (restoreFocus && pid > 0) runCatching { MacWorkspace.activate(pid) }
     }
-
-    /** 托盘菜单的「暂停记录 / 恢复记录」。 */
-    fun togglePause() = controller.togglePause()
 
     fun onWindowGainedFocus() {
         lastFocusGainedAt = System.currentTimeMillis()
@@ -172,7 +172,7 @@ class DesktopShellViewModel(
     /** 对应 `FloatingPanel.resignKey()`：失去焦点即隐藏（有弹窗时不隐藏）。 */
     fun onWindowLostFocus() {
         val state = _uiState.value
-        if (!state.windowVisible || controller.hostUiState.isModalOpen) return
+        if (!state.windowVisible || panel.hostUiState.value.isModalOpen) return
         // 忽略面板刚显示之后那一次短暂的失焦。
         if (System.currentTimeMillis() - lastFocusGainedAt < FOCUS_GRACE_MILLIS) return
         // 用户已经点了别处，不能再把焦点抢回来。
@@ -191,9 +191,9 @@ class DesktopShellViewModel(
 
     /** 退出：应用「退出时清空历史」偏好并等待落盘，然后请求宿主结束进程。 */
     fun quit() {
-        controller.quit()
+        panel.quit()
         runBlocking { container.repository.flushNow() }
-        controller.requestExit()
+        panel.requestExit()
     }
 
     /**
@@ -202,13 +202,18 @@ class DesktopShellViewModel(
      * 因此 [DesktopShellUiState.popupMode] 变化时会重新进入。
      *
      * Carbon 的 `RegisterEventHotKey` 只在按下时报一次、不会自动重复，因此这里自己按节奏循环，
-     * 等价于 Maccy 依赖按键重复事件的行为。
+ * 效果与依赖按键自动重复的实现一致。
      */
     suspend fun watchModifiers() {
         val state = _uiState.value
         if (!state.windowVisible || state.popupMode == PopupMode.TOGGLE) return
 
-        fun modifiersHeld(): Boolean = native.currentModifierFlags() and NS_MODIFIER_MASK != 0
+        // 只有呼出快捷键要求的完整修饰键组合仍被按住，循环才继续：
+        // 3 键热键松开其中任意一个，就该立刻接受并停止，而不是「任意修饰键还按着」。
+        val requiredMask = nsModifierMask(panel.hostUiState.value.settings.popupShortcut)
+
+        fun modifiersHeld(): Boolean =
+            requiredMask != 0 && native.currentModifierFlags() and requiredMask == requiredMask
 
         when (state.popupMode) {
             PopupMode.OPENING -> {
@@ -224,7 +229,7 @@ class DesktopShellViewModel(
                 }
                 // 修饰键一直按着：进入循环并高亮下一条。
                 _uiState.update { it.copy(popupMode = PopupMode.CYCLE) }
-                controller.requestCycle()
+                hotkey.requestCycle()
             }
 
             PopupMode.CYCLE -> {
@@ -232,11 +237,11 @@ class DesktopShellViewModel(
                     delay(CYCLE_INTERVAL_MILLIS)
                     if (!modifiersHeld()) {
                         // 松开修饰键：接受（粘贴）高亮项。
-                        controller.requestAccept()
+                        hotkey.requestAccept()
                         _uiState.update { it.copy(popupMode = PopupMode.TOGGLE) }
                         return
                     }
-                    controller.requestCycle()
+                    hotkey.requestCycle()
                 }
             }
 
@@ -250,7 +255,10 @@ class DesktopShellViewModel(
 
     /** 用户录制了不同的快捷键时重新注册全局热键。 */
     private suspend fun observeShortcut() {
-        snapshotFlow { settings.popupShortcut }.collectLatest { spec ->
+        panel.hostUiState
+            .map { it.settings.popupShortcut }
+            .distinctUntilChanged()
+            .collectLatest { spec ->
             val handle = GlobalShortcut.fromSpec(spec)?.let { shortcut ->
                 MacGlobalHotKey.register(shortcut) { onHotKeyPressed() }
             }
@@ -267,7 +275,7 @@ class DesktopShellViewModel(
         combine(
             customSize,
             uiState,
-            snapshotFlow { controller.hostUiState.settings },
+            panel.hostUiState.map { it.settings }.distinctUntilChanged(),
             snapshotFlow { windowState.position },
         ) { custom, state, settings, position ->
             val top = (position as? WindowPosition.Absolute)?.y?.value?.toInt()
@@ -300,8 +308,8 @@ class DesktopShellViewModel(
     private suspend fun observePlacement() {
         combine(
             uiState.map { it.windowVisible }.distinctUntilChanged(),
-            snapshotFlow { controller.hostUiState.settings }
-                .map { Pair(it.popupPosition, it.popupScreen) }
+            panel.hostUiState
+                .map { Pair(it.settings.popupPosition, it.settings.popupScreen) }
                 .distinctUntilChanged(),
         ) { visible, (position, screenIndex) ->
             Triple(visible, position, screenIndex)
@@ -325,7 +333,7 @@ class DesktopShellViewModel(
         combine(
             uiState.map { Pair(it.previewOpen, it.windowVisible) }.distinctUntilChanged(),
             snapshotFlow { windowState.position },
-            snapshotFlow { controller.hostUiState.settings },
+            panel.hostUiState.map { it.settings }.distinctUntilChanged(),
         ) { (previewOpen, visible), position, settings ->
             val absolute = position as? WindowPosition.Absolute
             when {
@@ -342,11 +350,11 @@ class DesktopShellViewModel(
     }
 
     /**
-     * 托盘请求显示面板：托盘与窗口持有各自独立的 ViewModel，菜单动作经
-     * [ClipperController.requestShow] 通道转达，这里与热键打开共用 [showPanel] 路径。
+     * 托盘请求显示面板：托盘与窗口逻辑隔离，点击经
+     * [WindowController.requestShow] 通道转达，这里与热键打开共用 [showPanel] 路径。
      */
     private suspend fun observeShowRequests() {
-        snapshotFlow { controller.showRequests }.collectLatest { count ->
+        panel.showRequests.collect { count ->
             if (count > 0) showPanel()
         }
     }

@@ -1,5 +1,6 @@
 package com.qcmian.clipper.desktop.ui
 
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -7,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowState
@@ -15,15 +17,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qcmian.clipper.App
 import com.qcmian.clipper.desktop.viewmodel.DesktopShellViewModel
 import com.qcmian.clipper.di.AppContainer
-import com.qcmian.clipper.macos.MacWorkspace
-import com.qcmian.clipper.ui.ClipperController
+import com.qcmian.clipper.core.platform.macos.MacWorkspace
+import com.qcmian.clipper.host.HotkeyController
+import com.qcmian.clipper.host.WindowController
 import java.awt.event.WindowEvent
 import java.awt.event.WindowFocusListener
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 
-
-/** 关闭请求：由内容侧注册实际处理者，转发给 ViewModel。 */
+/**
+ * 关闭请求的处理者：由窗口内容注册，`Window` 的 `onCloseRequest` 在调用时才解引用。
+ * 本应用全局只有一个主窗口，全局一份即可。
+ */
 var onCloseRequest: () -> Unit = {}
 
 /**
@@ -31,45 +34,43 @@ var onCloseRequest: () -> Unit = {}
  * （焦点、显示时机）转发给它。
  *
  * ViewModel 在 `Window` 内容里创建：内容组合由窗口宿主注入 `LocalViewModelStoreOwner`，
- * 无需自建。`Window` 自身参数所需的能力经 [WindowBridge] 从内容里回传。
+ * 无需自建。`Window` 的 `visible` 参数在进入内容之前求值，由内容根据 ViewModel 状态回写。
  */
 @Composable
 fun ApplicationScope.ClipperWindow(
     windowState: WindowState,
     container: AppContainer,
-    controller: ClipperController,
+    windowController: WindowController,
+    hotkeyController: HotkeyController,
 ) {
-
-    /** 面板可见性：内容侧根据 ViewModel 状态回写，`Window` 参数读取。 */
-    var windowVisible by remember {  mutableStateOf(true) }
-
+    // 面板可见性：内容侧根据 ViewModel 状态回写，`Window` 参数读取。
+    var windowVisible by remember { mutableStateOf(true) }
 
     Window(
-        // 在调用时才解引用，内容注册的处理者总能生效。
         onCloseRequest = { onCloseRequest() },
         visible = windowVisible,
         title = "Clipper",
         // 隐藏系统标题栏（最大化 / 最小化 / 关闭按钮），让面板只显示内容本身。
         undecorated = true,
-        // 对应 Maccy `FloatingPanel` 的浮层层级：快捷键呼出时始终盖在当前焦点应用之上。
+        // 浮层层级：快捷键呼出时始终盖在当前焦点应用之上。
         alwaysOnTop = true,
         state = windowState,
     ) {
         // 内容组合由窗口宿主提供 ViewModelStoreOwner：窗口隐藏时组合保留、store 不销毁。
-        val viewModel = viewModel { DesktopShellViewModel(container, controller, windowState) }
+        val viewModel = viewModel {
+            DesktopShellViewModel(container, windowController, hotkeyController, windowState)
+        }
         val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-        // 把 ViewModel 的能力「返回」给外层的 Window 参数：
-        // 关闭请求转发给 hidePanel；UI 状态中的可见性回写到桥接对象。
+        // 把 ViewModel 的能力「返回」给外层的 Window 参数：关闭请求转发给 hidePanel。
         DisposableEffect(viewModel) {
             onCloseRequest = { viewModel.hidePanel() }
             onDispose { onCloseRequest = {} }
         }
         LaunchedEffect(viewModel) {
-            viewModel.uiState
-                .map { it.windowVisible }
-                .distinctUntilChanged()
-                .collect { windowVisible = it }
+            viewModel.uiState.collect {
+                windowVisible = it.windowVisible
+            }
         }
 
         // 对应 `FloatingPanel.resignKey()`：面板失去焦点即隐藏，但它的对话框弹出时不隐藏。
@@ -106,7 +107,8 @@ fun ApplicationScope.ClipperWindow(
             onQuit = { viewModel.quit() },
             onPreviewOpenChange = viewModel::onPreviewOpenChanged,
             previewOnLeft = uiState.previewOnLeft,
-            controller = controller,
+            windowController = windowController,
+            hotkeyController = hotkeyController,
             onPreferredHeightChange = viewModel::onPreferredHeightChanged,
         )
     }

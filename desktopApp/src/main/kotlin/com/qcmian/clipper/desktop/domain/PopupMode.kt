@@ -1,17 +1,28 @@
 package com.qcmian.clipper.desktop.domain
 
-/** 对应 Maccy 的 `PopupState`：切换、打开中（尚未决定）或循环。 */
+import com.qcmian.clipper.core.settings.ShortcutSpec
+
+/** 切换、打开中（尚未决定）或循环。 */
 enum class PopupMode { TOGGLE, OPENING, CYCLE }
 
-/** 状态项点击用到的 `NSEvent.ModifierFlags` 位。 */
+/** `NSEvent.ModifierFlags` 的各位。 */
 internal const val NS_SHIFT_MASK = 1 shl 17
+internal const val NS_CONTROL_MASK = 1 shl 18
 internal const val NS_OPTION_MASK = 1 shl 19
+internal const val NS_COMMAND_MASK = 1 shl 20
 
 /**
  * Shift / control / option / command。`NSEvent.modifierFlags` 还携带大写锁定与数字键盘，
  * 它们不该让弹窗一直停留在循环模式。
  */
-internal const val NS_MODIFIER_MASK = NS_SHIFT_MASK or (1 shl 18) or NS_OPTION_MASK or (1 shl 20)
+internal const val NS_MODIFIER_MASK = NS_SHIFT_MASK or NS_CONTROL_MASK or NS_OPTION_MASK or NS_COMMAND_MASK
+
+/** 呼出快捷键要求的修饰键掩码：循环只应在该组合完整按住时持续。 */
+internal fun nsModifierMask(spec: ShortcutSpec): Int =
+    (NS_SHIFT_MASK.takeIf { spec.shift } ?: 0) or
+        (NS_CONTROL_MASK.takeIf { spec.control } ?: 0) or
+        (NS_OPTION_MASK.takeIf { spec.option } ?: 0) or
+        (NS_COMMAND_MASK.takeIf { spec.command } ?: 0)
 
 /** 按住呼出快捷键多久后才开始循环（轻按一下就松开不会进入循环）。 */
 internal const val CYCLE_START_DELAY_MILLIS = 500L

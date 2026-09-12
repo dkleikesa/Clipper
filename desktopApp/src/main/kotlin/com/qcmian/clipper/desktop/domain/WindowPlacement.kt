@@ -3,8 +3,8 @@ package com.qcmian.clipper.desktop.domain
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPosition
-import com.qcmian.clipper.data.source.ScreenRect
-import com.qcmian.clipper.settings.PopupPosition
+import com.qcmian.clipper.core.data.source.ScreenRect
+import com.qcmian.clipper.core.settings.PopupPosition
 import java.awt.GraphicsDevice
 import java.awt.GraphicsEnvironment
 import java.awt.MouseInfo
@@ -14,7 +14,7 @@ import java.awt.Toolkit
 /**
  * 桌面窗口的定位（Model 层，纯函数）。
  *
- * 对应 Maccy 的 `PopupPosition`：把「希望弹窗出现在哪里」翻译成具体的窗口坐标。
+ * 把「希望弹窗出现在哪里」翻译成具体的窗口坐标。
  * 这些函数不持有任何状态，输入相同则结果相同，因此与 Compose 或窗口生命周期无关。
  */
 internal fun resolvePosition(
@@ -63,7 +63,7 @@ internal fun windowCenterPosition(
 }
 
 /**
- * 对应 `PopupPosition.origin`：索引 0 是鼠标所在的屏幕（即 Maccy 的「活动屏幕」），
+ * 对应 `PopupPosition.origin`：索引 0 是鼠标所在的屏幕（活动屏幕），
  * 其它索引指向 `NSScreen.screens[index - 1]`。
  *
  * 返回的是**可用区域**（对应 `NSScreen.visibleFrame`），已去掉菜单栏与 Dock，

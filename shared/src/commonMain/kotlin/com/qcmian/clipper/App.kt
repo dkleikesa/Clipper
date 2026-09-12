@@ -12,12 +12,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qcmian.clipper.di.AppContainer
-import com.qcmian.clipper.ui.ClipboardViewModel
-import com.qcmian.clipper.ui.ClipperController
-import com.qcmian.clipper.ui.HostUiState
-import com.qcmian.clipper.ui.HistoryScreen
-import com.qcmian.clipper.ui.state.ClipboardUiAction
-import com.qcmian.clipper.ui.theme.ClipperTheme
+import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
+import com.qcmian.clipper.feature.history.ui.HistoryScreen
+import com.qcmian.clipper.host.HostUiState
+import com.qcmian.clipper.host.HotkeyController
+import com.qcmian.clipper.host.WindowController
+import com.qcmian.clipper.feature.history.state.ClipboardUiAction
+import com.qcmian.clipper.core.ui.theme.ClipperTheme
+import kotlinx.coroutines.launch
 
 /**
  * 所有目标共用的入口。
@@ -30,11 +32,12 @@ import com.qcmian.clipper.ui.theme.ClipperTheme
  * @param onRequestHideWindow 让宿主在「自动粘贴」动作送达之前隐藏窗口，
  *   使按键能到达此前聚焦的应用。
  * @param onQuit 「退出」页脚行。无法退出的平台上传入 `null` 会隐藏该行。
- * @param onPreviewOpenChange 上报预览滑出面板的状态，使桌面宿主能像 Maccy 那样加宽窗口。
+ * @param onPreviewOpenChange 上报预览滑出面板的状态，使桌面宿主能加宽窗口。
  * @param previewOnLeft 对应 `SlideoutController.computePlacement`：弹窗右侧放不下时，
  *   预览改从左侧滑出。
- * @param controller 让宿主（桌面托盘）观察并驱动面板。
- * @param onPreferredHeightChange 上报弹窗希望得到的高度，使桌面宿主能像 Maccy 的浮动面板那样
+ * @param windowController 让宿主观察面板投影并驱动窗口事件（显示 / 隐藏 / 退出）。
+ * @param hotkeyController 让宿主的全局热键状态机把按键意图发给面板。
+ * @param onPreferredHeightChange 上报弹窗希望得到的高度，使桌面宿主能
  *   贴合内容。
  */
 @Composable
@@ -45,7 +48,8 @@ fun App(
     onQuit: (() -> Unit)? = null,
     onPreviewOpenChange: (Boolean) -> Unit = {},
     previewOnLeft: Boolean = false,
-    controller: ClipperController? = null,
+    windowController: WindowController? = null,
+    hotkeyController: HotkeyController? = null,
     onPreferredHeightChange: (Dp) -> Unit = {},
 ) {
     ClipperTheme {
@@ -72,37 +76,28 @@ fun App(
 
         // 宿主通过这些计数器驱动面板（`PopupState.toggle/cycle`）；把它们当作普通动作转发，
         // 使 ViewModel 保持为唯一的状态所有者。
-        val openRequests = controller?.openRequests ?: 0
-        val cycleRequests = controller?.cycleRequests ?: 0
-        val acceptRequests = controller?.acceptRequests ?: 0
-        val hideRequests = controller?.hideRequests ?: 0
-
-        LaunchedEffect(openRequests) {
-            if (openRequests > 0) viewModel.onAction(ClipboardUiAction.Opened)
-        }
-        LaunchedEffect(cycleRequests) {
-            if (cycleRequests > 0) viewModel.onAction(ClipboardUiAction.Cycle)
-        }
-        LaunchedEffect(acceptRequests) {
-            if (acceptRequests > 0) viewModel.onAction(ClipboardUiAction.Accept)
-        }
-        LaunchedEffect(hideRequests) {
-            if (hideRequests > 0) viewModel.onAction(ClipboardUiAction.Hidden)
-        }
-
-        // 托盘菜单会调用这些槽位。
-        LaunchedEffect(controller, viewModel) {
-            controller?.let { host ->
-                host.togglePauseAction = { onlyNext ->
-                    viewModel.onAction(ClipboardUiAction.TogglePause(onlyNext))
-                }
-                host.togglePreviewAction = { viewModel.onAction(ClipboardUiAction.TogglePreview) }
-                host.clearSearchAction = { viewModel.onAction(ClipboardUiAction.ClearSearch) }
-                host.quitAction = { viewModel.onQuit() }
+        LaunchedEffect(hotkeyController, viewModel) {
+            val hotkey = hotkeyController ?: return@LaunchedEffect
+            launch {
+                hotkey.openRequests.collect { if (it > 0) viewModel.onAction(ClipboardUiAction.Opened) }
+            }
+            launch {
+                hotkey.cycleRequests.collect { if (it > 0) viewModel.onAction(ClipboardUiAction.Cycle) }
+            }
+            launch {
+                hotkey.acceptRequests.collect { if (it > 0) viewModel.onAction(ClipboardUiAction.Accept) }
             }
         }
+        LaunchedEffect(windowController, viewModel) {
+            val host = windowController ?: return@LaunchedEffect
+            launch {
+                host.hideRequests.collect { if (it > 0) viewModel.onAction(ClipboardUiAction.Hidden) }
+            }
+            host.clearSearchAction = { viewModel.onAction(ClipboardUiAction.ClearSearch) }
+            host.quitAction = { viewModel.onQuit() }
+        }
 
-        // `AppState.menuIconText`：最近一条未置顶的复制，按 Maccy 的方式缩短。
+        // `AppState.menuIconText`：最近一条未置顶的复制，适当缩短后展示。
         val recentCopyText = remember(state.results, state.settings.showRecentCopyInMenuBar) {
             if (!state.settings.showRecentCopyInMenuBar) {
                 ""
@@ -120,7 +115,7 @@ fun App(
         // 用一个投影取代十几个镜像字段：面向宿主的那部分状态以单个不可变值交给控制器，
         // 因此它只有一个数据源。
         SideEffect {
-            controller?.hostUiState = HostUiState(
+            windowController?.setHostUiState(HostUiState(
                 settings = state.settings,
                 isPaused = state.settings.ignoreEvents,
                 isStatusItemDisabled = state.isStatusItemDisabled,
@@ -128,7 +123,7 @@ fun App(
                 isModalOpen = state.isModalOpen,
                 menuIcon = state.settings.menuIcon,
                 recentCopyText = recentCopyText,
-            )
+            ))
         }
 
         HistoryScreen(
@@ -140,7 +135,7 @@ fun App(
             applicationName = viewModel::applicationName,
             availablePins = viewModel::availablePins,
             previewOnLeft = previewOnLeft,
-            onResetPosition = { controller?.resetPosition() },
+            onResetPosition = { windowController?.resetPosition() },
             modifier = Modifier.fillMaxSize(),
         )
     }
