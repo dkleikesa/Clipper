@@ -3,7 +3,6 @@ package com.qcmian.clipper.core.platform.macos
 import com.sun.jna.Callback
 import com.sun.jna.CallbackReference
 import com.sun.jna.Memory
-import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,18 +20,12 @@ import kotlinx.coroutines.flow.asStateFlow
  *   `togglePanel` 有 250ms 宽限位，不会把刚收起的面板重新打开。
  *
  * `addGlobalMonitorForEventsMatchingMask:handler:` 的 handler 是 ObjC block，
- * JNA 没有现成桥接，这里手工构造全局 block（32 字节：isa + flags + invoke + descriptor）。
+ * JNA 没有现成桥接，block 由 [MacNative.globalBlock] 手工拼出来。
  * 鼠标事件的全局监视不需要辅助功能权限（只有键盘事件需要）。
  *
  * 线程：监视器回调可能由任意线程派发，只写 `StateFlow`，线程安全。
  */
 object MacOutsideClickMonitor {
-
-    /** block 的 flags：BLOCK_IS_GLOBAL(1<<28) | BLOCK_HAS_DESCRIPTOR(1<<29)。 */
-    private const val BLOCK_FLAGS = (1 shl 28) or (1 shl 29)
-
-    /** 全局 block 字面量的大小（arm64 / x86_64 一致）。 */
-    private const val BLOCK_SIZE = 32L
 
     /** 关心的鼠标抬起事件：左键(type 2)、右键(type 4)、其它键(type 26)。 */
     private const val MOUSE_UP_MASK = (1L shl 2) or (1L shl 4) or (1L shl 26)
@@ -84,8 +77,8 @@ object MacOutsideClickMonitor {
         return runCatching {
             val globalInvoke = CallbackReference.getFunctionPointer(globalCallback) ?: return false
             val localInvoke = CallbackReference.getFunctionPointer(localCallback) ?: return false
-            val (newGlobalBlock, newGlobalDescriptor) = makeBlock(globalInvoke) ?: return false
-            val (newLocalBlock, newLocalDescriptor) = makeBlock(localInvoke) ?: return false
+            val (newGlobalBlock, newGlobalDescriptor) = MacNative.globalBlock(globalInvoke) ?: return false
+            val (newLocalBlock, newLocalDescriptor) = MacNative.globalBlock(localInvoke) ?: return false
             val nsevent = MacNative.clazz("NSEvent") ?: return false
 
             globalBlock = newGlobalBlock
@@ -109,30 +102,6 @@ object MacOutsideClickMonitor {
             installed = true
             true
         }.getOrDefault(false)
-    }
-
-    /**
-     * 构造一个调用 [invoke] 的全局 ObjC block，返回 block 及其 descriptor（两者都要保活）；
-     * `_NSConcreteGlobalBlock` 符号缺失时返回 `null`。
-     */
-    private fun makeBlock(invoke: Pointer): Pair<Memory, Memory>? {
-        val symbol = runCatching {
-            NativeLibrary.getProcess().getGlobalVariableAddress("_NSConcreteGlobalBlock")
-        }.getOrNull() ?: return null
-        val isa = symbol.getPointer(0) ?: return null
-
-        val descriptor = Memory(16).apply {
-            setLong(0, 0)              // reserved
-            setLong(8, BLOCK_SIZE)     // size
-        }
-        val block = Memory(BLOCK_SIZE).apply {
-            setPointer(0, isa)
-            setInt(8, BLOCK_FLAGS)
-            setInt(12, 0)
-            setPointer(16, invoke)
-            setPointer(24, descriptor)
-        }
-        return block to descriptor
     }
 
     /** 事件窗口是否为本面板（按标题判定；菜单栏、菜单、弹窗等都不是）。 */

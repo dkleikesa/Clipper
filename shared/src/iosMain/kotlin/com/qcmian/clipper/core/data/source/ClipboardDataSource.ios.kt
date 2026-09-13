@@ -1,8 +1,7 @@
 package com.qcmian.clipper.core.data.source
 
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
-import com.qcmian.clipper.core.util.decodeBase64
-import com.qcmian.clipper.core.util.encodeBase64
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,9 +32,8 @@ private class IosClipboardDataSource : ClipboardDataSource {
 
     override fun write(snapshot: ClipboardSnapshot): Boolean {
         val pasteboard = UIPasteboard.generalPasteboard
-        val image = snapshot.imageBase64
-            ?.let { decodeBase64(it) }
-            ?.let { UIImage.imageWithData(it.toNSData()) }
+        val image = snapshot.image
+            ?.let { UIImage.imageWithData(it.toByteArray().toNSData()) }
 
         val written = when {
             image != null -> {
@@ -92,14 +90,14 @@ private class IosClipboardDataSource : ClipboardDataSource {
 
     private fun readSnapshot(pasteboard: UIPasteboard): ClipboardSnapshot {
         val text = pasteboard.string
-        val imageBase64 = pasteboard.image
+        val image = pasteboard.image
             ?.let { UIImagePNGRepresentation(it) }
             ?.toByteArray()
-            ?.let { encodeBase64(it) }
+            ?.let { ClipImage(it) }
         val files = pasteboard.URLs.orEmpty().mapNotNull { (it as? NSURL)?.path }
         // iOS 会暴露真正的粘贴板类型标识，与忽略列表匹配的是同一批字符串。
         val types = pasteboard.pasteboardTypes.orEmpty().mapNotNull { it as? String }
-        return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files, types = types)
+        return ClipboardSnapshot(text = text, image = image, files = files, types = types)
     }
 }
 

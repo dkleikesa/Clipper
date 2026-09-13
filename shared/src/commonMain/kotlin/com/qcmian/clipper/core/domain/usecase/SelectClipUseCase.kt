@@ -68,8 +68,8 @@ class SelectClipUseCase(
     private fun snapshotFor(item: ClipItem, removeFormatting: Boolean): ClipboardSnapshot {
         if (!removeFormatting) {
             return ClipboardSnapshot(
-                text = item.text ?: if (item.imageBase64 == null && item.files.isEmpty()) item.previewableText else null,
-                imageBase64 = item.imageBase64,
+                text = item.text ?: if (item.image == null && item.files.isEmpty()) item.previewableText else null,
+                image = item.image,
                 files = item.files,
             )
         }
@@ -79,8 +79,8 @@ class SelectClipUseCase(
         // 表现得与普通复制完全一致。
         if (item.text == null) {
             return ClipboardSnapshot(
-                text = if (item.imageBase64 == null && item.files.isEmpty()) item.previewableText else null,
-                imageBase64 = item.imageBase64,
+                text = if (item.image == null && item.files.isEmpty()) item.previewableText else null,
+                image = item.image,
                 files = item.files,
             )
         }

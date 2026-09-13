@@ -22,7 +22,7 @@ class CopySearchQueryUseCase(private val platform: ClipboardPlatform) {
 class CopyExtractedTextUseCase(private val platform: ClipboardPlatform) {
     operator fun invoke(item: ClipItem): Boolean {
         val text = item.title.trim()
-        if (item.imageBase64 == null || text.isEmpty()) return false
+        if (item.image == null || text.isEmpty()) return false
         return platform.writeClipboard(ClipboardSnapshot(text = text))
     }
 }

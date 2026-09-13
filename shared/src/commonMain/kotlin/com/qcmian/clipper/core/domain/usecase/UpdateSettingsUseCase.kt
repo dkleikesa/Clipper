@@ -28,13 +28,13 @@ class UpdateSettingsUseCase(private val repository: ClipboardRepository) {
             previous.saveFiles != updated.saveFiles
         ) {
             items = items.filterNot { item ->
-                (!updated.saveText && item.text != null && item.imageBase64 == null && item.files.isEmpty()) ||
-                    (!updated.saveImages && item.imageBase64 != null && item.text.isNullOrBlank() && item.files.isEmpty()) ||
-                    (!updated.saveFiles && item.files.isNotEmpty() && item.text.isNullOrBlank() && item.imageBase64 == null)
+                (!updated.saveText && item.text != null && item.image == null && item.files.isEmpty()) ||
+                    (!updated.saveImages && item.image != null && item.text.isNullOrBlank() && item.files.isEmpty()) ||
+                    (!updated.saveFiles && item.files.isNotEmpty() && item.text.isNullOrBlank() && item.image == null)
             }
         }
 
-        val layoutChanged = updated.historySize != previous.historySize ||
+        val layoutChanged = updated.historyMaxSizeBytes != previous.historyMaxSizeBytes ||
             updated.sortBy != previous.sortBy ||
             updated.pinTo != previous.pinTo
 

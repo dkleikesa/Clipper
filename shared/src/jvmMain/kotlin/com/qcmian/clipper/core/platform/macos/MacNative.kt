@@ -24,6 +24,12 @@ internal object MacNative {
     private val addMethodFunction: Function = runtime.getFunction("class_addMethod")
     private val objectGetClassName: Function = runtime.getFunction("object_getClassName")
 
+    /** [globalBlock] 的 flags：BLOCK_IS_GLOBAL(1<<28) | BLOCK_HAS_DESCRIPTOR(1<<29)。 */
+    private const val BLOCK_FLAGS = (1 shl 28) or (1 shl 29)
+
+    /** 全局 block 字面量的大小（arm64 / x86_64 一致）。 */
+    private const val BLOCK_SIZE = 32L
+
     /** 强制加载某个框架，使 [clazz] 能找到它的类。 */
     fun loadFramework(path: String): Boolean =
         runCatching { NativeLibrary.getInstance(path); true }.getOrDefault(false)
@@ -115,6 +121,55 @@ internal object MacNative {
         return runCatching {
             (msgSend.invoke(Byte::class.java, arrayOf(receiver, selector, *args)) as Byte).toInt() != 0
         }.getOrDefault(false)
+    }
+
+    /**
+     * 通过 KVC 读一个「按值返回的结构体」属性，例如 `NSView.frame` 的 `NSRect`。
+     *
+     * `[obj valueForKey:]` 会把结构体包成 `NSValue`，再用 `[value getValue:]` 写进缓冲区——
+     * 两个参数都是指针，绕开了 `objc_msgSend` 按值返回结构体在跨架构上的 ABI 问题
+     * （[setImageSize] 用的是同一套思路）。
+     *
+     * @return 结构体的前 [count] 个 `CGFloat`（64 位平台上即 `Double`）；读不到时返回 `null`。
+     */
+    fun structDoubles(receiver: Pointer?, key: String, count: Int): DoubleArray? {
+        if (receiver == null) return null
+        val keyString = nsString(key) ?: return null
+        val value = send(receiver, "valueForKey:", keyString)
+        send(keyString, "release")
+        if (value == null) return null
+
+        val size = (count * 8).toLong()
+        val buffer = Memory(size)
+        send(value, "getValue:size:", buffer, size)
+        return DoubleArray(count) { buffer.getDouble((it * 8).toLong()) }
+    }
+
+    /**
+     * 构造一个调用 [invoke] 的全局 ObjC block（32 字节：isa + flags + invoke + descriptor），
+     * 返回 block 及其 descriptor——两者的地址都被写进了 ObjC，调用方必须保活。
+     *
+     * `addGlobalMonitorForEventsMatchingMask:handler:` 一类的 API 只收 ObjC block，
+     * JNA 没有现成桥接，只能手工拼；`_NSConcreteGlobalBlock` 符号缺失时返回 `null`。
+     */
+    fun globalBlock(invoke: Pointer): Pair<Memory, Memory>? {
+        val symbol = runCatching {
+            NativeLibrary.getProcess().getGlobalVariableAddress("_NSConcreteGlobalBlock")
+        }.getOrNull() ?: return null
+        val isa = symbol.getPointer(0) ?: return null
+
+        val descriptor = Memory(16).apply {
+            setLong(0, 0)             // reserved
+            setLong(8, BLOCK_SIZE)    // size
+        }
+        val block = Memory(BLOCK_SIZE).apply {
+            setPointer(0, isa)
+            setInt(8, BLOCK_FLAGS)
+            setInt(12, 0)
+            setPointer(16, invoke)
+            setPointer(24, descriptor)
+        }
+        return block to descriptor
     }
 
     /** 用 UTF-8 字节分配一个 `NSString`；不依赖 JNA 的隐式编码。 */

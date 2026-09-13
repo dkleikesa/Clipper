@@ -290,6 +290,9 @@ class ClipboardViewModel(
                 results = results,
                 historySelection = it.historySelection.coerceIn(0, maxOf(0, results.lastIndex)),
                 storageSize = platform.storageSize,
+                historyBytes = repository.items.value
+                    .filter { it.isUnpinned }
+                    .sumOf { it.approximateSizeBytes },
                 screenCount = platform.screenCount,
                 supportsLaunchAtLogin = platform.supportsLaunchAtLogin,
                 supportsApplicationInfo = platform.supportsApplicationInfo,

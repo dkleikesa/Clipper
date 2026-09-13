@@ -53,7 +53,7 @@ fun HistoryRow(
     // 色块要求标题以十六进制颜色开头，且必须带 `#` 前缀，
     // 以免普通的三个字母的单词被误认成十六进制颜色。
     val swatch = if (showColorSwatch && isHexColor(item.title)) hexToColor(item.title) else null
-    val thumbnail = rememberImageBitmap(item.imageBase64)
+    val thumbnail = rememberImageBitmap(item.image)
 
     ListItemRow(
         isSelected = isSelected,

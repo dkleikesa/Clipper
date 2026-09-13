@@ -71,7 +71,7 @@ fun PreviewPane(
             if (item != null) {
                 // `ToolbarView.selectedImageText`：仅当图片有识别出的文字、
                 // 且宿主接上了该动作时才提供。
-                if (onCopyExtractedText != null && item.imageBase64 != null && item.title.isNotBlank()) {
+                if (onCopyExtractedText != null && item.image != null && item.title.isNotBlank()) {
                     ToolbarIconButton(
                         kind = ClipperIconKind.TEXT_VIEWFINDER,
                         onClick = onCopyExtractedText,
@@ -89,7 +89,7 @@ fun PreviewPane(
 
         if (item == null) return@Column
 
-        val bitmap = rememberImageBitmap(item.imageBase64)
+        val bitmap = rememberImageBitmap(item.image)
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (bitmap != null) {

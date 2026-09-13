@@ -129,6 +129,17 @@ object MacStatusItem {
     @Volatile
     private var removed = false
 
+    /** [install] 之后为 `true`：没有要求显示图标时不该去读它的几何信息。 */
+    @Volatile
+    private var installed = false
+
+    /** 菜单栏图标在屏幕上的水平范围；[Int.MIN_VALUE] 表示还没读到。 */
+    @Volatile
+    private var anchorLeft: Int = Int.MIN_VALUE
+
+    @Volatile
+    private var anchorRight: Int = Int.MIN_VALUE
+
     /**
      * 安装菜单栏图标。
      *
@@ -140,6 +151,7 @@ object MacStatusItem {
         clickHandler = onPrimaryClick
         if (!isSupported) return
 
+        installed = true
         removed = false
         pendingPointSize = pointSize
         pendingPng = painter.toPngBytes((pointSize * RASTER_SCALE).toInt())
@@ -171,8 +183,41 @@ object MacStatusItem {
         scheduleApply()
     }
 
+    /**
+     * 菜单栏图标在屏幕上的水平范围。「菜单栏图标」这个弹窗位置靠它把面板挂到图标正下方，
+     * 而不是笼统地贴屏幕右边缘——图标被拖到菜单栏别处也跟得住。
+     *
+     * 会先同步到 AppKit 主线程重新读一次按钮几何信息（图标随时可能被拖动），再返回结果；
+     * 尚未安装或读不到时返回 `null`，调用方退回估算位置。
+     *
+     * 注意这是一次**阻塞**的跨线程等待：`waitUntilDone` 为真，调用线程（EDT）会一直等到
+     * AppKit 主线程跑完 `apply:`。调用点必须保证 AppKit 主线程不会反过来等 EDT，否则死锁；
+     * 也正因如此它只适合「显示 / 设置变化」这种低频时机，不要放进逐帧路径。
+     */
+    fun currentAnchor(): MenuBarAnchor? {
+        if (!isSupported || !installed) return null
+
+        // 必须在 AppKit 主线程上读视图几何；调用方在 EDT 上，两者是不同的线程。
+        val target = ensureTarget() ?: return null
+        MacNative.send(
+            target,
+            "performSelectorOnMainThread:withObject:waitUntilDone:",
+            MacNative.selector(APPLY_SELECTOR),
+            null,
+            1.toByte(),
+        )
+
+        val left = anchorLeft
+        val right = anchorRight
+        return if (left == Int.MIN_VALUE || right == Int.MIN_VALUE || right <= left) {
+            null
+        } else {
+            MenuBarAnchor(left, right)
+        }
+    }
     fun remove() {
         if (!isSupported) return
+        installed = false
         removed = true
         scheduleApply()
     }
@@ -217,6 +262,8 @@ object MacStatusItem {
             statusBar = null
             statusItem = null
             button = null
+            anchorLeft = Int.MIN_VALUE
+            anchorRight = Int.MIN_VALUE
             MacNative.send(bar, "removeStatusItem:", item)
             MacNative.send(item, "release")
             MacNative.send(itemButton, "release")
@@ -239,6 +286,7 @@ object MacStatusItem {
         }
 
         val itemButton = button ?: return
+        refreshAnchor(itemButton)
         pendingPng?.let { png ->
             val image = makeImage(png, pendingPointSize)
             if (image != null) {
@@ -258,6 +306,27 @@ object MacStatusItem {
             val text = MacNative.nsString(it)
             MacNative.send(itemButton, "setToolTip:", text)
             MacNative.send(text, "release")
+        }
+    }
+
+    /**
+     * 记下菜单栏图标的水平范围。
+     *
+     * 不能只读 `[button window].frame`：macOS 26 上状态项窗口会横跨整条菜单栏，用它定位会让
+     * 弹窗永远贴屏幕右边缘。这里读按钮自身的 `frame`（相对窗口）再加上窗口原点的 x——
+     * 无论系统是「每个状态项一个窗口」还是「一条菜单栏一个窗口」，结果都是图标的真实位置。
+     */
+    private fun refreshAnchor(itemButton: Pointer) {
+        val buttonFrame = MacNative.structDoubles(itemButton, "frame", 4) ?: return
+        val windowFrame = MacNative.send(itemButton, "window")
+            ?.let { MacNative.structDoubles(it, "frame", 4) }
+        val originX = windowFrame?.get(0) ?: 0.0
+
+        val left = (originX + buttonFrame[0]).toInt()
+        val right = (originX + buttonFrame[0] + buttonFrame[2]).toInt()
+        if (right > left) {
+            anchorLeft = left
+            anchorRight = right
         }
     }
 
@@ -308,3 +377,6 @@ object MacStatusItem {
     /** JNA 按参数的实际类型选择 ABI，`BOOL` 是单字节，必须传 `Byte` 而不是 `Boolean`。 */
     private fun boolValue(value: Boolean): Byte = if (value) 1 else 0
 }
+
+/** 菜单栏图标在屏幕上的水平范围（AWT 坐标：原点为主显示屏左上角，y 轴向下）。 */
+data class MenuBarAnchor(val left: Int, val right: Int)

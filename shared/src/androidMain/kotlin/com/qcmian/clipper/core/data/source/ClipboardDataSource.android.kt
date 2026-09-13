@@ -4,8 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
-import com.qcmian.clipper.core.util.encodeBase64
 
 /**
  * Android 剪贴板支持。
@@ -73,7 +73,7 @@ private class AndroidClipboardDataSource(private val context: Context) : Clipboa
         val rawText = runCatching { item.coerceToText(context)?.toString() }.getOrNull()
         val uri = item.uri
 
-        var imageBase64: String? = null
+        var image: ClipImage? = null
         var files = emptyList<String>()
 
         if (uri != null) {
@@ -84,22 +84,22 @@ private class AndroidClipboardDataSource(private val context: Context) : Clipboa
                         .getOrNull()
                         .orEmpty()
                     if (mimeType.startsWith("image/")) {
-                        imageBase64 = runCatching {
+                        image = runCatching {
                             context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        }.getOrNull()?.let { encodeBase64(it) }
+                        }.getOrNull()?.let { ClipImage(it) }
                     }
                 }
             }
         }
 
         // `coerceToText` 会把图片 URI 变成它的字符串形式，那不是一个有用的标题。
-        val text = if (imageBase64 != null && rawText == uri.toString()) null else rawText
+        val text = if (image != null && rawText == uri.toString()) null else rawText
 
         // `ClipDescription.getMimeTypes()` 在较新的 SDK 中已被移除，
         // 因此改为逐个遍历各个条目。
         val description = clip.description
         val types = (0 until description.mimeTypeCount).map { description.getMimeType(it) }
-        return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files, types = types)
+        return ClipboardSnapshot(text = text, image = image, files = files, types = types)
     }
 
     private companion object {
@@ -108,7 +108,7 @@ private class AndroidClipboardDataSource(private val context: Context) : Clipboa
         fun fingerprint(snapshot: ClipboardSnapshot): String = buildString {
             append(snapshot.text.orEmpty())
             append('\u0000')
-            append(snapshot.imageBase64?.length ?: 0)
+            append(snapshot.image?.size ?: 0)
             append('\u0000')
             append(snapshot.files.joinToString("\u0001"))
         }

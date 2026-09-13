@@ -1,11 +1,11 @@
 package com.qcmian.clipper.core.data.source
 
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.SourceApplication
 import com.qcmian.clipper.core.platform.macos.MacAppIcon
 import com.qcmian.clipper.core.platform.macos.MacApplicationPicker
 import com.qcmian.clipper.core.platform.macos.MacLaunchAtLogin
 import com.qcmian.clipper.core.platform.macos.MacTextRecognition
-import com.qcmian.clipper.core.platform.macos.MacWindow
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import java.awt.GraphicsEnvironment
 import kotlinx.coroutines.Dispatchers
@@ -30,9 +30,6 @@ private class MacNativeDataSource : NativeDataSource {
     override fun frontmostApplication(): SourceApplication? =
         if (isMacOs) MacWorkspace.frontmostApplication() else null
 
-    override fun frontmostWindowRect(): ScreenRect? =
-        if (isMacOs) MacWindow.frontmostWindowRect(MacWorkspace.frontmostPid()) else null
-
     override fun currentModifierFlags(): Int =
         if (isMacOs) MacWorkspace.currentModifierFlags() else 0
 
@@ -47,10 +44,10 @@ private class MacNativeDataSource : NativeDataSource {
     override fun pickApplication(): SourceApplication? =
         if (isMacOs) MacApplicationPicker.pick() else null
 
-    override suspend fun recognizeText(imageBase64: String): String? {
+    override suspend fun recognizeText(image: ClipImage): String? {
         if (!MacTextRecognition.available) return null
         // Vision 是同步执行的，因此把它放到 UI 线程之外。
-        return withContext(Dispatchers.Default) { MacTextRecognition.recognize(imageBase64) }
+        return withContext(Dispatchers.Default) { MacTextRecognition.recognize(image) }
     }
 
     override fun setLaunchAtLogin(enabled: Boolean) {

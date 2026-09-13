@@ -20,10 +20,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.swing.Swing
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.platform.macos.MacPasteboard
-import com.qcmian.clipper.core.util.decodeBase64
-import com.qcmian.clipper.core.util.encodeBase64
 
 /**
  * 基于 AWT 的桌面端（JVM）剪贴板支持。
@@ -48,9 +47,8 @@ private class JvmClipboardDataSource : ClipboardDataSource {
 
     override fun write(snapshot: ClipboardSnapshot): Boolean {
         val text = snapshot.text
-        val image = snapshot.imageBase64
-            ?.let { decodeBase64(it) }
-            ?.let { bytes -> runCatching { ImageIO.read(bytes.inputStream()) }.getOrNull() }
+        val image = snapshot.image
+            ?.let { runCatching { ImageIO.read(it.toByteArray().inputStream()) }.getOrNull() }
         val files = snapshot.files.map { File(it) }.filter { it.exists() }
 
         if (text == null && image == null && files.isEmpty()) return false
@@ -114,12 +112,12 @@ private class JvmClipboardDataSource : ClipboardDataSource {
         if (flavors.isEmpty()) return ClipboardSnapshot()
 
         val text = readText(flavors)
-        val imageBase64 = readImage(flavors)
+        val image = readImage(flavors)
         val files = readFiles(flavors)
         // AWT 只暴露它自己的 mime 类型，而不是系统原生粘贴板类型，但这已足以让
         // 「忽略的剪贴板类型」偏好发挥作用。
         val types = flavors.map { it.mimeType }
-        return ClipboardSnapshot(text = text, imageBase64 = imageBase64, files = files, types = types)
+        return ClipboardSnapshot(text = text, image = image, files = files, types = types)
     }
 
     private fun readText(flavors: List<DataFlavor>): String? {
@@ -129,13 +127,13 @@ private class JvmClipboardDataSource : ClipboardDataSource {
         return runCatching { clipboard.getData(flavor) as? String }.getOrNull()
     }
 
-    private fun readImage(flavors: List<DataFlavor>): String? {
+    private fun readImage(flavors: List<DataFlavor>): ClipImage? {
         if (flavors.none { it == DataFlavor.imageFlavor }) return null
         val image = runCatching { clipboard.getData(DataFlavor.imageFlavor) as? Image }.getOrNull() ?: return null
         return runCatching {
             val output = ByteArrayOutputStream()
             ImageIO.write(toBufferedImage(image), "png", output)
-            encodeBase64(output.toByteArray())
+            ClipImage(output.toByteArray())
         }.getOrNull()
     }
 
@@ -169,7 +167,7 @@ private class JvmClipboardDataSource : ClipboardDataSource {
         fun fingerprint(snapshot: ClipboardSnapshot): String = buildString {
             append(snapshot.text.orEmpty())
             append('\u0000')
-            append(snapshot.imageBase64?.length ?: 0)
+            append(snapshot.image?.size ?: 0)
             append('\u0000')
             append(snapshot.files.joinToString("\u0001"))
         }

@@ -1,14 +1,7 @@
 package com.qcmian.clipper.core.data.source
 
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.SourceApplication
-
-/** 屏幕坐标系中的一个矩形（点），用于「弹窗位于应用窗口」的定位方式。 */
-data class ScreenRect(
-    val x: Int,
-    val y: Int,
-    val width: Int,
-    val height: Int,
-)
 
 /**
  * 可选的原生能力。每一项都有安全的默认实现，因此没有等价能力的平台只需报告
@@ -35,12 +28,6 @@ interface NativeDataSource {
     fun frontmostApplication(): SourceApplication? = null
 
     /**
- * 最前应用主窗口的边界，。
-     * 平台无法给出时返回 `null`。
-     */
-    fun frontmostWindowRect(): ScreenRect? = null
-
-    /**
      * 处理事件触发时按下的修饰键，对应 `NSApp.currentEvent.modifierFlags`。
      * 平台无法给出时返回 `0`。
      */
@@ -61,8 +48,8 @@ interface NativeDataSource {
      */
     fun pickApplication(): SourceApplication? = null
 
-    /** 在编码后的图片中识别出的文字，用作图片条目的标题。 */
-    suspend fun recognizeText(imageBase64: String): String? = null
+    /** 在图片中识别出的文字，用作图片条目的标题。 */
+    suspend fun recognizeText(image: ClipImage): String? = null
 
     /**
  * 将应用注册 / 注销为开机自启项， 包。

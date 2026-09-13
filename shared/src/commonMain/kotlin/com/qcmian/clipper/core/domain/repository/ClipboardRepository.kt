@@ -1,5 +1,6 @@
 package com.qcmian.clipper.core.domain.repository
 
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.SourceApplication
@@ -20,6 +21,9 @@ interface ClipboardRepository {
 
     /** 用户偏好。 */
     val settings: StateFlow<AppSettings>
+
+    /** 持久化的偏好已加载完成；此前的 [settings] 是内存默认值。 */
+    val settingsLoaded: StateFlow<Boolean>
 
     /** 可供 UI 显示的临时消息，例如「此平台不支持粘贴」。 */
     val statusMessage: StateFlow<String?>
@@ -89,8 +93,8 @@ interface ClipboardPlatform {
 
     fun pickApplication(): SourceApplication?
 
-    /** 在编码后的图片中识别出的文字，用作图片条目的标题。 */
-    suspend fun recognizeText(imageBase64: String): String?
+    /** 在图片中识别出的文字，用作图片条目的标题。 */
+    suspend fun recognizeText(image: ClipImage): String?
 
     /** 最近一次复制来源的应用，平台无法判断时为 `null`。 */
     fun currentSourceApplication(): SourceApplication?

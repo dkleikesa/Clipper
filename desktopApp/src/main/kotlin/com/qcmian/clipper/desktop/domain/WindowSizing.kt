@@ -27,15 +27,23 @@ internal fun autoWindowSize(
     preferredHeight: Dp,
     top: Int,
 ): DpSize {
-    val contentWidth = settings.windowWidth.dp.coerceAtLeast(Popup.minimumContentWidth)
-    val slideoutWidth = settings.previewWidth.dp.coerceAtLeast(Popup.minimumPreviewWidth)
-    val width = contentWidth + if (previewOpen) slideoutWidth else 0.dp
+    // 自定义宽度只代表主列表（内容区）宽度；预览打开时窗口要在它之外再容纳滑出面板，
+    // 否则窗口不够宽，预览会退化成盖在列表上的浮层。
+    val width = contentWidthOf(settings) + if (previewOpen) slideoutWidthOf(settings) else 0.dp
 
     val bounds = screenBounds(settings.popupScreen)
     val spaceToBottom = (bounds.y + bounds.height - top).coerceAtLeast(0)
-    val maxHeight = minOf(spaceToBottom.dp, settings.windowHeight.dp)
-    return DpSize(width, preferredHeight.coerceAtMost(maxHeight))
+    val height = settings.customWindowHeight?.dp ?: preferredHeight
+    return DpSize(width, height.coerceAtMost(spaceToBottom.dp))
 }
+
+/** 主列表（内容区）宽度：用户拖出的自定义宽度优先，但不小于下限。 */
+internal fun contentWidthOf(settings: AppSettings): Dp =
+    (settings.customWindowWidth?.dp ?: Popup.contentWidth).coerceAtLeast(Popup.minimumContentWidth)
+
+/** 预览滑出面板宽度。 */
+internal fun slideoutWidthOf(settings: AppSettings): Dp =
+    settings.previewWidth.dp.coerceAtLeast(Popup.minimumPreviewWidth)
 
 /** 两个尺寸在 [RESIZE_TOLERANCE_DP] 之内一致时返回 `true`，忽略亚像素舍入。 */
 internal fun DpSize.nearlyEquals(other: DpSize): Boolean =

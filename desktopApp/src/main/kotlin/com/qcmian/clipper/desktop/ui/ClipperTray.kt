@@ -42,11 +42,7 @@ fun ApplicationScope.ClipperTray(
     val host by windowController.hostUiState.collectAsState()
     if (!host.settings.showInStatusBar) return
 
-    val tooltip = if (host.recentCopyText.isNotEmpty()) {
-        "Clipper — ${host.recentCopyText}"
-    } else {
-        "Clipper — 剪贴板历史记录"
-    }
+    val tooltip = "Clipper — 剪贴板历史记录"
 
     if (MacStatusItem.isSupported) {
         NativeTray(
