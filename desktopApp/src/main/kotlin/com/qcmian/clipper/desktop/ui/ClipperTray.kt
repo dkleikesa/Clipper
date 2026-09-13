@@ -1,6 +1,5 @@
 package com.qcmian.clipper.desktop.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -33,7 +32,7 @@ private const val TRAY_ICON_POINT_SIZE = 18.0
  * 菜单栏 / 托盘图标（View 层）：从 [WindowController] 读取要显示的投影状态。
  *
  * macOS 上用 AppKit 的 `NSStatusItem`（原生高亮 / 原生内边距 / 真正的左右键），
- * 其它平台退回 AWT 托盘。图标是 [clipperTrayIcon] 单色线稿，颜色跟随菜单栏深浅色，
+ * 其它平台退回 AWT 托盘。图标是 [clipperTrayIcon] 单色线稿，固定用深色模式的样式，
  * 与窗口图标 [com.qcmian.clipper.core.ui.icons.ClipperAppIcon] 有意分开。
  */
 @Composable
@@ -84,12 +83,11 @@ private fun NativeTray(
 ) {
     val currentOnPrimaryClick by rememberUpdatedState(onPrimaryClick)
     val currentWindowVisible by rememberUpdatedState(windowVisible)
-    // 菜单栏外观跟随系统深浅色，`isSystemInDarkTheme` 与它同源。这条 JNA 链路上没有
-    // 模板图（NSImage.isTemplate）能力，反色靠「换图」：外观变化时用对应颜色的位图重装。
-    val tint = if (isSystemInDarkTheme()) Color.White else Color.Black
+    // 固定用深色模式的图标（白色线稿），不随系统深浅色切换。
+    val tint = Color.White
     val glyph = rememberVectorPainter(clipperTrayIcon(tint))
 
-    DisposableEffect(tint) {
+    DisposableEffect(Unit) {
         MacStatusItem.install(glyph, TRAY_ICON_POINT_SIZE) {
             // 点击后面板可见性必然翻转，翻转后的按下态 = 「不可见」。在回调里同步预推，
             // 消除「松手清高亮 → 投影落地」之间的空档；投影随后给出的值一致，不会抖动。
@@ -115,7 +113,8 @@ private fun FallbackTray(
     onPrimaryClick: () -> Unit,
 ) {
     val currentOnPrimaryClick by rememberUpdatedState(onPrimaryClick)
-    val tint = if (isSystemInDarkTheme()) Color.White else Color.Black
+    // 固定用深色模式的图标（白色线稿），不随系统深浅色切换。
+    val tint = Color.White
     val glyph = rememberVectorPainter(clipperTrayIcon(tint))
 
     val highlight = if (active) Color.White.copy(alpha = 0.45f) else null

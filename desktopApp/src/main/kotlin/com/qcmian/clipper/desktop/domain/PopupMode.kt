@@ -41,3 +41,24 @@ internal const val FOCUS_GRACE_MILLIS = 250L
  * 不再当作「用户点了别处」而单独收起。
  */
 internal const val TRAY_CLICK_GRACE_MILLIS = 250L
+
+/**
+ * 面板可见期间轮询 `NSEvent.pressedMouseButtons` 的间隔。
+ *
+ * 点击系统菜单栏或其它应用的托盘图标时，AWT 不会向本窗口报告 `windowLostFocus`
+ * （对应 Maccy `FloatingPanel.resignKey` 覆盖的场景），只能自行观察鼠标按压来判断
+ * 「点击落在面板之外」。读一个全局 int 的开销远低于剪贴板轮询。
+ */
+internal const val OUTSIDE_CLICK_POLL_MILLIS = 40L
+
+/** 「跟随系统」主题模式下轮询系统外观（`AppleInterfaceStyle`）的间隔。 */
+internal const val SYSTEM_APPEARANCE_POLL_MILLIS = 1_000L
+
+/** `pressedMouseButtons` 里关心的键位：左键、右键、中键。 */
+internal const val MOUSE_BUTTONS_MASK = 0b111L
+
+/**
+ * 主窗口标题。面板外点击监视器用它在本地事件里识别「点击落在面板自身」；
+ * 必须与 [com.qcmian.clipper.desktop.ui.ClipperWindow] 的 `title` 保持一致。
+ */
+internal const val PANEL_WINDOW_TITLE = "Clipper"

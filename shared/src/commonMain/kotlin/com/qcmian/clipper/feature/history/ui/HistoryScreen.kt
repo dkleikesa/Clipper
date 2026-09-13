@@ -68,7 +68,9 @@ import com.qcmian.clipper.feature.history.ui.components.StatusToast
 import com.qcmian.clipper.feature.history.ui.components.footerEntries
 import com.qcmian.clipper.core.ui.components.rememberApplicationIcon
 import com.qcmian.clipper.core.ui.components.ConfirmDialog
+import com.qcmian.clipper.feature.preferences.ui.PreferencesActions
 import com.qcmian.clipper.feature.preferences.ui.PreferencesDialog
+import com.qcmian.clipper.feature.preferences.ui.PreferencesUiData
 import com.qcmian.clipper.feature.history.state.ClipboardDialog
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.state.ClipboardUiState
@@ -452,29 +454,33 @@ fun HistoryScreen(
 
     if (state.dialog == ClipboardDialog.PREFERENCES && state.confirmation == null) {
         PreferencesDialog(
-            settings = settings,
-            pinnedItems = state.pinnedItems,
-            storageSize = state.storageSize,
-            availablePins = availablePins,
-            onSettingsChange = { transform -> onAction(ClipboardUiAction.UpdateSettings(transform)) },
-            onPinChange = { item, pin -> onAction(ClipboardUiAction.UpdatePin(item, pin)) },
-            onTitleChange = { item, title -> onAction(ClipboardUiAction.UpdateTitle(item, title)) },
-            onContentChange = { item, text -> onAction(ClipboardUiAction.UpdateContent(item, text)) },
-            onDeletePinned = { item -> onAction(ClipboardUiAction.DeleteItem(item)) },
-            onClearUnpinned = { onAction(ClipboardUiAction.RequestClear(all = false, hidePanel = false)) },
-            onClearAll = { onAction(ClipboardUiAction.RequestClear(all = true, hidePanel = false)) },
-            onDismiss = { onAction(ClipboardUiAction.DismissPreferences) },
-            screenCount = state.screenCount,
-            supportsLaunchAtLogin = state.supportsLaunchAtLogin,
-            onResetPosition = onResetPosition,
-            supportsApplicationInfo = state.supportsApplicationInfo,
-            applicationName = applicationName,
-            applicationIcon = applicationIcon,
-            onPickApplication = if (state.supportsApplicationInfo) {
-                { onAction(ClipboardUiAction.PickIgnoredApplication) }
-            } else {
-                null
-            },
+            data = PreferencesUiData(
+                settings = settings,
+                pinnedItems = state.pinnedItems,
+                storageSize = state.storageSize,
+                screenCount = state.screenCount,
+                supportsLaunchAtLogin = state.supportsLaunchAtLogin,
+                supportsApplicationInfo = state.supportsApplicationInfo,
+            ),
+            actions = PreferencesActions(
+                onSettingsChange = { transform -> onAction(ClipboardUiAction.UpdateSettings(transform)) },
+                availablePins = availablePins,
+                onPinChange = { item, pin -> onAction(ClipboardUiAction.UpdatePin(item, pin)) },
+                onTitleChange = { item, title -> onAction(ClipboardUiAction.UpdateTitle(item, title)) },
+                onContentChange = { item, text -> onAction(ClipboardUiAction.UpdateContent(item, text)) },
+                onDeletePinned = { item -> onAction(ClipboardUiAction.DeleteItem(item)) },
+                onClearUnpinned = { onAction(ClipboardUiAction.RequestClear(all = false, hidePanel = false)) },
+                onClearAll = { onAction(ClipboardUiAction.RequestClear(all = true, hidePanel = false)) },
+                onDismiss = { onAction(ClipboardUiAction.DismissPreferences) },
+                onResetPosition = onResetPosition,
+                applicationName = applicationName,
+                applicationIcon = applicationIcon,
+                onPickApplication = if (state.supportsApplicationInfo) {
+                    { onAction(ClipboardUiAction.PickIgnoredApplication) }
+                } else {
+                    null
+                },
+            ),
         )
     }
 

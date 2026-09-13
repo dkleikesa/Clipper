@@ -73,6 +73,32 @@ object MacWorkspace {
     }
 
     /**
+     * `NSEvent.pressedMouseButtons`：当前按下的鼠标键位掩码
+     * （bit0 左键、bit1 右键、bit2 中键）。用于识别「点击落在面板之外」——
+     * 这类点击（系统菜单栏、其它应用的托盘图标）AWT 不会报告为失焦。
+     */
+    fun pressedMouseButtons(): Long {
+        if (!loaded) return 0L
+        return MacNative.sendLong(MacNative.clazz("NSEvent"), "pressedMouseButtons")
+    }
+
+    /**
+     * 系统外观是否为深色；原生层不可用时返回 `null`。
+     *
+     * 读取 `NSUserDefaults` 的 `AppleInterfaceStyle`：深色时为 `"Dark"`，浅色时该键不存在。
+     * Compose 的 `isSystemInDarkTheme()` 在桌面端不会实时跟随系统外观变化，
+     * 因此「跟随系统」模式由轮询此值驱动。
+     */
+    fun isSystemAppearanceDark(): Boolean? {
+        if (!loaded) return null
+        val defaults = MacNative.send(MacNative.clazz("NSUserDefaults"), "standardUserDefaults")
+            ?: return null
+        val style = MacNative.send(defaults, "stringForKey:", APPLE_INTERFACE_STYLE_KEY)
+            ?: return false
+        return MacNative.string(style)?.equals("Dark", ignoreCase = true)
+    }
+
+    /**
      * `NSEvent.modifierFlags`，即当前正在处理的事件的修饰键。
      * 对应 `AppDelegate.performStatusItemClick` 中对 `NSApp.currentEvent.modifierFlags` 的检查。
      */
@@ -110,4 +136,7 @@ object MacWorkspace {
 
     /** `NSApplicationActivateIgnoringOtherApps`。 */
     private const val ACTIVATE_IGNORING_OTHER_APPS = 1L shl 1
+
+    /** `AppleInterfaceStyle` 的 `NSString` 常量，只在类加载时分配一次（每次轮询 alloc 会缓慢泄漏）。 */
+    private val APPLE_INTERFACE_STYLE_KEY = MacNative.nsString("AppleInterfaceStyle")
 }

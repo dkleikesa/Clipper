@@ -228,7 +228,6 @@ class ClipboardViewModel(
             it.copy(
                 confirmation = ClearConfirmation(
                     message = "确定要清除历史记录吗？",
-                    comment = "无法撤消此操作。",
                     all = all,
                     hidePanel = hidePanel,
                 ),

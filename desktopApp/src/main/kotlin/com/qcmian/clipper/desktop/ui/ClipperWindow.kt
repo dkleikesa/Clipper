@@ -64,11 +64,13 @@ fun ApplicationScope.ClipperWindow(
         alwaysOnTop = true,
         state = windowState,
     ) {
+
         // 内容组合由窗口宿主提供 ViewModelStoreOwner：窗口隐藏时组合保留、store 不销毁。
         val viewModel = viewModel {
             DesktopShellViewModel(container, windowController, hotkeyController, windowState)
         }
         val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+        val systemDark by viewModel.systemDark.collectAsStateWithLifecycle()
 
         // 把 ViewModel 的能力「返回」给外层的 Window 参数：关闭请求转发给 hidePanel。
         DisposableEffect(viewModel) {
@@ -91,7 +93,12 @@ fun ApplicationScope.ClipperWindow(
                     viewModel.onWindowLostFocus()
             }
             window.addWindowFocusListener(listener)
-            onDispose { window.removeWindowFocusListener(listener) }
+            // 供「点击面板之外就收起」判定指针是否落在面板内。
+            windowController.panelContainsPoint = { x, y -> window.bounds.contains(x, y) }
+            onDispose {
+                window.removeWindowFocusListener(listener)
+                windowController.panelContainsPoint = null
+            }
         }
 
         // 「按住热键循环」的修饰键状态机由 ViewModel 持有，这里只驱动它的生命周期。
@@ -103,11 +110,15 @@ fun ApplicationScope.ClipperWindow(
         // 对应 `FloatingPanel.makeKeyAndOrderFront`：显示时把本应用带到前台并取得键盘焦点，
         // 面板才能成为 key window——键盘输入可到达面板，点击窗口外部也会触发失焦收起。
         //
-        // 必须同时依赖 [openRequests]：点击托盘会让面板先失焦，那次隐藏可能和随后的显示
+        // 必须跟随 [windowVisible]（真正传给 `Window(visible=...)` 的那个状态），而不是
+        // ViewModel 的原始状态：后者先于窗口参数变化一拍，`toFront()` / `requestFocus()`
+        // 可能落在窗口显示之前而被 AWT 静默拒绝。
+        //
+        // 同时依赖 [openRequests]：点击托盘会让面板先失焦，那次隐藏可能和随后的显示
         // 挤在同一帧里，`windowVisible` 观察不到 false→true 的变化，于是这里不会重跑，
         // 应用也没被重新激活，看起来就是「点了托盘但窗口没出来」。
-        LaunchedEffect(uiState.windowVisible, openRequests) {
-            if (uiState.windowVisible) {
+        LaunchedEffect(windowVisible, openRequests) {
+            if (windowVisible) {
                 runCatching { MacWorkspace.activateSelf() }
                 window.toFront()
                 window.requestFocus()
@@ -129,6 +140,8 @@ fun ApplicationScope.ClipperWindow(
             // 「托盘触发的可见」——热键呼出时面板虽然可见，托盘保持常态。
             panelVisible = uiState.windowVisible,
             statusItemActive = uiState.windowVisible && uiState.panelOpenedByTray,
+            // 桌面端的 isSystemInDarkTheme() 不实时跟随系统外观，由宿主轮询提供。
+            systemDarkTheme = systemDark,
         )
     }
 }

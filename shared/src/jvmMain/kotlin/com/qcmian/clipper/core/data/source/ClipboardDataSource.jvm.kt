@@ -21,6 +21,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.swing.Swing
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
+import com.qcmian.clipper.core.platform.macos.MacPasteboard
 import com.qcmian.clipper.core.util.decodeBase64
 import com.qcmian.clipper.core.util.encodeBase64
 
@@ -37,6 +38,9 @@ private class JvmClipboardDataSource : ClipboardDataSource {
     private var listener: ((ClipboardSnapshot) -> Unit)? = null
     private var pollJob: Job? = null
     private var lastFingerprint: String? = null
+
+    /** macOS 上 `NSPasteboard.changeCount` 的上次读数；`-1` 表示未知（退化为全量读取）。 */
+    private var lastChangeCount = -1L
 
     override var pollIntervalMillis: Long = ClipboardDataSource.DEFAULT_POLL_INTERVAL_MILLIS
 
@@ -66,9 +70,19 @@ private class JvmClipboardDataSource : ClipboardDataSource {
     override fun start(onChange: (ClipboardSnapshot) -> Unit) {
         listener = onChange
         lastFingerprint = fingerprint(readSnapshot())
+        if (isMacOs()) lastChangeCount = MacPasteboard.changeCount()
         pollJob = scope.launch {
             while (isActive) {
                 delay(pollIntervalMillis)
+                // macOS 上先读 `changeCount`（一个 int）做快速比对，内容只有在
+                // 变化时才值得读；读不到（返回 -1）就退化为每次全量读取。
+                if (isMacOs()) {
+                    val changeCount = MacPasteboard.changeCount()
+                    if (changeCount >= 0) {
+                        if (changeCount == lastChangeCount) continue
+                        lastChangeCount = changeCount
+                    }
+                }
                 val snapshot = readSnapshot()
                 if (snapshot.isEmpty) continue
                 val current = fingerprint(snapshot)
