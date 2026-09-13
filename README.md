@@ -14,19 +14,19 @@
 * 右侧预览面板：工具栏（置顶、删除、复制识别文字）+ 内容 + 元信息（应用、尺寸、首次/上次复制时间、复制次数）；超长文本截断保护，图片解码走 LRU 缓存
 * **来源应用**：记录复制来源的应用名，并从 `.app` 包中提取图标显示（列表行可选、预览必显）
 * **图片文字识别（OCR）**：用 Vision / ML Kit 识别图片文字并作为条目标题，预览工具栏可一键把识别出的文字复制回剪贴板
-* **全局热键**：`⇧⌘C` 在任何应用里呼出面板；按住快捷键（保持修饰键不松）即逐条循环选择、松开修饰键粘贴高亮项（Maccy 的 `PopupState.cycle`），面板已稳定显示时再按则把窗口移到鼠标位置
+* **全局热键**：`⇧⌘C` 在任何应用里呼出面板；按住不放即逐条循环（Maccy 的 `PopupState.cycle`），**松手就选中高亮项并关窗**（与鼠标点击那一行等效）；面板已显示时再按（连按）则逐条往下选，不选中。托盘呼出的面板再按热键则把窗口移到鼠标位置
 * **快捷键可自定义**：呼出 / 置顶 / 删除 / 预览四个快捷键都能在偏好设置里重新录制并复位
 * **失焦自动收起**：桌面端面板失去焦点即隐藏（弹窗打开时不收起），与 Maccy 的 `FloatingPanel.resignKey` 一致
 * **托盘交互**：⌥ 点击托盘图标暂停记录、⇧⌥ 仅暂停下一次，暂停时图标置灰（Maccy 的 `performStatusItemClick`）
 * **预览滑出方向**：右侧空间不足时预览自动改到左侧（Maccy 的 `SlideoutController.computePlacement`）
 * **忽略规则**：忽略正则、忽略应用（应用列表 + 系统应用选择器，显示应用名与图标，支持仅白名单）、忽略剪贴板类型（可一键恢复默认）
 * 单条删除、清空未置顶、全部清除（带二次确认，可勾选“不再提示”）
-* 存储：历史条数上限（置顶项不受限）、可分别开关文本/图片/文件入库、显示占用大小、剪贴板检查间隔可调
-* 外观：弹窗位置（光标 / 菜单栏图标 / 应用窗口中心 / 屏幕中心 / 上次位置）、**弹窗屏幕（多显示器）**、置顶位置、菜单栏图标显示开关、显示页脚/搜索框/色块/特殊符号/应用图标、图片最大高度、窗口宽度与最大高度、**预览宽度（可拖拽分隔条调整）**
+* 存储：历史上限（按未置顶记录占用的**体积**计，置顶项不受限）、可分别开关文本/图片/文件入库、显示占用大小、剪贴板检查间隔可调
+* 外观：弹窗位置（光标 / 菜单栏图标 / 屏幕中心）、**弹窗屏幕（多显示器）**、置顶位置、菜单栏图标显示开关、显示页脚/搜索框/色块/特殊符号/应用图标、图片最大高度、**窗口尺寸（拖动边缘调整，可一键恢复默认）**
 * 置顶项管理：改键位、改别名，纯文本项还可直接编辑内容；选中一行后按 `Delete` 即可删除（Maccy 的 `PinsSettingsPane.onDeleteCommand`）
 * 高级：退出时清空历史、同时清空系统剪贴板、开机自启（macOS `SMAppService`）
-* 弹窗尺寸：**默认**宽度固定、高度随内容增长直到屏幕底部；**用户手动拖动窗口后**固定为用户
-  拖出的大小，不再随条目数变化（重启恢复自动）
+* 弹窗尺寸：**默认**宽度固定、高度随内容增长直到屏幕底部；**用户手动拖动窗口边缘后**固定为用户
+  拖出的大小并记入偏好（重启保留），偏好设置里可一键「恢复默认尺寸」
 * 深/浅色主题跟随系统
 
 ## 快捷键
@@ -35,7 +35,7 @@
 
 | 操作 | 按键 |
 | --- | --- |
-| 呼出面板 / 循环选择 / 移到鼠标（全局） | `⇧⌘C`（可自定义；按住修饰键逐条循环、松开粘贴，面板已稳定显示时再按则把窗口移到鼠标位置） |
+| 呼出面板 / 循环选择（全局） | `⇧⌘C`（可自定义；按住不放逐条循环、松手即选中并关窗；面板已显示时再按则往下选一条；托盘呼出的面板再按则移到鼠标位置） |
 | 下一个 / 上一个 | `↓` `⇧↓` `⌃N` `⌃⇧N` `⌃J` / `↑` `⇧↑` `⌃P` `⌃⇧P` `⌃K` |
 | 第一个 / 最后一个 | `⌘↑` `⌥↑` `⌃⌥P` `PageUp` / `⌘↓` `⌥↓` `⌃⌥N` `PageDown` |
 | 复制选中项（并按设置粘贴） | `Enter`（未选中任何项时复制搜索词本身） |
@@ -85,7 +85,7 @@
 | `KeyChord` / `KeyHandlingView` | `ui/HistoryKeyboard.kt` |
 | `ModifierFlags` | `ui/KeyShortcut.kt` |
 | `HistoryItemAction` | `domain/action/ClipAction.kt` |
-| `HighlightMatch` / `PinsPosition` / `SearchVisibility` | `settings/AppSettings.kt` |
+| `HighlightMatch` / `PinsPosition` | `settings/AppSettings.kt` |
 | `ColorImage` | `ui/ClipColors.kt` + `ui/components/HistoryRow.kt` |
 | `ContentView` | `ui/HistoryScreen.kt` |
 | `HeaderView` / `ListHeaderView` / `SearchFieldView` | `ui/components/SearchField.kt` + `ui/components/HistoryChrome.kt` |
@@ -106,7 +106,6 @@
 | `SlideoutController.startResize(.slideout)` / `computePlacement` | `ui/components/PreviewSlideout.kt` 中可拖拽的分隔条 + `HistoryScreen` 的预览左右翻转 |
 | `ToolbarView` 的 `text.viewfinder` | `PreviewPane` 的「复制识别文字」按钮 |
 | `AppDelegate.performStatusItemClick` 的 ⌥ / ⇧⌥ | `desktopApp/desktop/ui/ClipperTray.kt` 的 `onAction` + `DesktopShellViewModel.onTrayClicked` 读 `NSEvent.modifierFlags` |
-| `NSRunningApplication.windowFrame` | `macos/MacWindow.kt`（JNA 调 `CGWindowListCopyWindowInfo`） |
 | `IgnoreApplicationsSettingsView` 的应用选择器 | `macos/MacApplicationPicker.kt`（JNA 调 `NSOpenPanel`）+ `NativeDataSource.applicationName` |
 | `IgnorePasteboardTypesSettingsView` 的 `Defaults.reset` | 偏好设置里的「恢复默认类型」按钮 |
 | `ApplicationImageCache` | `ui/components/ImageCache.kt` + `NativeDataSource.applicationIcon`（JVM 侧带 bundle id 缓存） |
@@ -114,7 +113,7 @@
 | `NSWorkspace.open(_:)` | `NativeDataSource.openUrl`（JVM / Android / iOS 各自实现） |
 
 Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能力，跨平台无法完全等价，
-因此 Clipper 只保留可移植的三种表示：**纯文本、编码后的图片、文件路径**。
+因此 Clipper 只保留可移植的三种表示：**纯文本、图片原始字节、文件路径**。
 
 ## 原生能力实现方式
 
@@ -161,7 +160,6 @@ Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能�
 | 弹窗高度 | 用 `GeometryReader` **实测**内容高度（`readHeight` + `extraTopHeight/extraBottomHeight`） | 按行高**静态估算**（`Popup.itemHeight` / `imageMaxHeight + 10`）再加固定内边距 |
 | 图片缩略图 | 按 `thumbnailImageSize`(340×`imageMaxHeight`) 生成列表缩略图、按屏幕尺寸生成预览图 | 解码原图后由 `heightIn(max)` 缩放；有 LRU 解码缓存，但未做降采样，超大图片内存占用更高 |
 | 忽略正则 / 忽略剪贴板类型 | `List` + 「+」「−」逐条编辑 | 逗号分隔的文本框（**忽略应用**已改为列表 + 系统选择器） |
-| 弹窗「上次位置」 | 保存相对屏幕的**比例锚点**（`windowPosition` 0…1，锚点为顶部中点） | 保存**绝对坐标**，分辨率或屏幕排列变化后不会自动贴合 |
 | 自动粘贴时机 | 写入剪贴板后**立即**发送 `⌘V`（并设置事件抑制窗口） | 先隐藏面板，**延迟 160ms** 再发送 `⌘V` |
 | 空内容过滤 | 逐个 pasteboard item 判断：带 `string` 类型、内容为空且非富文本 → 整条跳过 | 所有表示合并为一个快照后再判断，因此「空文本 + 图片」的组合会保留图片 |
 | 置顶项内容编辑 | 富文本也可编辑，并给出 `RichTextEditWarning` 警告图标 | 仅纯文本可编辑，其它类型显示「无法编辑内容」 |
@@ -273,3 +271,34 @@ androidApp/     Android 入口
 desktopApp/     Desktop 入口：`main.kt` 组合根 + `desktop/{ui,viewmodel,domain}`
 iosApp/         iOS 入口
 ```
+
+外层圆角     
+展示设置的时候，无法关闭 窗口
+托盘点击事件
+托盘按钮的按下态，是不是托盘的默认 样式，我看所有icon的样式都一样
+clipper图标有点丑
+确认弹窗样式
+拖动条白边
+打开窗口默认可输入文字进行搜索的逻辑仍然有问题
+点击 系统 菜单栏 或者 其他应用的 托盘图标，窗口不会关闭
+滚动条不好用，窗口改成近角上可以拖动改变大小，四周就不要了
+窗口尺寸 逻辑 &设置项
+排序方式不好用
+在菜单栏显示最近复制不好用
+tab样式
+窗口展示位置，几个选项都被挤压看不见了
+滚熊条的点击拖动 会抖一下
+拖动窗口改变尺寸，画面卡顿严重，尤其是向左边 拖动变宽的时候
+
+循环选中的逻辑还是有问题
+整个窗口的尺寸辑估算
+预览窗口的逻辑
+搜索逻辑测试
+存储大小，设置。以及超过以后怎么清理老数据
+其他设置项
+
+识别图片中的文字
+无用设置项删除
+自动窗口尺寸还是不太对
+剪切板支持的数据类型
+增加一个恢复默认按钮

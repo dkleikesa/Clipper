@@ -3,7 +3,7 @@ package com.qcmian.clipper.desktop.domain
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPosition
-import com.qcmian.clipper.core.data.source.ScreenRect
+import com.qcmian.clipper.core.platform.macos.MenuBarAnchor
 import com.qcmian.clipper.core.settings.PopupPosition
 import java.awt.GraphicsDevice
 import java.awt.GraphicsEnvironment
@@ -20,45 +20,30 @@ import java.awt.Toolkit
 internal fun resolvePosition(
     position: PopupPosition,
     size: DpSize,
-    lastPosition: WindowPosition.Absolute?,
     screenIndex: Int,
-    windowRect: ScreenRect?,
+    statusItem: MenuBarAnchor?,
 ): WindowPosition = when (position) {
-    PopupPosition.LAST_POSITION -> lastPosition ?: cursorPosition(size, screenIndex)
     PopupPosition.SCREEN_CENTER -> screenCenterPosition(size, screenIndex)
-    PopupPosition.MENU_BAR -> menuBarPosition(size, screenIndex)
-    PopupPosition.WINDOW_CENTER -> windowCenterPosition(size, windowRect, screenIndex)
+    PopupPosition.MENU_BAR -> menuBarPosition(size, screenIndex, statusItem)
     PopupPosition.CURSOR -> cursorPosition(size, screenIndex)
 }
 
 /**
- * 对应 `PopupPosition.statusItem`：正好在菜单栏下方。AWT 不暴露状态项自身的位置，
- * 因此改为把弹窗对齐到屏幕右边缘。
+ * 对应 `PopupPosition.statusItem`：面板挂在菜单栏图标正下方，左边缘对齐图标左边缘。
+ *
+ * [statusItem] 是图标的真实水平范围，因此图标被拖到菜单栏别处时也跟得住；
+ * 取不到时（非 AppKit 宿主）退回屏幕右边缘。
  */
-internal fun menuBarPosition(size: DpSize, screenIndex: Int): WindowPosition {
+internal fun menuBarPosition(size: DpSize, screenIndex: Int, statusItem: MenuBarAnchor?): WindowPosition {
     val bounds = screenBounds(screenIndex)
+    // 左边缘对齐图标左边缘——图标被拖到菜单栏别处时弹窗跟着走。
+    val x = statusItem?.left ?: (bounds.x + bounds.width - size.width.value.toInt())
     return constrained(
-        x = bounds.x + bounds.width - size.width.value.toInt() - 8,
+        x = x,
         // `bounds` 已排除菜单栏，这里只留一点间距即可。
         y = bounds.y + 8,
         size = size,
         bounds = bounds,
-    )
-}
-
-/** 对应 `PopupPosition.window`：最前应用窗口的中心。 */
-internal fun windowCenterPosition(
-    size: DpSize,
-    windowRect: ScreenRect?,
-    screenIndex: Int,
-): WindowPosition {
-    if (windowRect == null) return screenCenterPosition(size, screenIndex)
-
-    return constrained(
-        x = windowRect.x + (windowRect.width - size.width.value).toInt() / 2,
-        y = windowRect.y + (windowRect.height - size.height.value).toInt() / 2,
-        size = size,
-        bounds = screenBounds(screenIndex),
     )
 }
 

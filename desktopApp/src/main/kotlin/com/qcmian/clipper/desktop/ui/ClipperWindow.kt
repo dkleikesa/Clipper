@@ -42,8 +42,8 @@ fun ApplicationScope.ClipperWindow(
     windowController: WindowController,
     hotkeyController: HotkeyController,
 ) {
-    // 面板可见性：内容侧根据 ViewModel 状态回写，`Window` 参数读取。
-    var windowVisible by remember { mutableStateOf(true) }
+    // 面板可见性：内容侧根据 ViewModel 状态回写，`Window` 参数读取。启动时隐藏。
+    var windowVisible by remember { mutableStateOf(false) }
 
     Window(
         onCloseRequest = { onCloseRequest() },

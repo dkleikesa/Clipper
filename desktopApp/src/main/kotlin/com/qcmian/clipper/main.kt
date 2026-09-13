@@ -3,10 +3,10 @@ package com.qcmian.clipper
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.desktop.domain.InitialPanelHeight
 import com.qcmian.clipper.desktop.ui.ClipperTray
 import com.qcmian.clipper.desktop.ui.ClipperWindow
@@ -36,7 +36,7 @@ fun main() = application {
 
     // 窗口状态属于 UI 层，由宿主创建后交给窗口的 ViewModel 读写。
     val windowState = rememberWindowState(
-        width = windowController.hostUiState.value.settings.windowWidth.dp,
+        width = Popup.contentWidth,
         height = InitialPanelHeight,
         position = WindowPosition(Alignment.Center),
     )

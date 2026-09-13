@@ -1,5 +1,6 @@
 package com.qcmian.clipper.core.domain.usecase
 
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.SourceApplication
@@ -49,7 +50,7 @@ class CaptureClipboardUseCase(
 
         // 被关闭的内容类型根本不会进入历史。
         val text = snapshot.text.takeIf { settings.saveText }
-        val image = snapshot.imageBase64.takeIf { settings.saveImages }
+        val image = snapshot.image.takeIf { settings.saveImages }
         val files = snapshot.files.takeIf { settings.saveFiles }.orEmpty()
         if (text.isNullOrBlank() && image == null && files.isEmpty()) return
 
@@ -66,7 +67,7 @@ class CaptureClipboardUseCase(
         val base = ClipItem(
             id = randomId(),
             text = text,
-            imageBase64 = image,
+            image = image,
             files = files,
             firstCopiedAt = now,
             lastCopiedAt = now,
@@ -102,8 +103,8 @@ class CaptureClipboardUseCase(
     }
 
     /** 在后台运行 Vision / ML Kit，并把结果提升为条目标题。 */
-    private suspend fun recognizeImageText(itemId: String, imageBase64: String) {
-        val recognized = platform.recognizeText(imageBase64) ?: return
+    private suspend fun recognizeImageText(itemId: String, image: ClipImage) {
+        val recognized = platform.recognizeText(image) ?: return
         val items = repository.items.value
         val index = items.indexOfFirst { it.id == itemId }
         if (index < 0) return

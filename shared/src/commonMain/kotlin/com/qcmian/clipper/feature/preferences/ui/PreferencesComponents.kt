@@ -151,7 +151,7 @@ internal fun PinRow(
     var expanded by remember { mutableStateOf(false) }
     var title by remember(item.id, item.title) { mutableStateOf(item.title) }
     // `PinValueView`：只有纯文本条目才提供可编辑的内容字段。
-    val editable = item.text != null && item.imageBase64 == null && item.files.isEmpty()
+    val editable = item.text != null && item.image == null && item.files.isEmpty()
     var content by remember(item.id, item.text) { mutableStateOf(item.text.orEmpty()) }
 
     Column(

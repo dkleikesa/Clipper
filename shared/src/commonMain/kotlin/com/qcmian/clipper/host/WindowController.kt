@@ -43,9 +43,6 @@ data class HostUiState(
      * 对应 `FloatingPanel.resignKey`，它在弹出警告框时不会关闭面板。
      */
     val isModalOpen: Boolean = false,
-
-    /** `AppState.menuIconText`，在 `showRecentCopyInMenuBar` 开启时显示。 */
-    val recentCopyText: String = "",
 )
 
 /**
@@ -90,9 +87,6 @@ class WindowController {
     /** 由 `App` 设置的能力：页脚中的「退出」一行。 */
     internal var quitAction: () -> Unit = {}
 
-    /** 由窗口 ViewModel 设置，使「重置弹窗位置」按钮能清掉记住的位置。 */
-    var resetPositionAction: () -> Unit = {}
-
     /**
      * 由视图设置：判断屏幕坐标（AWT 全局坐标）是否落在面板窗口内。
      * 供「点击面板之外就收起」的判定使用；未设置时视为面板内（不收起）。
@@ -125,7 +119,4 @@ class WindowController {
 
     /** 对应 `AppDelegate.applicationWillTerminate`：应用「退出时清空历史」偏好。 */
     fun quit() = quitAction()
-
-    /** 对应 `PopupPosition.lastPosition` 旁的「重置」按钮。 */
-    fun resetPosition() = resetPositionAction()
 }

@@ -70,14 +70,12 @@ fun ConfirmDialog(
                     fontWeight = FontWeight.SemiBold,
                     color = colors.onSurface,
                 )
-                if (comment != null) {
-                    Text(
-                        text = comment,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
+                Text(
+                    text = comment ?: "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
                 // 整行可点，不必精确命中复选框。
                 Row(
                     modifier = Modifier

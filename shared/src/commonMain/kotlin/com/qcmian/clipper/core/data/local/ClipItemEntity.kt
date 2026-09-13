@@ -2,11 +2,10 @@ package com.qcmian.clipper.core.data.local
 
 import androidx.room3.Entity
 import androidx.room3.PrimaryKey
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.SourceApplication
-import com.qcmian.clipper.core.util.decodeBase64
 import com.qcmian.clipper.core.util.decodeJsonOrNull
-import com.qcmian.clipper.core.util.encodeBase64
 import com.qcmian.clipper.core.util.encodeJson
 
 /**
@@ -19,7 +18,7 @@ import com.qcmian.clipper.core.util.encodeJson
 data class ClipItemEntity(
     @PrimaryKey val id: String,
     val text: String?,
-    /** 原始（PNG/JPEG）图片字节，直接以 BLOB 存储；领域模型里的 base64 只在此处转换。 */
+    /** 原始（PNG/JPEG）图片字节，直接以 BLOB 存储——与领域模型里的表示完全一致。 */
     val image: ByteArray?,
     /** 文件路径的 JSON 数组。 */
     val files: String,
@@ -35,7 +34,7 @@ data class ClipItemEntity(
 internal fun ClipItemEntity.toModel(): ClipItem = ClipItem(
     id = id,
     text = text,
-    imageBase64 = image?.let(::encodeBase64),
+    image = image?.let(::ClipImage),
     files = decodeJsonOrNull<List<String>>(files).orEmpty(),
     firstCopiedAt = firstCopiedAt,
     lastCopiedAt = lastCopiedAt,
@@ -48,7 +47,7 @@ internal fun ClipItemEntity.toModel(): ClipItem = ClipItem(
 internal fun ClipItem.toEntity(): ClipItemEntity = ClipItemEntity(
     id = id,
     text = text,
-    image = imageBase64?.let(::decodeBase64),
+    image = image?.toByteArray(),
     files = encodeJson(files),
     firstCopiedAt = firstCopiedAt,
     lastCopiedAt = lastCopiedAt,

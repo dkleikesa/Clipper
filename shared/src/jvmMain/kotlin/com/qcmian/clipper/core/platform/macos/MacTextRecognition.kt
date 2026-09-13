@@ -1,6 +1,6 @@
 package com.qcmian.clipper.core.platform.macos
 
-import com.qcmian.clipper.core.util.decodeBase64
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.sun.jna.Library
 import com.sun.jna.Memory
 import com.sun.jna.Native
@@ -39,12 +39,12 @@ object MacTextRecognition {
 
     val available: Boolean get() = imageIO != null && coreFoundation != null && visionLoaded
 
-    fun recognize(imageBase64: String): String? {
+    fun recognize(image: ClipImage): String? {
         val imageIO = this.imageIO ?: return null
         val coreFoundation = this.coreFoundation ?: return null
         if (!visionLoaded) return null
 
-        val bytes = decodeBase64(imageBase64) ?: return null
+        val bytes = image.toByteArray()
         if (bytes.isEmpty()) return null
 
         val buffer = Memory(bytes.size.toLong())

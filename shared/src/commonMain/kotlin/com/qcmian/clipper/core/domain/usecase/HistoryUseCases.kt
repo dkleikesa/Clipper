@@ -37,7 +37,7 @@ class UpdateTitleUseCase(private val repository: ClipboardRepository) {
 class UpdateContentUseCase(private val repository: ClipboardRepository) {
     operator fun invoke(item: ClipItem, text: String) {
         // 只有纯文本条目才提供可编辑的内容字段。
-        val hasPlainText = item.text != null && item.imageBase64 == null && item.files.isEmpty()
+        val hasPlainText = item.text != null && item.image == null && item.files.isEmpty()
         if (!hasPlainText) return
         repository.replace(item) { it.copy(text = text) }
     }

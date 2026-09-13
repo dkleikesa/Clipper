@@ -62,7 +62,6 @@ import com.qcmian.clipper.core.settings.HighlightMatch
 import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.settings.PopupPosition
 import com.qcmian.clipper.core.settings.SearchMode
-import com.qcmian.clipper.core.settings.SearchVisibility
 import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.ThemeMode
@@ -82,6 +81,8 @@ data class PreferencesUiData(
     val settings: AppSettings,
     val pinnedItems: List<ClipItem>,
     val storageSize: String?,
+    /** 未置顶条目当前的近似占用，用于和「历史上限」对照显示。 */
+    val historyBytes: Long,
     val screenCount: Int,
     val supportsLaunchAtLogin: Boolean,
     val supportsApplicationInfo: Boolean,
@@ -98,7 +99,6 @@ data class PreferencesActions(
     val onClearUnpinned: () -> Unit,
     val onClearAll: () -> Unit,
     val onDismiss: () -> Unit,
-    val onResetPosition: () -> Unit,
     val applicationName: (String) -> String?,
     val applicationIcon: (String?) -> String?,
     val onPickApplication: (() -> Unit)?,
@@ -305,16 +305,12 @@ private fun StorageSection(data: PreferencesUiData, actions: PreferencesActions)
             title = "保存文件",
             checked = settings.saveFiles,
         ) { value -> actions.onSettingsChange { it.copy(saveFiles = value) } }
-        SliderRow(
-            title = "历史条数",
-            valueLabel = "${settings.historySize} 条未置顶记录" +
-                (data.storageSize?.takeIf { it.isNotEmpty() }?.let { " · 占用 $it" } ?: ""),
-            value = settings.historySize.toFloat(),
-            // 允许 1…999。
-            range = 1f..999f,
-            onValueChange = { value ->
-                val size = value.roundToInt().coerceAtLeast(1)
-                actions.onSettingsChange { it.copy(historySize = size) }
+        HistoryLimitField(
+            maxSizeBytes = settings.historyMaxSizeBytes,
+            usageBytes = data.historyBytes,
+            storageSize = data.storageSize,
+            onSizeChange = { bytes ->
+                actions.onSettingsChange { it.copy(historyMaxSizeBytes = bytes) }
             },
         )
         SegmentedBlock(
@@ -325,6 +321,72 @@ private fun StorageSection(data: PreferencesUiData, actions: PreferencesActions)
             onSelect = { value -> actions.onSettingsChange { it.copy(sortBy = value) } },
         )
     }
+}
+
+/**
+ * 历史上限输入框允许的最大 MB 数（1 TB）。再大既没有意义，也会让 [AppSettings.BYTES_PER_MEGABYTE]
+ * 的相乘溢出成负数——而负数上限在仓库里等于「不裁剪」，反而把限制取消掉。
+ */
+private const val MAX_HISTORY_MEGABYTES = 1_048_576L
+
+/**
+ * 历史上限输入框：用户按 MB 填写目标尺寸，超过后由仓库按当前排序丢弃最旧的未置顶记录。
+ *
+ * 草稿以文本形式保存，这样用户清空重输时的中间状态（空串、半截数字）不会被弹回；
+ * 只有解析出 1…[MAX_HISTORY_MEGABYTES] 的整数时才写回偏好。设置被外部修改时
+ * （如重置默认值）草稿会跟随刷新。
+ */
+@Composable
+private fun HistoryLimitField(
+    maxSizeBytes: Long,
+    usageBytes: Long,
+    storageSize: String?,
+    onSizeChange: (Long) -> Unit,
+) {
+    var draft by remember { mutableStateOf(megabytesTextOf(maxSizeBytes)) }
+    var committed by remember { mutableStateOf(maxSizeBytes) }
+
+    LaunchedEffect(maxSizeBytes) {
+        if (maxSizeBytes != committed) {
+            draft = megabytesTextOf(maxSizeBytes)
+            committed = maxSizeBytes
+        }
+    }
+
+    val databaseText = storageSize?.takeIf { it.isNotEmpty() }?.let { " · 存储文件 $it" }.orEmpty()
+    OutlinedTextField(
+        value = draft,
+        onValueChange = { text ->
+            if (text.any { !it.isDigit() }) return@OutlinedTextField
+            draft = text
+            val megabytes = text.toLongOrNull() ?: return@OutlinedTextField
+            // 超出上限的输入直接丢弃（连同草稿），避免相乘溢出把限制变成负数。
+            if (megabytes !in 1..MAX_HISTORY_MEGABYTES) return@OutlinedTextField
+            val bytes = megabytes * AppSettings.BYTES_PER_MEGABYTE
+            if (bytes == committed) return@OutlinedTextField
+            committed = bytes
+            onSizeChange(bytes)
+        },
+        label = { Text("历史上限（MB）") },
+        supportingText = {
+            Text(
+                "当前占用 ${formatMegabytes(usageBytes)}$databaseText；" +
+                    "超出后按排序丢弃最旧的未置顶记录，置顶项不计入。",
+            )
+        },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+    )
+}
+
+/** 以 MB 为单位的整数文本；不足 1 MB 时按 1 MB 显示，避免输入框出现空串。 */
+private fun megabytesTextOf(bytes: Long): String =
+    (bytes / AppSettings.BYTES_PER_MEGABYTE).coerceAtLeast(1L).toString()
+
+/** 把字节数格式化为 `3.2 MB` 这样的文本。 */
+private fun formatMegabytes(bytes: Long): String {
+    val tenths = bytes * 10 / AppSettings.BYTES_PER_MEGABYTE
+    return if (tenths % 10L == 0L) "${tenths / 10} MB" else "${tenths / 10}.${tenths % 10} MB"
 }
 
 @Composable
@@ -443,14 +505,6 @@ private fun SearchSection(data: PreferencesUiData, actions: PreferencesActions) 
             checked = settings.showSearch,
         ) { value -> actions.onSettingsChange { it.copy(showSearch = value) } }
         SegmentedBlock(
-            title = "搜索框显示时机",
-            values = SearchVisibility.entries,
-            selected = settings.searchVisibility,
-            label = { it.label },
-            enabled = settings.showSearch,
-            onSelect = { value -> actions.onSettingsChange { it.copy(searchVisibility = value) } },
-        )
-        SegmentedBlock(
             title = "搜索模式",
             values = SearchMode.entries,
             selected = settings.searchMode,
@@ -472,6 +526,23 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
     val colors = MaterialTheme.colorScheme
     val settings = data.settings
     SectionCard("外观") {
+        // 拖动过窗口后出现：点一下放弃自定义尺寸，恢复「自动贴合内容」。
+        AnimatedVisibility(
+            visible = settings.customWindowWidth != null,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            TextButton(
+                onClick = {
+                    actions.onSettingsChange {
+                        it.copy(customWindowWidth = null, customWindowHeight = null)
+                    }
+                },
+                modifier = Modifier.padding(top = 2.dp),
+            ) {
+                Text("恢复默认尺寸")
+            }
+        }
         SegmentedBlock(
             title = "主题",
             values = ThemeMode.entries,
@@ -486,24 +557,11 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
             label = { it.label },
             onSelect = { value -> actions.onSettingsChange { it.copy(popupPosition = value) } },
         )
-        AnimatedVisibility(
-            visible = settings.popupPosition == PopupPosition.LAST_POSITION,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically(),
-        ) {
-            TextButton(
-                onClick = actions.onResetPosition,
-                modifier = Modifier.padding(top = 2.dp),
-            ) {
-                Text("重置弹窗位置")
-            }
-        }
-        // `AppearanceSettingsPane.screenPicker(for:)`：只为那两个锚定到整块屏幕的
-        // 位置提供屏幕选择器，并且仅在有多块屏幕可选时才显示。
+        // `AppearanceSettingsPane.screenPicker(for:)`：只为锚定到整块屏幕的位置提供屏幕选择器，
+        // 并且仅在有多块屏幕可选时才显示。
         AnimatedVisibility(
             visible = data.screenCount > 1 &&
-                (settings.popupPosition == PopupPosition.SCREEN_CENTER ||
-                    settings.popupPosition == PopupPosition.LAST_POSITION),
+                settings.popupPosition == PopupPosition.SCREEN_CENTER,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically(),
         ) {
@@ -520,11 +578,6 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
             description = "关闭后 Clipper 只在快捷键下工作。",
             checked = settings.showInStatusBar,
         ) { value -> actions.onSettingsChange { it.copy(showInStatusBar = value) } }
-        SwitchRow(
-            title = "在菜单栏显示最近复制",
-            description = "把最新一条复制内容放到托盘提示中。",
-            checked = settings.showRecentCopyInMenuBar,
-        ) { value -> actions.onSettingsChange { it.copy(showRecentCopyInMenuBar = value) } }
         SegmentedBlock(
             title = "置顶位置",
             values = PinPosition.entries,
@@ -555,33 +608,6 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
             range = 1f..200f,
             onValueChange = { value ->
                 actions.onSettingsChange { it.copy(imageMaxHeight = value.roundToInt()) }
-            },
-        )
-        SliderRow(
-            title = "窗口宽度",
-            valueLabel = "${settings.windowWidth} pt",
-            value = settings.windowWidth.toFloat(),
-            range = 300f..900f,
-            onValueChange = { value ->
-                actions.onSettingsChange { it.copy(windowWidth = value.roundToInt()) }
-            },
-        )
-        SliderRow(
-            title = "窗口最大高度",
-            valueLabel = "${settings.windowHeight} pt",
-            value = settings.windowHeight.toFloat(),
-            range = 300f..1_200f,
-            onValueChange = { value ->
-                actions.onSettingsChange { it.copy(windowHeight = value.roundToInt()) }
-            },
-        )
-        SliderRow(
-            title = "预览宽度",
-            valueLabel = "${settings.previewWidth} pt（也可拖拽分隔条调整）",
-            value = settings.previewWidth.toFloat(),
-            range = 200f..900f,
-            onValueChange = { value ->
-                actions.onSettingsChange { it.copy(previewWidth = value.roundToInt()) }
             },
         )
     }

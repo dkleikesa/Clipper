@@ -3,6 +3,7 @@ package com.qcmian.clipper.core.data.repository
 import com.qcmian.clipper.core.data.source.ClipStorageDataSource
 import com.qcmian.clipper.core.data.source.ClipboardDataSource
 import com.qcmian.clipper.core.data.source.NativeDataSource
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.SourceApplication
@@ -43,6 +44,11 @@ class DefaultClipboardRepository(
 
     private val _settings = MutableStateFlow(AppSettings())
     override val settings: StateFlow<AppSettings> = _settings.asStateFlow()
+
+    private val _settingsLoaded = MutableStateFlow(false)
+
+    /** [load] 完成后为 `true`：此前的 [settings] 是默认值，还不是用户真正的偏好。 */
+    override val settingsLoaded: StateFlow<Boolean> = _settingsLoaded.asStateFlow()
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     override val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
@@ -120,6 +126,7 @@ class DefaultClipboardRepository(
             .map { it.copy(title = it.title.removingUnsafeTitleScalars()) }
         _items.value = normalise(restored, settings)
         loaded = true
+        _settingsLoaded.value = true
     }
 
     override fun setItems(items: List<ClipItem>) {
@@ -163,9 +170,9 @@ class DefaultClipboardRepository(
     override fun pickApplication(): SourceApplication? =
         runCatching { native.pickApplication() }.getOrNull()
 
-    override suspend fun recognizeText(imageBase64: String): String? =
+    override suspend fun recognizeText(image: ClipImage): String? =
         try {
-            native.recognizeText(imageBase64)
+            native.recognizeText(image)
         } catch (cancellation: CancellationException) {
             // 绝不吞掉取消异常，否则会破坏外层的结构化并发。
             throw cancellation
@@ -183,15 +190,31 @@ class DefaultClipboardRepository(
     // 不变量
     // ---------------------------------------------------------------------------------
 
-    /** 按当前偏好排序历史，并裁剪到配置的上限。 */
+    /**
+     * 按当前偏好排序历史，并把未置顶条目的总体积裁剪到配置的上限。
+     *
+     * 从排序结果的开头累计体积（即保留最靠前的条目），一旦超出上限，后续条目全部丢弃；
+     * 置顶项不占额度也不会被丢弃。始终至少保留一条未置顶记录，避免刚复制的大内容被立刻清掉。
+     */
     private fun normalise(items: List<ClipItem>, settings: AppSettings): List<ClipItem> {
         val sorted = ClipSorter.sort(items, settings.sortBy, settings.pinTo)
-        val maxSize = settings.historySize
-        if (maxSize <= 0) return sorted
+        val maxBytes = settings.historyMaxSizeBytes
+        if (maxBytes <= 0L) return sorted
 
-        val unpinned = sorted.filter { it.isUnpinned }
-        if (unpinned.size <= maxSize) return sorted
-        val overflow = unpinned.drop(maxSize).map { it.id }.toSet()
+        var used = 0L
+        var kept = 0
+        val overflow = mutableSetOf<String>()
+        for (item in sorted) {
+            if (item.isPinned) continue
+            val size = item.approximateSizeBytes
+            if (kept > 0 && used + size > maxBytes) {
+                overflow += item.id
+            } else {
+                used += size
+                kept++
+            }
+        }
+        if (overflow.isEmpty()) return sorted
         return sorted.filterNot { it.id in overflow }
     }
 

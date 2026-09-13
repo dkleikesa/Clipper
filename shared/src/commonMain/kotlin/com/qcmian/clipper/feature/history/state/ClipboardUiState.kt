@@ -3,7 +3,6 @@ package com.qcmian.clipper.feature.history.state
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.AppSettings
-import com.qcmian.clipper.core.settings.SearchVisibility
 
 /** 当前屏幕上显示的是哪个模态框（如果有）。 */
 enum class ClipboardDialog { PREFERENCES }
@@ -38,6 +37,8 @@ data class ClipboardUiState(
     val keyboardNavigating: Boolean = true,
     val statusMessage: String? = null,
     val storageSize: String? = null,
+    /** 未置顶条目占用的近似字节数，与「历史上限」比较的是同一个口径。 */
+    val historyBytes: Long = 0L,
     val screenCount: Int = 1,
     val supportsLaunchAtLogin: Boolean = false,
     val supportsApplicationInfo: Boolean = false,
@@ -64,10 +65,9 @@ data class ClipboardUiState(
 
     val isHistoryHighlighted: Boolean get() = footerSelection < 0
 
-    /** 对应 `AppState.searchVisible`；读取的是节流后的查询词，而不是原始输入。 */
+    /** 对应 `AppState.searchVisible`；搜索框开启即总是显示。 */
     val searchVisible: Boolean
-        get() = settings.showSearch &&
-            (settings.searchVisibility == SearchVisibility.ALWAYS || appliedQuery.isNotEmpty())
+        get() = settings.showSearch
 
     /** 有对话框弹出时为 `true`，此时桌面端面板不得自动隐藏。 */
     val isModalOpen: Boolean get() = dialog != null || confirmation != null

@@ -6,7 +6,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -117,21 +116,6 @@ fun App(
             host.quitAction = { viewModel.onQuit() }
         }
 
-        // `AppState.menuIconText`：最近一条未置顶的复制，适当缩短后展示。
-        val recentCopyText = remember(state.results, state.settings.showRecentCopyInMenuBar) {
-            if (!state.settings.showRecentCopyInMenuBar) {
-                ""
-            } else {
-                state.results.firstOrNull { it.item.isUnpinned }?.item?.previewableText
-                    ?.take(100)
-                    ?.trim()
-                    ?.replace("\n", "")
-                    ?.replace("\r", "")
-                    ?.take(20)
-                    .orEmpty()
-            }
-        }
-
         // 用一个投影取代十几个镜像字段：面向宿主的那部分状态以单个不可变值交给控制器，
         // 因此它只有一个数据源。
         SideEffect {
@@ -143,7 +127,6 @@ fun App(
                 isWindowVisible = panelVisible,
                 isPreviewOpen = state.previewOpen,
                 isModalOpen = state.isModalOpen,
-                recentCopyText = recentCopyText,
             ))
         }
 
@@ -156,7 +139,6 @@ fun App(
             applicationName = viewModel::applicationName,
             availablePins = viewModel::availablePins,
             previewOnLeft = previewOnLeft,
-            onResetPosition = { windowController?.resetPosition() },
             modifier = Modifier.fillMaxSize(),
         )
     }

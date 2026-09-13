@@ -1,7 +1,7 @@
 package com.qcmian.clipper.core.platform.ios
 
 import com.qcmian.clipper.core.data.source.toNSData
-import com.qcmian.clipper.core.util.decodeBase64
+import com.qcmian.clipper.core.domain.model.ClipImage
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Vision.VNImageRequestHandler
 import platform.Vision.VNRecognizeTextRequest
@@ -15,8 +15,8 @@ import platform.Vision.VNRequestTextRecognitionLevelFast
  */
 object IosTextRecognition {
     @OptIn(ExperimentalForeignApi::class)
-    fun recognize(imageBase64: String): String? {
-        val bytes = decodeBase64(imageBase64) ?: return null
+    fun recognize(image: ClipImage): String? {
+        val bytes = image.toByteArray()
         if (bytes.isEmpty()) return null
 
         val request = VNRecognizeTextRequest().apply {

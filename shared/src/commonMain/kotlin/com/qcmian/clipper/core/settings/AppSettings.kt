@@ -31,12 +31,6 @@ enum class HighlightMatch(val label: String) {
     BACKGROUND("背景"),
 }
 
-/**。 */
-enum class SearchVisibility(val label: String) {
-    ALWAYS("总是显示"),
-    DURING_SEARCH("搜索时显示"),
-}
-
 /** 应用主题的三种模式。 */
 enum class ThemeMode(val label: String) {
     SYSTEM("跟随系统"),
@@ -47,10 +41,8 @@ enum class ThemeMode(val label: String) {
 /**。 */
 enum class PopupPosition(val label: String) {
     CURSOR("光标位置"),
-    MENU_BAR("菜单栏图标"),
-    WINDOW_CENTER("应用窗口中心"),
+    MENU_BAR("托盘图标"),
     SCREEN_CENTER("屏幕中心"),
-    LAST_POSITION("上次位置"),
 }
 
 /**
@@ -85,7 +77,11 @@ data class ShortcutSpec(
 @Serializable
 data class AppSettings(
     // 存储
-    val historySize: Int = 200,
+    /**
+     * 未置顶历史内容的总大小上限（字节）。超过后按当前排序丢弃最旧的记录；
+     * 置顶项不受此限制，也从不因超限被丢弃。
+     */
+    val historyMaxSizeBytes: Long = DEFAULT_HISTORY_MAX_SIZE_BYTES,
     val saveText: Boolean = true,
     val saveImages: Boolean = true,
     val saveFiles: Boolean = true,
@@ -118,26 +114,26 @@ data class AppSettings(
     val searchMode: SearchMode = SearchMode.EXACT,
     val highlightMatch: HighlightMatch = HighlightMatch.BOLD,
     val showSearch: Boolean = true,
-    val searchVisibility: SearchVisibility = SearchVisibility.ALWAYS,
 
     // 外观
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    /** 用户拖拽出的自定义面板大小；两者都为 `null` 时表示自动尺寸（贴合内容）。 */
+    val customWindowWidth: Int? = null,
+    val customWindowHeight: Int? = null,
     val pinTo: PinPosition = PinPosition.TOP,
     val showHexColorSwatch: Boolean = true,
     val showSpecialSymbols: Boolean = true,
     val showApplicationIcons: Boolean = false,
     val imageMaxHeight: Int = 40,
     val popupPosition: PopupPosition = PopupPosition.CURSOR,
-    val showRecentCopyInMenuBar: Boolean = false,
     /** 对应 `Defaults[.showInStatusBar]`：显示或隐藏菜单栏 / 托盘图标。 */
     val showInStatusBar: Boolean = true,
     /** 对应 `Defaults[.popupScreen]`：0 表示当前活动屏幕，1 及以上指向特定屏幕。 */
     val popupScreen: Int = 0,
-    /** 对应 `Defaults[.windowSize].width`。 */
-    val windowWidth: Int = 450,
-    /** 对应 `Defaults[.windowSize].height`。 */
-    val windowHeight: Int = 800,
-    /** 对应 `Defaults[.previewWidth]`。 */
+    /**
+     * 对应 `Defaults[.previewWidth]`。宽度不作为设置项，只由预览分隔条的拖拽写入，
+     * 默认值与 [com.qcmian.clipper.core.ui.Popup.previewWidth] 一致。
+     */
     val previewWidth: Int = 400,
 
     // 忽略
@@ -158,6 +154,12 @@ data class AppSettings(
     val recognizeText: Boolean = true,
 ) {
     companion object {
+        /** 字节与 MB 的换算，供设置界面与体积计算共用。 */
+        const val BYTES_PER_MEGABYTE = 1024L * 1024L
+
+        /** [historyMaxSizeBytes] 的默认值：50 MB。 */
+        const val DEFAULT_HISTORY_MAX_SIZE_BYTES = 50L * BYTES_PER_MEGABYTE
+
  /** `ignoredPasteboardTypes` 的默认值。 */
         val DEFAULT_IGNORED_PASTEBOARD_TYPES = listOf(
             "Pasteboard generator type",

@@ -4,7 +4,7 @@ import android.graphics.BitmapFactory
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import com.qcmian.clipper.core.util.decodeBase64
+import com.qcmian.clipper.core.domain.model.ClipImage
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.tasks.await
 
@@ -17,8 +17,8 @@ object MlKitTextRecognition {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
 
-    suspend fun recognize(imageBase64: String): String? {
-        val bytes = decodeBase64(imageBase64) ?: return null
+    suspend fun recognize(image: ClipImage): String? {
+        val bytes = image.toByteArray()
         if (bytes.isEmpty()) return null
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
 
