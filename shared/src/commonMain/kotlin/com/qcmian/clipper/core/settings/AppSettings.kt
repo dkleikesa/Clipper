@@ -37,6 +37,13 @@ enum class SearchVisibility(val label: String) {
     DURING_SEARCH("搜索时显示"),
 }
 
+/** 应用主题的三种模式。 */
+enum class ThemeMode(val label: String) {
+    SYSTEM("跟随系统"),
+    LIGHT("浅色"),
+    DARK("深色"),
+}
+
 /**。 */
 enum class PopupPosition(val label: String) {
     CURSOR("光标位置"),
@@ -114,6 +121,7 @@ data class AppSettings(
     val searchVisibility: SearchVisibility = SearchVisibility.ALWAYS,
 
     // 外观
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val pinTo: PinPosition = PinPosition.TOP,
     val showHexColorSwatch: Boolean = true,
     val showSpecialSymbols: Boolean = true,

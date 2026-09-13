@@ -11,7 +11,7 @@ enum class ClipboardDialog { PREFERENCES }
 /** 「清除历史」的二次确认，包含将要清除的内容。 */
 data class ClearConfirmation(
     val message: String,
-    val comment: String,
+    val comment: String? = null,
     val all: Boolean,
     val hidePanel: Boolean,
 )

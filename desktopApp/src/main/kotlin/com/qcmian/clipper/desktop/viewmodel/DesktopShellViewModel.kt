@@ -13,7 +13,11 @@ import com.qcmian.clipper.desktop.domain.CYCLE_START_DELAY_MILLIS
 import com.qcmian.clipper.desktop.domain.FOCUS_GRACE_MILLIS
 import com.qcmian.clipper.desktop.domain.InitialPanelHeight
 import com.qcmian.clipper.desktop.domain.MODIFIER_POLL_MILLIS
+import com.qcmian.clipper.desktop.domain.MOUSE_BUTTONS_MASK
+import com.qcmian.clipper.desktop.domain.OUTSIDE_CLICK_POLL_MILLIS
+import com.qcmian.clipper.desktop.domain.PANEL_WINDOW_TITLE
 import com.qcmian.clipper.desktop.domain.PopupMode
+import com.qcmian.clipper.desktop.domain.SYSTEM_APPEARANCE_POLL_MILLIS
 import com.qcmian.clipper.desktop.domain.nsModifierMask
 import com.qcmian.clipper.desktop.domain.RESIZE_SETTLE_MILLIS
 import com.qcmian.clipper.desktop.domain.TRAY_CLICK_GRACE_MILLIS
@@ -24,7 +28,9 @@ import com.qcmian.clipper.desktop.domain.resolvePosition
 import com.qcmian.clipper.desktop.domain.screenBounds
 import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.core.platform.macos.GlobalShortcut
+import com.qcmian.clipper.core.platform.macos.MacAppearance
 import com.qcmian.clipper.core.platform.macos.MacGlobalHotKey
+import com.qcmian.clipper.core.platform.macos.MacOutsideClickMonitor
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
@@ -95,6 +101,14 @@ class DesktopShellViewModel(
     private val _uiState = MutableStateFlow(DesktopShellUiState())
     val uiState: StateFlow<DesktopShellUiState> = _uiState.asStateFlow()
 
+    /**
+     * 系统外观是否为深色；`null` 表示未知（原生层不可用）。Compose 的
+     * `isSystemInDarkTheme()` 在桌面端不会实时跟随系统外观变化，
+     * 「跟随系统」主题模式改由这里轮询 `AppleInterfaceStyle` 驱动。
+     */
+    private val _systemDark = MutableStateFlow<Boolean?>(null)
+    val systemDark: StateFlow<Boolean?> = _systemDark.asStateFlow()
+
     /** 用户拖动过窗口之后固定下来的尺寸；为 `null` 时高度跟随内容。 */
     private val customSize = MutableStateFlow<DpSize?>(null)
 
@@ -112,15 +126,22 @@ class DesktopShellViewModel(
 
     private var lastFocusGainedAt = System.currentTimeMillis()
 
+    /** 最近一次「点击面板之外」导致的收起时刻，用于识别同一次点击触发的托盘切换。 */
+    private var lastOutsideHideAtMillis = 0L
+
     init {
         panel.resetPositionAction = { lastPosition.value = null }
         captureFrontmostWindow()
+        // 同步预读一次系统外观，避免首帧用回退路径导致主题闪一下。
+        _systemDark.value = runCatching { MacWorkspace.isSystemAppearanceDark() }.getOrNull()
         viewModelScope.launch { observeShortcut() }
         viewModelScope.launch { observeWindowSize() }
         viewModelScope.launch { observeUserResize() }
         viewModelScope.launch { observePlacement() }
         viewModelScope.launch { observePreviewSide() }
         viewModelScope.launch { observeToggleRequests() }
+        viewModelScope.launch { observeOutsideClicks() }
+        viewModelScope.launch { observeSystemAppearance() }
     }
 
     // ---------------------------------------------------------------------------------
@@ -166,6 +187,9 @@ class DesktopShellViewModel(
 
     /** 点击菜单栏图标：面板已显示则收起，否则呼出。 */
     fun togglePanel() {
+        // 面板外的点击收起与托盘切换可能来自同一次点击（点在本应用托盘图标上）：
+        // 轮询先收起、托盘回调随后到达，这里跳过，避免刚收起又被重新打开。
+        if (System.currentTimeMillis() - lastOutsideHideAtMillis < TRAY_CLICK_GRACE_MILLIS) return
         if (_uiState.value.windowVisible) hidePanel() else showPanel()
     }
 
@@ -184,6 +208,11 @@ class DesktopShellViewModel(
 
     fun onWindowGainedFocus() {
         lastFocusGainedAt = System.currentTimeMillis()
+        // 对应 Maccy `HistoryListView.onChange(of: scenePhase)`：面板真正成为 key window 时，
+        // 搜索框重新获得焦点并选中第一条。聚焦跟着「窗口取得键盘焦点」走，而不是跟着
+        // 「打开意图」走——后者可能落在窗口显示之前，`requestFocus()` 会静默失效，
+        // 表现为「打开后偶尔打不了字」。
+        if (_uiState.value.windowVisible) hotkey.requestOpen()
     }
 
     /** 对应 `FloatingPanel.resignKey()`：失去焦点即隐藏（有弹窗时不隐藏）。 */
@@ -376,6 +405,72 @@ class DesktopShellViewModel(
     private suspend fun observeToggleRequests() {
         panel.toggleRequests.collect { count ->
             if (count > 0) togglePanel()
+        }
+    }
+
+    /**
+     * 观察面板外的点击：优先用 NSEvent 全局 / 本地监视器（事件驱动、零轮询），
+     * 安装失败时退回 `pressedMouseButtons` 轮询。收起前检查弹窗状态——
+     * 偏好设置等弹窗的点击属于本应用，不应收起面板。
+     */
+    private suspend fun observeOutsideClicks() {
+        if (MacOutsideClickMonitor.install(PANEL_WINDOW_TITLE)) {
+            MacOutsideClickMonitor.outsideClicks.collect {
+                if (uiState.value.windowVisible && !panel.hostUiState.value.isModalOpen) {
+                    lastOutsideHideAtMillis = System.currentTimeMillis()
+                    hidePanel(restoreFocus = false)
+                }
+            }
+            return
+        }
+
+        // 轮询兜底：面板可见期间观察鼠标按压，始于面板之外的按压在其外松开就收起。
+        combine(
+            uiState.map { it.windowVisible }.distinctUntilChanged(),
+            panel.hostUiState.map { it.isModalOpen }.distinctUntilChanged(),
+        ) { visible, modal -> visible && !modal }
+            .distinctUntilChanged()
+            .collectLatest { watching ->
+                if (!watching) return@collectLatest
+                // 起始就处于按压中（例如热键呼出时用户正在别处拖拽）：
+                // 视为始于面板内部，松开不收起。
+                var pressed = MacWorkspace.pressedMouseButtons() and MOUSE_BUTTONS_MASK != 0L
+                var pressStartedInside = true
+                while (true) {
+                    delay(OUTSIDE_CLICK_POLL_MILLIS)
+                    val nowPressed = MacWorkspace.pressedMouseButtons() and MOUSE_BUTTONS_MASK != 0L
+                    if (nowPressed == pressed) continue
+                    pressed = nowPressed
+                    if (pressed) {
+                        pressStartedInside = isPointerInsidePanel()
+                    } else if (!pressStartedInside) {
+                        lastOutsideHideAtMillis = System.currentTimeMillis()
+                        hidePanel(restoreFocus = false)
+                        return@collectLatest
+                    }
+                }
+            }
+    }
+
+    /** 指针是否落在面板窗口内；位置或判定器不可用时视为在内（宁可漏收起，不可误收起）。 */
+    private fun isPointerInsidePanel(): Boolean {
+        val point = runCatching { java.awt.MouseInfo.getPointerInfo()?.location }.getOrNull()
+            ?: return true
+        return panel.panelContainsPoint?.invoke(point.x.toDouble(), point.y.toDouble()) ?: true
+    }
+
+    /**
+     * 「跟随系统」主题模式：优先用系统通知（`AppleInterfaceThemeChangedNotification`）
+     * 事件驱动；通知注册失败时退回 1 秒轮询。
+     */
+    private suspend fun observeSystemAppearance() {
+        if (MacAppearance.install()) {
+            MacAppearance.systemDark.collect { _systemDark.value = it }
+            return
+        }
+        while (true) {
+            _systemDark.value = runCatching { MacWorkspace.isSystemAppearanceDark() }.getOrNull()
+            delay(SYSTEM_APPEARANCE_POLL_MILLIS)
         }
     }
 

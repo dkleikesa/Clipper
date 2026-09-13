@@ -26,12 +26,14 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -401,6 +403,16 @@ internal fun SliderRow(
             valueRange = range,
             enabled = enabled,
             interactionSource = interactionSource,
+            // 默认轨道会在拇指位置挖一个「拇指宽 + 两侧 8dp」的矩形断口，视觉上滑块
+            // 显得很大；这里关掉断口和首尾停止点，轨道连续贯穿，只有拇指浮在上面。
+            track = {
+                SliderDefaults.Track(
+                    sliderState = it,
+                    thumbTrackGapSize = 0.dp,
+                    trackInsideCornerSize = 0.dp,
+                    drawStopIndicator = null,
+                )
+            },
             // 默认拇指 20dp 相对 4dp 轨道过大，缩到 14dp。
             // 自绘拇指：默认 Thumb 按下时会有缩放动画且白边 2dp 太粗，
             // 这里按下态与普通态保持一致，白边减半为 1dp。
@@ -408,13 +420,13 @@ internal fun SliderRow(
                 val sliderColors = SliderDefaults.colors()
                 Box(
                     Modifier
-                        .size(14.dp)
+                        .size(18.dp)
                         .clip(CircleShape)
                         .background(
                             if (enabled) sliderColors.thumbColor
                             else sliderColors.disabledThumbColor,
                         )
-                        .border(1.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                        .border(2.dp, Color.White, CircleShape),
                 )
             },
             // M3 Slider 默认占高 48dp，压到 28dp 与紧凑行高一致。
@@ -495,4 +507,43 @@ internal fun <T> SegmentedBlock(
             }
         }
     }
+}
+
+/**
+ * 以逗号展开 `List<String>` 的单行输入框。
+ *
+ * 维护一份本地草稿：本框输入实时提交到 [onValuesChange]，同时用 [committed] 记账，
+ * 因此设置被外部修改（如「恢复默认类型」按钮）时草稿会自动跟随刷新，
+ * 而本框自己的提交不会触发重置，逗号分隔的连续输入不受影响。
+ */
+@Composable
+internal fun DelimitedListField(
+    values: List<String>,
+    onValuesChange: (List<String>) -> Unit,
+    label: String,
+    supportingText: String,
+    modifier: Modifier = Modifier,
+) {
+    var draft by remember { mutableStateOf(values.joinToString(", ")) }
+    var committed by remember { mutableStateOf(values) }
+
+    LaunchedEffect(values) {
+        if (values != committed) {
+            draft = values.joinToString(", ")
+            committed = values
+        }
+    }
+
+    OutlinedTextField(
+        value = draft,
+        onValueChange = { text ->
+            draft = text
+            committed = text.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            onValuesChange(committed)
+        },
+        label = { Text(label) },
+        supportingText = { Text(supportingText) },
+        singleLine = true,
+        modifier = modifier,
+    )
 }

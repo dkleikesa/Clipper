@@ -18,6 +18,8 @@ import com.qcmian.clipper.host.HostUiState
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
+import androidx.compose.foundation.isSystemInDarkTheme
+import com.qcmian.clipper.core.settings.ThemeMode
 import com.qcmian.clipper.core.ui.theme.ClipperTheme
 import kotlinx.coroutines.launch
 
@@ -54,23 +56,34 @@ fun App(
     /** 面板当前是否可见。桌面宿主据此给托盘图标画按下态；其它平台无此概念。 */
     panelVisible: Boolean = true,
     /**
+     * 系统外观是否为深色，由桌面宿主轮询提供（Compose 的 `isSystemInDarkTheme()`
+     * 在桌面端不实时跟随系统）；`null` 表示平台未提供，退回 [isSystemInDarkTheme]。
+     */
+    systemDarkTheme: Boolean? = null,
+    /**
      * 托盘是否应处于按下态。桌面宿主传「可见 且 由托盘触发」——热键呼出时面板虽然可见，
      * 托盘保持常态。不传时与 [panelVisible] 一致（旧宿主 / 其它平台）。
      */
     statusItemActive: Boolean = panelVisible,
 ) {
-    ClipperTheme {
-        val viewModel = viewModel {
-            ClipboardViewModel(
-                repository = container.repository,
-                platform = container.platform,
-                useCases = container.useCases,
-                showQuit = onQuit != null,
-            )
-        }
+    // 状态持有者先于主题创建：主题模式本身取自用户偏好。
+    val viewModel = viewModel {
+        ClipboardViewModel(
+            repository = container.repository,
+            platform = container.platform,
+            useCases = container.useCases,
+            showQuit = onQuit != null,
+        )
+    }
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-        val state by viewModel.uiState.collectAsStateWithLifecycle()
-
+    // 主题模式：跟随系统 / 强制浅色 / 强制深色。
+    val darkTheme = when (state.settings.themeMode) {
+        ThemeMode.SYSTEM -> systemDarkTheme ?: isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+    ClipperTheme(darkTheme = darkTheme) {
         DisposableEffect(viewModel, onQuit) {
             viewModel.onRequestHideWindow = onRequestHideWindow
             viewModel.onQuitRequest = onQuit ?: {}
