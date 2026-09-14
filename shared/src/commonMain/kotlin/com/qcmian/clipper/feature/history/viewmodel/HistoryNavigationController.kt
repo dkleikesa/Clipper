@@ -21,15 +21,27 @@ internal class HistoryNavigationController(
     /** 对应 `NavigationManager.isKeyboardNavigating` 中待处理的悬停。 */
     private var pendingHoverSelection = -1
 
+    /**
+     * 最近一次导航输入是否来自键盘。
+     *
+     * 它只在本类内部参与判断（鼠标移动后置 `false`，悬停于是重新接管选择），界面从不渲染，
+     * 因此留在这里而不是 [ClipboardUiState]。查询结果更新、面板重新打开时由外部调用
+     * [resetKeyboardNavigation] 复位。
+     */
+    private var keyboardNavigating = true
+
+    /** 新的查询结果 / 面板重新打开：键盘导航重新接管选择。 */
+    fun resetKeyboardNavigation() {
+        keyboardNavigating = true
+    }
+
     fun onPointerMoved() {
-        val current = state.value
-        if (!current.keyboardNavigating) return
+        if (!keyboardNavigating) return
         val pending = pendingHoverSelection
         pendingHoverSelection = -1
         state.update { latest ->
             val shouldApply = pending >= 0 && latest.footerSelection < 0
             latest.copy(
-                keyboardNavigating = false,
                 historySelection = if (shouldApply) {
                     pending.coerceIn(0, maxOf(0, latest.results.lastIndex))
                 } else {
@@ -42,7 +54,7 @@ internal class HistoryNavigationController(
     /** 对应 `HoverSelectionModifier`。 */
     fun hoverHistory(index: Int) {
         val current = state.value
-        if (!current.keyboardNavigating) {
+        if (!keyboardNavigating) {
             if (current.footerSelection >= 0 || current.historySelection != index) {
                 state.update {
                     it.copy(
@@ -69,10 +81,10 @@ internal class HistoryNavigationController(
     }
 
     fun selectHistory(index: Int) {
+        keyboardNavigating = true
         val target = HistoryNavigation.history(index, state.value.results.lastIndex)
         state.update {
             it.copy(
-                keyboardNavigating = true,
                 historySelection = target.historyIndex,
                 footerSelection = target.footerIndex,
             )
@@ -93,9 +105,6 @@ internal class HistoryNavigationController(
     fun moveToLast() {
         applyMove(HistoryNavigation.last(currentSelection(), state.value.results.lastIndex, footerCount()))
     }
-
- /** `⌃K` 只在第一个条目未被高亮时向上移动 #1055。 */
-    fun canMovePreviousWithCtrlK(): Boolean = !isFirstItemHighlighted()
 
     private fun selectFooter(index: Int) {
         val target = HistoryNavigation.footer(currentSelection(), index, footerCount())
@@ -118,8 +127,4 @@ internal class HistoryNavigationController(
             state.update { it.copy(footerSelection = target.footerIndex) }
         }
     }
-
-    /** 对应 `NavigationManager.isFirstItemHighlighted`。 */
-    private fun isFirstItemHighlighted(): Boolean =
-        currentSelection().let { it.isHistoryHighlighted && it.historyIndex == 0 }
 }

@@ -31,7 +31,7 @@ object MacWorkspace {
     }
 
     /** `NSWorkspace.shared.frontmostApplication.processIdentifier`。 */
-    fun frontmostPid(): Long {
+    private fun frontmostPid(): Long {
         if (!loaded) return -1L
         val application = MacNative.send(sharedWorkspace(), "frontmostApplication") ?: return -1L
         return MacNative.sendLong(application, "processIdentifier")

@@ -9,6 +9,12 @@ import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.domain.action.defaultAction
 import com.qcmian.clipper.core.domain.usecase.SelectResult
+import com.qcmian.clipper.core.domain.usecase.copyExtractedText
+import com.qcmian.clipper.core.domain.usecase.copySearchQuery
+import com.qcmian.clipper.core.domain.usecase.deleteClip
+import com.qcmian.clipper.core.domain.usecase.updateContent
+import com.qcmian.clipper.core.domain.usecase.updatePin
+import com.qcmian.clipper.core.domain.usecase.updateTitle
 import com.qcmian.clipper.feature.history.state.FooterAction
 import com.qcmian.clipper.feature.history.state.ClearConfirmation
 import com.qcmian.clipper.feature.history.state.ClipboardDialog
@@ -43,19 +49,20 @@ class ClipboardViewModel(
     private val _uiState = MutableStateFlow(ClipboardUiState(showQuit = showQuit))
     val uiState: StateFlow<ClipboardUiState> = _uiState.asStateFlow()
 
+    /** 持有键盘 / 鼠标导航与待处理的悬停。 */
+    private val navigation = HistoryNavigationController(
+        state = _uiState,
+        footerCount = ::footerCount,
+        onFooterHovered = ::togglePreview,
+    )
+
     /** 持有查询节流与搜索任务。 */
     private val search = HistorySearchController(
         state = _uiState,
         settings = { repository.settings.value },
         items = { repository.items.value },
         scope = viewModelScope,
-    )
-
-    /** 持有键盘 / 鼠标导航与待处理的悬停。 */
-    private val navigation = HistoryNavigationController(
-        state = _uiState,
-        footerCount = ::footerCount,
-        onFooterHovered = ::togglePreview,
+        onQueryApplied = navigation::resetKeyboardNavigation,
     )
 
     /** 由宿主设置：隐藏面板，使合成粘贴能到达目标应用。 */
@@ -107,13 +114,12 @@ class ClipboardViewModel(
             ClipboardUiAction.DeleteSearchChar -> search.deleteSearchChar()
             ClipboardUiAction.DeleteSearchWord -> search.deleteSearchWord()
             ClipboardUiAction.CopySearchQuery -> {
-                if (useCases.copySearchQuery(_uiState.value.query)) search.clearSearch()
+                if (platform.copySearchQuery(_uiState.value.query)) search.clearSearch()
             }
 
             ClipboardUiAction.PointerMoved -> navigation.onPointerMoved()
             is ClipboardUiAction.HoverHistory -> navigation.hoverHistory(action.index)
             is ClipboardUiAction.HoverFooter -> navigation.hoverFooter(action.index)
-            is ClipboardUiAction.SelectHistory -> navigation.selectHistory(action.index)
             is ClipboardUiAction.MoveNext -> navigation.moveNext(action.allowCycle)
             ClipboardUiAction.MovePrevious -> navigation.movePrevious()
             ClipboardUiAction.MoveToFirst -> navigation.selectHistory(0)
@@ -138,22 +144,22 @@ class ClipboardViewModel(
                 search.clearSearch()
             }
 
-            ClipboardUiAction.DeleteSelected -> _uiState.value.selectedItem?.let { useCases.deleteClip(it) }
+            ClipboardUiAction.DeleteSelected -> _uiState.value.selectedItem?.let { repository.deleteClip(it) }
             ClipboardUiAction.TogglePreview -> togglePreview()
             ClipboardUiAction.CopyExtractedText -> _uiState.value.selectedItem?.let { item ->
-                if (useCases.copyExtractedText(item)) search.clearSearch()
+                if (platform.copyExtractedText(item)) search.clearSearch()
             }
 
             is ClipboardUiAction.SetPreviewWidth ->
                 useCases.updateSettings { it.copy(previewWidth = action.width) }
 
             is ClipboardUiAction.TogglePin -> useCases.togglePin(action.item)
-            is ClipboardUiAction.DeleteItem -> useCases.deleteClip(action.item)
+            is ClipboardUiAction.DeleteItem -> repository.deleteClip(action.item)
 
             is ClipboardUiAction.UpdateSettings -> useCases.updateSettings(action.transform)
-            is ClipboardUiAction.UpdatePin -> useCases.updatePin(action.item, action.pin)
-            is ClipboardUiAction.UpdateTitle -> useCases.updateTitle(action.item, action.title)
-            is ClipboardUiAction.UpdateContent -> useCases.updateContent(action.item, action.text)
+            is ClipboardUiAction.UpdatePin -> repository.updatePin(action.item, action.pin)
+            is ClipboardUiAction.UpdateTitle -> repository.updateTitle(action.item, action.title)
+            is ClipboardUiAction.UpdateContent -> repository.updateContent(action.item, action.text)
             ClipboardUiAction.PickIgnoredApplication -> pickIgnoredApplication()
 
             ClipboardUiAction.ShowPreferences ->
@@ -165,8 +171,6 @@ class ClipboardViewModel(
             is ClipboardUiAction.RequestClear -> requestClear(action.all, action.hidePanel)
             ClipboardUiAction.ConfirmClear -> confirmClear()
             ClipboardUiAction.DismissClear -> _uiState.update { it.copy(confirmation = null) }
-
-            ClipboardUiAction.DismissStatus -> repository.setStatusMessage(null)
 
             ClipboardUiAction.Opened -> onOpened()
             ClipboardUiAction.Cycle -> navigation.moveNext(allowCycle = true)
@@ -183,9 +187,6 @@ class ClipboardViewModel(
 
     /** `NSWorkspace.applicationName(at:)`：把 bundle id 变成显示名。 */
     fun applicationName(bundleId: String): String? = platform.applicationName(bundleId)
-
- /** `⌃K` 只在第一个条目未被高亮时向上移动 #1055。 */
-    fun canMovePreviousWithCtrlK(): Boolean = navigation.canMovePreviousWithCtrlK()
 
     // ---------------------------------------------------------------------------------
     // 激活
@@ -257,9 +258,9 @@ class ClipboardViewModel(
 
     /** 对应 `Popup.handleFirstKeyDown`。 */
     private fun onOpened() {
+        navigation.resetKeyboardNavigation()
         _uiState.update {
             it.copy(
-                keyboardNavigating = true,
                 historySelection = 0,
                 footerSelection = -1,
                 focusRequestToken = it.focusRequestToken + 1,

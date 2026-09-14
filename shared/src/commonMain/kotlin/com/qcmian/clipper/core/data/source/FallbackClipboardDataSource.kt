@@ -10,8 +10,6 @@ internal class FallbackClipboardDataSource : ClipboardDataSource {
     private var current: ClipboardSnapshot? = null
     private var listener: ((ClipboardSnapshot) -> Unit)? = null
 
-    override val supportsImages: Boolean get() = false
-
     override fun write(snapshot: ClipboardSnapshot): Boolean {
         current = snapshot
         return true

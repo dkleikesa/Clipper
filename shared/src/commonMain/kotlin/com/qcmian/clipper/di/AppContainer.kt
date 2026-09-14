@@ -10,16 +10,10 @@ import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 import com.qcmian.clipper.core.domain.usecase.AvailablePinsUseCase
 import com.qcmian.clipper.core.domain.usecase.CaptureClipboardUseCase
 import com.qcmian.clipper.core.domain.usecase.ClearHistoryUseCase
-import com.qcmian.clipper.core.domain.usecase.CopyExtractedTextUseCase
-import com.qcmian.clipper.core.domain.usecase.CopySearchQueryUseCase
-import com.qcmian.clipper.core.domain.usecase.DeleteClipUseCase
 import com.qcmian.clipper.core.domain.usecase.HandleQuitUseCase
 import com.qcmian.clipper.core.domain.usecase.SelectClipUseCase
 import com.qcmian.clipper.core.domain.usecase.TogglePinUseCase
-import com.qcmian.clipper.core.domain.usecase.UpdateContentUseCase
-import com.qcmian.clipper.core.domain.usecase.UpdatePinUseCase
 import com.qcmian.clipper.core.domain.usecase.UpdateSettingsUseCase
-import com.qcmian.clipper.core.domain.usecase.UpdateTitleUseCase
 import com.qcmian.clipper.core.util.ioDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -63,15 +57,9 @@ class AppContainer(
         captureClipboard = CaptureClipboardUseCase(repository, platform),
         selectClip = SelectClipUseCase(repository, platform),
         togglePin = TogglePinUseCase(repository, availablePinsUseCase),
-        updatePin = UpdatePinUseCase(repository),
-        updateTitle = UpdateTitleUseCase(repository),
-        updateContent = UpdateContentUseCase(repository),
-        deleteClip = DeleteClipUseCase(repository),
         clearHistory = clearHistoryUseCase,
         updateSettings = UpdateSettingsUseCase(repository),
         availablePins = availablePinsUseCase,
-        copySearchQuery = CopySearchQueryUseCase(platform),
-        copyExtractedText = CopyExtractedTextUseCase(platform),
         handleQuit = HandleQuitUseCase(repository, clearHistoryUseCase),
     )
 }

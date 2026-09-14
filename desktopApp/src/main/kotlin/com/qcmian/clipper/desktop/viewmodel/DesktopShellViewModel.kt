@@ -3,9 +3,9 @@ package com.qcmian.clipper.desktop.viewmodel
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
+import java.awt.Rectangle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.qcmian.clipper.core.settings.AppSettings
@@ -76,8 +76,16 @@ data class DesktopShellUiState(
     /** 内容希望得到的高度（由 `HistoryScreen` 上报）。 */
     val preferredHeight: Dp = InitialPanelHeight,
 
-    /** 预览是否改从左侧滑出（右侧放不下时）。 */
+    /** 预览是否改从左侧滑出（右侧放不下、左侧放得下时）。 */
     val previewOnLeft: Boolean = false,
+
+    /**
+     * 预览两侧都放不下（窗口加宽后会超出屏幕），只能覆盖在主列表上。
+     *
+     * 这种情况下窗口保持原尺寸不动——一旦为了预览加宽窗口，窗口就会被夹回屏幕内，
+     * 主列表跟着平移，看起来就是「预览盖在主列表上、主列表被推到一边」。
+     */
+    val previewOverlays: Boolean = false,
 
  /** 当前弹窗交互阶段。 */
     val popupMode: PopupMode = PopupMode.TOGGLE,
@@ -105,6 +113,14 @@ class DesktopShellViewModel(
     private val hotkey: HotkeyController,
     /** 由宿主创建、交给本类读写的窗口状态（位置 / 尺寸）。 */
     val windowState: WindowState,
+    /**
+     * 把位置与尺寸一次性应用到窗口上。
+     *
+     * 必须一次调用完成：Compose 自己的窗口实现把它拆成 `setSize` + `setLocation` 两次原生
+     * 调用，而预览停靠左侧时窗口要同时「左移」和「变宽」（右边缘不动，主列表才停在原地），
+     * 两次调用之间的中间帧会被系统画出来——整个窗口左右闪一下。宿主改为一次 `setBounds`。
+     */
+    private val applyBounds: (x: Int, y: Int, width: Int, height: Int) -> Unit,
 ) : ViewModel() {
     private val native = container.native
 
@@ -121,6 +137,9 @@ class DesktopShellViewModel(
 
     /** 应用自己最后设定过的尺寸，任何其它尺寸都说明是用户拖动。 */
     private val lastAppliedSize = MutableStateFlow<DpSize?>(null)
+
+    /** 应用自己最后设定过的窗口几何（位置 + 尺寸），用来跳过重复的原生调用。 */
+    private var lastAppliedBounds: Rectangle? = null
 
     /**
      * 用户正在拖动窗口边缘时的「静默期」截止时刻。拖动是一个连续过程，期间不接受任何
@@ -168,9 +187,8 @@ class DesktopShellViewModel(
         // 同步预读一次系统外观，避免首帧用回退路径导致主题闪一下。
         _systemDark.value = runCatching { MacWorkspace.isSystemAppearanceDark() }.getOrNull()
         viewModelScope.launch { observeShortcut() }
-        viewModelScope.launch { observeWindowSize() }
+        viewModelScope.launch { observeWindowGeometry() }
         viewModelScope.launch { observeUserResize() }
-        viewModelScope.launch { observePlacement() }
         viewModelScope.launch { observeToggleRequests() }
         viewModelScope.launch { observeOutsideClicks() }
         viewModelScope.launch { observeSystemAppearance() }
@@ -369,18 +387,32 @@ class DesktopShellViewModel(
     // 观察：把状态变化翻译成窗口动作
     // ---------------------------------------------------------------------------------
 
+    /**
+     * 当前这次摆放实际使用的位置偏好：点托盘呼出时直接锚定菜单栏图标（点托盘那一刻光标就在
+     * 图标上，「光标位置」与「菜单栏图标」是同一个落点）。
+     *
+     * 锚点签名必须用它而不是 `settings.popupPosition`：签名只用来判断「锚点是否还有效」，
+     * 托盘呼出时两者并不相等，用错会让下一次几何重算重新取锚点，把窗口拉回菜单栏。
+     */
+    private fun placementPreference(settings: AppSettings): PopupPosition =
+        if (openedByTray) PopupPosition.MENU_BAR else settings.popupPosition
+
     /** 面板已稳定显示时再按热键：把窗口移到鼠标处，并同步预览展开所用的锚点。 */
     private fun moveToCursor() {
         val settings = container.repository.settings.value
         val placed = cursorPosition(windowState.size, settings.popupScreen) as WindowPosition.Absolute
-        windowState.position = placed
+        applyWindowBounds(
+            x = placed.x.value.roundToInt(),
+            y = placed.y.value.roundToInt(),
+            size = windowState.size,
+        )
         // 同步「内容区锚点」：否则下次切换预览会按旧锚点摆放，窗口会跳回去。
         contentAnchor = if (_uiState.value.previewOnLeft) {
             WindowPosition.Absolute(placed.x + slideoutWidthOf(settings), placed.y)
         } else {
             placed
         }
-        lastPlacementSignature = Pair(settings.popupPosition, settings.popupScreen)
+        lastPlacementSignature = Pair(placementPreference(settings), settings.popupScreen)
     }
 
     /** 用户录制了不同的快捷键时重新注册全局热键。 */
@@ -408,8 +440,17 @@ class DesktopShellViewModel(
             }
     }
 
-    /** 宽度 / 高度跟随内容与设置；预览打开时窗口额外加宽以容纳滑出面板。 */
-    private suspend fun observeWindowSize() {
+    /**
+     * 窗口几何：位置与尺寸一起算、一起写。
+     *
+     * 两者必须落在同一帧。预览停靠在左侧时窗口要同时「左移」和「变宽」（右边缘不动，主列表
+     * 才停在原地）；若位置与尺寸由两次独立的写入驱动，界面就会先看到「位置已移、宽度未变」
+     * 或「宽度已变、位置未移」的中间状态——主列表于是左右抖一下。
+     *
+     * 触发来源涵盖：面板显示 / 隐藏、预览开关、内容高度、偏好设置，以及窗口位置本身的变化
+     * （位置一变，可用高度与主列表锚点都要重算）。
+     */
+    private suspend fun observeWindowGeometry() {
         combine(
             uiState,
             panel.hostUiState.map { it.settings }.distinctUntilChanged(),
@@ -417,34 +458,114 @@ class DesktopShellViewModel(
         ) { state, settings, position ->
             Triple(state, settings, position)
         }.collect { (state, settings, position) ->
-            // 用户正在拖边缘：这一刻以他的手为准。程序化改尺寸会和拖动互相打架
-            // （两边都在 setSize），拖左边框时尤其明显——位置同时也在变。
-            // 手停下来后由 [observeUserResize] 补一次。
-            if (userIsResizing()) return@collect
-            applyAutoWindowSize(state, settings, position)
+            applyWindowGeometry(state, settings, position)
         }
     }
 
-    /** 按内容与偏好设定期望的窗口尺寸；与当前尺寸一致时不触碰窗口。 */
-    private fun applyAutoWindowSize(
+    /**
+     * 按内容、偏好与屏幕空间算出窗口的位置与尺寸，并一次写入。
+     *
+     * 主列表（内容区）的锚点先定下来，预览再以它为基准向一侧展开——默认在右侧（窗口向右
+     * 加宽），主列表右边缘放不下时改到左侧（窗口向左加宽），因此预览永远不会盖住主列表，
+     * 主列表本身也不会移动。
+     */
+    private fun applyWindowGeometry(
         state: DesktopShellUiState,
         settings: AppSettings,
         position: WindowPosition,
     ) {
+        if (!state.windowVisible) {
+            // 隐藏后下次显示要重新取锚点，否则会把上一次的旧位置带过来。
+            contentAnchor = null
+            lastPlacementSignature = null
+            return
+        }
+        // 用户正在拖边缘：这一刻以他的手为准。程序化改几何会和拖动互相打架
+        // （两边都在 setSize / setLocation），拖左边框时尤其明显——位置同时也在变。
+        // 手停下来后由 [observeUserResize] 补一次。
+        if (userIsResizing()) return
+
+        val contentWidth = contentWidthOf(settings)
+        val slideoutWidth = slideoutWidthOf(settings)
+        val bounds = screenBounds(settings.popupScreen)
+
+        val preferred = placementPreference(settings)
+
+        // 只在「重新显示」或「位置偏好变化」时取锚点；仅切换预览时沿用旧锚点，
+        // 主列表不会跟着鼠标或上次的窗口尺寸跳动。
+        val signature = Pair(preferred, settings.popupScreen)
+        val anchor = contentAnchor?.takeIf { signature == lastPlacementSignature }
+            ?: (
+                resolvePosition(
+                    position = preferred,
+                    size = DpSize(contentWidth, windowState.size.height),
+                    screenIndex = settings.popupScreen,
+                    statusItem = MacStatusItem.currentAnchor(),
+                ) as WindowPosition.Absolute
+                ).also { lastPlacementSignature = signature }
+        contentAnchor = anchor
+
+        // 预览停靠在哪一侧：优先右侧，右侧放不下时改左侧，两侧都放不下就退回覆盖层。
+        //
+        // 判断的是「窗口整个（主列表 + 滑出面板）放不放得进屏幕」，而不是「预览放不放得进
+        // 列表旁边」：主列表是跟着窗口走的，只要窗口被 `constrained` 夹回屏幕内，主列表就会
+        // 跟着平移——表现为「预览先盖在主列表原来的位置上，主列表被推到一边」，收起时再推回来。
+        val fitsRight = anchor.x.value + contentWidth.value + slideoutWidth.value <=
+            bounds.x + bounds.width
+        val fitsLeft = anchor.x.value - slideoutWidth.value >= bounds.x
+        val overlays = state.previewOpen && !fitsRight && !fitsLeft
+        val previewOnLeft = state.previewOpen && !overlays && !fitsRight
+        _uiState.update {
+            if (it.previewOnLeft == previewOnLeft && it.previewOverlays == overlays) {
+                it
+            } else {
+                it.copy(previewOnLeft = previewOnLeft, previewOverlays = overlays)
+            }
+        }
+
+        // 尺寸由内容与偏好决定（预览打开且能并排时额外容纳滑出面板）；位置以锚点为基准，
+        // 预览停靠左侧时窗口向左展开。
         val top = (position as? WindowPosition.Absolute)?.y?.value?.toInt()
-            ?: screenBounds(settings.popupScreen).y
+            ?: anchor.y.value.toInt()
         val target = autoWindowSize(
             settings = settings,
-            previewOpen = state.previewOpen,
+            previewOpen = state.previewOpen && !overlays,
             preferredHeight = state.preferredHeight,
             top = top,
         )
-        lastAppliedSize.value = target
-        if (windowState.size != target) {
-            // 这次改动是程序触发的：紧接着的尺寸通知必然等于 [lastAppliedSize]，
-            // [observeUserResize] 按值就能认出它不是用户拖动，不必再用时间窗兜。
-            windowState.size = target
+        val windowX = if (previewOnLeft) {
+            anchor.x.value - slideoutWidth.value
+        } else {
+            anchor.x.value
         }
+
+        lastAppliedSize.value = target
+        // 位置与尺寸必须一次应用（见 [applyBounds]）。这里不写 `windowState`：它由窗口自身的
+        // 尺寸 / 位置通知回写，程序再写一遍只会让 Compose 又按「先尺寸后位置」应用一次。
+        val placed = constrained(
+            x = windowX.toInt(),
+            y = anchor.y.value.toInt(),
+            size = target,
+            bounds = bounds,
+        )
+        applyWindowBounds(
+            x = placed.x.value.roundToInt(),
+            y = placed.y.value.roundToInt(),
+            size = target,
+        )
+    }
+
+    /** 应用一次窗口几何；与上次应用过的完全相同就跳过，避免每次状态变化都动一次原生窗口。 */
+    private fun applyWindowBounds(x: Int, y: Int, size: DpSize) {
+        val bounds = Rectangle(
+            x,
+            y,
+            size.width.value.roundToInt(),
+            size.height.value.roundToInt(),
+        )
+        if (lastAppliedBounds == bounds) return
+        lastAppliedBounds = bounds
+        applyBounds(bounds.x, bounds.y, bounds.width, bounds.height)
     }
 
     /**
@@ -472,9 +593,12 @@ class DesktopShellViewModel(
                     size.width
                 }
                 lastAppliedSize.value = size
+                // 窗口已经不在「应用设定的几何」上了：清掉记录，让随后的补正一定重新应用一次
+                // （否则算出来的几何恰好等于旧值就会被当成「已经应用过」而跳过）。
+                lastAppliedBounds = null
                 // 用户可能把窗口拖到了别处（拖左边框加宽时窗口位置就会变）：锚点先跟着走。
-                // 必须在写设置之前——设置一变，[observePlacement] 可能立刻按旧锚点把窗口拉回去，
-                // 等于把刚才的拖动撤销掉。
+                // 必须在写设置之前——设置一变，[observeWindowGeometry] 可能立刻按旧锚点把窗口
+                // 拉回去，等于把刚才的拖动撤销掉。
                 rememberContentAnchor()
                 container.repository.setSettings(
                     settings.copy(
@@ -485,8 +609,8 @@ class DesktopShellViewModel(
                 )
 
                 userResizeUntil = 0L
-                // 用户拖出的尺寸仍要受屏幕约束（例如不能盖住 Dock），补一次程序化尺寸。
-                applyAutoWindowSize(
+                // 用户拖出的尺寸仍要受屏幕约束（例如不能盖住 Dock），补一次程序化几何。
+                applyWindowGeometry(
                     state = _uiState.value,
                     settings = container.repository.settings.value,
                     position = windowState.position,
@@ -504,73 +628,11 @@ class DesktopShellViewModel(
         } else {
             position
         }
-        lastPlacementSignature = Pair(settings.popupPosition, settings.popupScreen)
+        lastPlacementSignature = Pair(placementPreference(settings), settings.popupScreen)
     }
 
     /** 用户是否正在手动调整窗口尺寸（含刚停下的一小段静默期）。 */
     private fun userIsResizing(): Boolean = System.currentTimeMillis() < userResizeUntil
-
-    /**
-     * 摆放窗口：主列表先按位置偏好定位，预览面板以主列表的边缘为基准展开——
-     * 默认在右侧（窗口向右加宽），主列表右边缘放不下时改到左侧（窗口向左加宽），
-     * 因此预览永远不会盖住主列表。
-     */
-    private suspend fun observePlacement() {
-        combine(
-            uiState.map { Pair(it.windowVisible, it.previewOpen) }.distinctUntilChanged(),
-            panel.hostUiState.map { it.settings }.distinctUntilChanged(),
-        ) { (visible, previewOpen), settings -> Triple(visible, previewOpen, settings) }
-            .collect { (visible, previewOpen, settings) ->
-                if (!visible) {
-                    // 隐藏后下次显示要重新取锚点，否则会把上一次的旧位置带过来。
-                    contentAnchor = null
-                    lastPlacementSignature = null
-                    return@collect
-                }
-
-                val contentWidth = contentWidthOf(settings)
-                val slideoutWidth = slideoutWidthOf(settings)
-                val bounds = screenBounds(settings.popupScreen)
-
-                // 点托盘图标时直接用图标锚点，和「菜单栏图标」这一项同一套逻辑。
-                val position = if (openedByTray) PopupPosition.MENU_BAR else settings.popupPosition
-
-                // 只在「重新显示」或「位置偏好变化」时取锚点；仅切换预览时沿用旧锚点，
-                // 主列表不会跟着鼠标或上次的窗口尺寸跳动。
-                val signature = Pair(position, settings.popupScreen)
-                val anchor = contentAnchor?.takeIf { signature == lastPlacementSignature }
-                    ?: (
-                        resolvePosition(
-                            position = position,
-                            size = DpSize(contentWidth, windowState.size.height),
-                            screenIndex = settings.popupScreen,
-                            statusItem = MacStatusItem.currentAnchor(),
-                        ) as WindowPosition.Absolute
-                        ).also { lastPlacementSignature = signature }
-                contentAnchor = anchor
-
-                // 预览默认停靠右侧；主列表右边缘之外放不下滑出面板时改停靠左侧。
-                val previewOnLeft = previewOpen &&
-                    anchor.x.value + contentWidth.value + slideoutWidth.value > bounds.x + bounds.width
-                _uiState.update {
-                    if (it.previewOnLeft == previewOnLeft) it else it.copy(previewOnLeft = previewOnLeft)
-                }
-
-                val windowWidth = contentWidth + if (previewOpen) slideoutWidth else 0.dp
-                val windowX = if (previewOnLeft) {
-                    anchor.x.value - slideoutWidth.value
-                } else {
-                    anchor.x.value
-                }
-                windowState.position = constrained(
-                    x = windowX.toInt(),
-                    y = anchor.y.value.toInt(),
-                    size = DpSize(windowWidth, windowState.size.height),
-                    bounds = bounds,
-                )
-            }
-    }
-
 
     /**
      * 托盘请求切换面板：托盘与窗口逻辑隔离，点击经

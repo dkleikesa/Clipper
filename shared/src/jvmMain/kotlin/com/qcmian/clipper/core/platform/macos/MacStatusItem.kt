@@ -332,7 +332,8 @@ object MacStatusItem {
 
     /** 把按钮的 target/action 指到 [CLICK_SELECTOR]，在鼠标抬起时触发。 */
     private fun attachAction(itemButton: Pointer) {
-        val implementation = CallbackReference.getFunctionPointer(clickCallback) ?: return
+        // 回调的函数指针在 `ensureTarget()` 里已经注册并保活；这里取不到说明动态类没建起来。
+        if (CallbackReference.getFunctionPointer(clickCallback) == null) return
         MacNative.send(itemButton, "setTarget:", applyTarget)
         MacNative.send(itemButton, "setAction:", MacNative.selector(CLICK_SELECTOR))
         MacNative.sendLong(itemButton, "sendActionOn:", MOUSE_UP_MASK)

@@ -134,9 +134,9 @@ fun PreferencesDialog(
     }
 }
 
-/** 对话框主体，独立出来以便单独渲染与预览。 */
+/** 对话框主体：头部 + 可滚动的分区列表。 */
 @Composable
-internal fun PreferencesContent(
+private fun PreferencesContent(
     data: PreferencesUiData,
     actions: PreferencesActions,
 ) {

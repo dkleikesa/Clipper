@@ -73,25 +73,39 @@ fun ClipAction.pastes(settings: AppSettings): Boolean = when (this) {
     else -> false
 }
 
+/** 一个可能触发动作的修饰键组合。 */
+private data class ModifierCombo(val shift: Boolean, val alt: Boolean, val meta: Boolean) {
+    /** AppKit 顺序（`⌃⌥⇧⌘`）下的渲染；这里不涉及 `⌃`。 */
+    val label: String
+        get() = buildString {
+            if (alt) append('\u2325')
+            if (shift) append('\u21e7')
+            if (meta) append('\u2318')
+        }
+}
+
+/**
+ * 可能触发动作的修饰键组合，按「最简优先」排列。
+ *
+ * 只有这四种：完全不按修饰键是 `DEFAULT`（没有对应的组合可显示），而「只按 `⇧`」与
+ * 「`⌥⌘` 同按」在 [defaultAction] 里都是 `UNKNOWN`。
+ */
+private val MODIFIER_COMBOS = listOf(
+    ModifierCombo(shift = false, alt = false, meta = true), // ⌘
+    ModifierCombo(shift = false, alt = true, meta = false), // ⌥
+    ModifierCombo(shift = true, alt = true, meta = false), // ⌥⇧
+    ModifierCombo(shift = true, alt = false, meta = true), // ⌘⇧
+)
+
 /**
  * 对应 `HistoryItemAction.modifierFlags`：会触发 [action] 的修饰键组合，
  * 偏好设置窗口用它来解释当前的映射关系。
+ *
+ * 由 [defaultAction] 反推，而不是另写一张表：正反两个方向共用同一份规则，改映射不会漂移。
+ * 一个动作可能被多个组合命中（取决于两个 `*ByDefault` 偏好），取最简的那个。
  */
-fun modifierFlagsOf(action: ClipAction, settings: AppSettings): String {
-    val paste = settings.pasteByDefault
-    val removeFormatting = settings.removeFormattingByDefault
-
-    return when {
-        action == ClipAction.COPY && !paste -> "⌘"
-        action == ClipAction.COPY && paste -> "⌥"
-        action == ClipAction.PASTE && paste && !removeFormatting -> "⌘"
-        action == ClipAction.PASTE && !paste && !removeFormatting -> "⌥"
-        action == ClipAction.PASTE && !paste && removeFormatting -> "⌥⇧"
-        action == ClipAction.PASTE && paste && removeFormatting -> "⌘⇧"
-        action == ClipAction.PASTE_WITHOUT_FORMATTING && paste && removeFormatting -> "⌘"
-        action == ClipAction.PASTE_WITHOUT_FORMATTING && !paste && removeFormatting -> "⌥"
-        action == ClipAction.PASTE_WITHOUT_FORMATTING && !paste && !removeFormatting -> "⌥⇧"
-        action == ClipAction.PASTE_WITHOUT_FORMATTING && paste && !removeFormatting -> "⌘⇧"
-        else -> ""
-    }
-}
+fun modifierFlagsOf(action: ClipAction, settings: AppSettings): String =
+    MODIFIER_COMBOS
+        .firstOrNull { defaultAction(settings, it.shift, it.alt, it.meta) == action }
+        ?.label
+        .orEmpty()

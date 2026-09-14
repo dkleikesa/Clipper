@@ -47,15 +47,6 @@ data class ClipItem(
             else -> title
         }
 
-    val kind: ClipKind
-        get() = when {
-            image != null && text.isNullOrBlank() && files.isEmpty() -> ClipKind.IMAGE
-            files.isNotEmpty() -> ClipKind.FILE
-            text != null && isHexColor(text) -> ClipKind.COLOR
-            text != null && isLink(text) -> ClipKind.LINK
-            else -> ClipKind.TEXT
-        }
-
     /** 当本条目已包含 [other] 提供的全部内容时返回 `true`。 */
     fun supersedes(other: ClipItem): Boolean {
         val hasContent = other.text != null || other.image != null || other.files.isNotEmpty()
@@ -88,8 +79,6 @@ data class ClipItem(
 /** UTF-8 编码后的字节数，用于估算条目的存储占用。 */
 private fun String.utf8SizeBytes(): Long = encodeToByteArray().size.toLong()
 
-enum class ClipKind { TEXT, LINK, COLOR, IMAGE, FILE }
-
 /**
  * 会让 CoreText 在 macOS 26 上做单行截断时卡死的 Unicode 标量 #1520。
  *
@@ -103,11 +92,5 @@ fun String.removingUnsafeTitleScalars(): String =
     if (none { it in UNSAFE_TITLE_SCALARS }) this else filterNot { it in UNSAFE_TITLE_SCALARS }
 
 private val HEX_COLOR_PATTERN = Regex("^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
-private val LINK_PATTERN = Regex(
-    "^(https?://|ftp://|mailto:|file://|www\\.)\\S+$",
-    RegexOption.IGNORE_CASE,
-)
 
 fun isHexColor(value: String): Boolean = HEX_COLOR_PATTERN.matches(value.trim())
-
-fun isLink(value: String): Boolean = LINK_PATTERN.matches(value.trim())

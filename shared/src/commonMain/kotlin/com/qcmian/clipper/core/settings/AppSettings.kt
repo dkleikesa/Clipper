@@ -130,10 +130,7 @@ data class AppSettings(
     val showInStatusBar: Boolean = true,
     /** 对应 `Defaults[.popupScreen]`：0 表示当前活动屏幕，1 及以上指向特定屏幕。 */
     val popupScreen: Int = 0,
-    /**
-     * 对应 `Defaults[.previewWidth]`。宽度不作为设置项，只由预览分隔条的拖拽写入，
-     * 默认值与 [com.qcmian.clipper.core.ui.Popup.previewWidth] 一致。
-     */
+    /** 对应 `Defaults[.previewWidth]`：预览面板宽度，只由预览分隔条的拖拽写入。 */
     val previewWidth: Int = 400,
 
     // 忽略

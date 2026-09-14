@@ -27,9 +27,6 @@ private class IosClipboardDataSource : ClipboardDataSource {
 
     override var pollIntervalMillis: Long = ClipboardDataSource.DEFAULT_POLL_INTERVAL_MILLIS
 
-    override val supportsImages: Boolean get() = true
-    override val supportsFiles: Boolean get() = true
-
     override fun write(snapshot: ClipboardSnapshot): Boolean {
         val pasteboard = UIPasteboard.generalPasteboard
         val image = snapshot.image

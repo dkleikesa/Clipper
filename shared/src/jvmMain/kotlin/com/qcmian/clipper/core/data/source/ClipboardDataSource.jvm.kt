@@ -43,8 +43,6 @@ private class JvmClipboardDataSource : ClipboardDataSource {
 
     override var pollIntervalMillis: Long = ClipboardDataSource.DEFAULT_POLL_INTERVAL_MILLIS
 
-    override val supportsFiles: Boolean get() = true
-
     override fun write(snapshot: ClipboardSnapshot): Boolean {
         val text = snapshot.text
         val image = snapshot.image
