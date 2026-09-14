@@ -14,8 +14,8 @@ import com.qcmian.clipper.core.domain.usecase.HandleQuitUseCase
 import com.qcmian.clipper.core.domain.usecase.SelectClipUseCase
 import com.qcmian.clipper.core.domain.usecase.TogglePinUseCase
 import com.qcmian.clipper.core.domain.usecase.UpdateSettingsUseCase
-import com.qcmian.clipper.core.util.ioDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
 /**
@@ -27,8 +27,8 @@ import kotlinx.coroutines.SupervisorJob
  * 否则一次配置变更就会丢弃并重建它，而被保留的 `ViewModel` 仍指向旧实例。
  */
 class AppContainer(
-    /** 用于仓库防抖写入的作用域；固定在 [ioDispatcher] 上以便做文件 IO。 */
-    scope: CoroutineScope = CoroutineScope(SupervisorJob() + ioDispatcher),
+    /** 用于仓库防抖写入的作用域；固定在 [Dispatchers.IO] 上以便做文件 IO。 */
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
     /**
      * 可选的原生能力。对外暴露是为了让宿主（例如桌面端托盘）复用同一个实例，

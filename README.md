@@ -1,8 +1,8 @@
 # Clipper
 
 一个使用 **Compose Multiplatform** 实现的剪贴板历史管理器，按 macOS 开源项目
-[p0deje/Maccy](https://github.com/p0deje/Maccy) 的界面与交互 **1:1 复刻**，同一份 UI 代码运行在
-**Android / iOS / Desktop (JVM)** 上。
+[p0deje/Maccy](https://github.com/p0deje/Maccy) 的界面与交互 **1:1 复刻**，运行在
+**Desktop (JVM)** 上。
 
 ## 功能
 
@@ -13,7 +13,7 @@
 * 排序：按最后复制时间 / 首次复制时间 / 复制次数
 * 右侧预览面板：工具栏（置顶、删除、复制识别文字）+ 内容 + 元信息（应用、尺寸、首次/上次复制时间、复制次数）；超长文本截断保护，图片解码走 LRU 缓存
 * **来源应用**：记录复制来源的应用名，并从 `.app` 包中提取图标显示（列表行可选、预览必显）
-* **图片文字识别（OCR）**：用 Vision / ML Kit 识别图片文字并作为条目标题，预览工具栏可一键把识别出的文字复制回剪贴板
+* **图片文字识别（OCR）**：用 Vision 识别图片文字并作为条目标题，预览工具栏可一键把识别出的文字复制回剪贴板
 * **全局热键**：`⇧⌘C` 在任何应用里呼出面板；按住不放即逐条循环（Maccy 的 `PopupState.cycle`），**松手就选中高亮项并关窗**（与鼠标点击那一行等效）；面板已显示时再按（连按）则逐条往下选，不选中。托盘呼出的面板再按热键则把窗口移到鼠标位置
 * **快捷键可自定义**：呼出 / 置顶 / 删除 / 预览四个快捷键都能在偏好设置里重新录制并复位
 * **失焦自动收起**：桌面端面板失去焦点即隐藏（弹窗打开时不收起），与 Maccy 的 `FloatingPanel.resignKey` 一致
@@ -57,78 +57,22 @@
 ```bash
 # 桌面端
 ./gradlew :desktopApp:run
-
-# Android
-./gradlew :androidApp:assembleDebug
-
-# iOS：用 Xcode 打开 iosApp 目录后运行
 ```
-
-## 与 Maccy 的对应关系
-
-| Maccy | Clipper |
-| --- | --- |
-| `HistoryItem` / `HistoryItemContent` | `data/model/ClipItem.kt` |
-| `History` | `data/repository/ClipboardRepository.kt` + `ui/ClipboardViewModel.kt` |
-| `Clipboard` | `data/source/ClipboardDataSource.kt` + 各平台实现 |
-| `Search` / `Throttler` | `domain/search/ClipSearch.kt` / `ClipboardViewModel.updateQuery` |
-| `Sorter` | `domain/sort/ClipSorter.kt` |
-| `Storage` | `data/source/ClipStorageDataSource.kt` + 各平台实现 |
-| `Defaults.Keys` | `settings/AppSettings.kt` |
-| `GlobalHotKey` | `macos/MacGlobalHotKey.kt`（JNA + Carbon `RegisterEventHotKey`） |
-| `ApplicationImage` / `ApplicationImageCache` | `macos/MacAppIcon.kt` + `NativeDataSource` |
-| `NSWorkspace.frontmostApplication` | `macos/MacWorkspace.kt` |
-| `HistoryItem.performTextRecognition()` | `macos/MacTextRecognition.kt`（Vision）/ `ios/IosTextRecognition.kt` / `mlkit/MlKitTextRecognition.kt` |
-| `MenuIcon` | `desktopApp/desktop/ui/MenuIcons.kt`（4 种矢量图标） |
-| `Popup` / `PopupPosition` | `ui/Popup.kt` / `ui/HistoryScreen.kt` |
-| `KeyShortcut` / `KeyboardShortcutView` | `ui/KeyShortcut.kt` / `ui/components/ListItemRow.kt` |
-| `KeyChord` / `KeyHandlingView` | `ui/HistoryKeyboard.kt` |
-| `ModifierFlags` | `ui/KeyShortcut.kt` |
-| `HistoryItemAction` | `domain/action/ClipAction.kt` |
-| `HighlightMatch` / `PinsPosition` | `settings/AppSettings.kt` |
-| `ColorImage` | `ui/ClipColors.kt` + `ui/components/HistoryRow.kt` |
-| `ContentView` | `ui/HistoryScreen.kt` |
-| `HeaderView` / `ListHeaderView` / `SearchFieldView` | `ui/components/SearchField.kt` + `ui/components/HistoryChrome.kt` |
-| `ListItemView` / `ListItemTitleView` | `ui/components/ListItemRow.kt` |
-| `HistoryItemView` / `HistoryListView` / `PinsView` | `ui/components/HistoryRow.kt` + `HistoryScreen` 的固定置顶区块 + `LazyColumn` |
-| `HoverSelectionModifier` | `ClipboardViewModel.hoverHistory` |
-| `MultipleSelectionListView` | `LazyColumn` |
-| `FooterView` / `FooterItemView` / `FooterItem` | `ui/components/FooterRows.kt` |
-| `SlideoutView` / `SlideoutContentView` | `ui/HistoryScreen.kt` 的 Row 布局 + `ui/components/PreviewSlideout.kt` |
-| `PreviewItemView` / `ToolbarView` | `ui/components/PreviewPane.kt` |
-| `ConfirmationView` | `ui/dialogs/ConfirmDialog.kt` |
-| 六个设置面板 | `ui/dialogs/PreferencesDialog.kt` |
-| `AppDelegate` 的托盘 / `clearOnQuit` / ⌥ 点击暂停 | `ui/ClipperController.kt` + `desktopApp/desktop/ui/ClipperTray.kt` + `DesktopShellViewModel` |
-| `KeyboardShortcuts.Name` / `KeyboardShortcuts.Recorder` | `settings/ShortcutSpec` + `PreferencesDialog.ShortcutRow` |
-| `PopupState`（opening / cycle / toggle） | `desktopApp/desktop/domain/PopupMode.kt` + `DesktopShellViewModel` + `ClipperController.requestOpen/requestCycle` |
-| `FloatingPanel.resignKey()` 失焦关闭 | `desktopApp/desktop/ui/ClipperWindow.kt`（`WindowFocusListener`）+ `DesktopShellViewModel.onWindowLostFocus` |
-| `LaunchAtLogin` | `macos/MacLaunchAtLogin.kt`（JNA 调 `SMAppService`） |
-| `SlideoutController.startResize(.slideout)` / `computePlacement` | `ui/components/PreviewSlideout.kt` 中可拖拽的分隔条 + `HistoryScreen` 的预览左右翻转 |
-| `ToolbarView` 的 `text.viewfinder` | `PreviewPane` 的「复制识别文字」按钮 |
-| `AppDelegate.performStatusItemClick` 的 ⌥ / ⇧⌥ | `desktopApp/desktop/ui/ClipperTray.kt` 的 `onAction` + `DesktopShellViewModel.onTrayClicked` 读 `NSEvent.modifierFlags` |
-| `IgnoreApplicationsSettingsView` 的应用选择器 | `macos/MacApplicationPicker.kt`（JNA 调 `NSOpenPanel`）+ `NativeDataSource.applicationName` |
-| `IgnorePasteboardTypesSettingsView` 的 `Defaults.reset` | 偏好设置里的「恢复默认类型」按钮 |
-| `ApplicationImageCache` | `ui/components/ImageCache.kt` + `NativeDataSource.applicationIcon`（JVM 侧带 bundle id 缓存） |
-| `PreviewItemView.largeTextThreshold` / `LargeTextPreviewView` | `ui/components/PreviewPane.kt` 的 `LARGE_TEXT_LIMIT` |
-| `NSWorkspace.open(_:)` | `NativeDataSource.openUrl`（JVM / Android / iOS 各自实现） |
-
-Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能力，跨平台无法完全等价，
-因此 Clipper 只保留可移植的三种表示：**纯文本、图片原始字节、文件路径**。
 
 ## 原生能力实现方式
 
-| 能力 | 桌面端 | iOS | Android |
-| --- | --- | --- | --- |
-| 全局热键 | JNA 调 Carbon `RegisterEventHotKey` | — | — |
-| 来源应用 | JNA 调 `NSWorkspace.frontmostApplication` | — | — |
-| 应用图标 | 读取 `.app` 包内 `.icns` 并抽出最大 PNG 块 | — | — |
-| 图片 OCR | JNA 调 Vision `VNRecognizeTextRequest`（同步 `performRequests:`，避开 ObjC block） | `platform.Vision` | ML Kit `text-recognition` |
-| 剪贴板类型 | AWT `DataFlavor` mime types | `UIPasteboard.pasteboardTypes` | `ClipDescription` mime types |
-| 开机自启 | JNA 调 `SMAppService`（未打包运行时会静默失败） | — | — |
-| 屏幕数量 | AWT `GraphicsEnvironment.screenDevices` | — | — |
-| 打开链接（About） | JNA 调 `NSWorkspace.openURL:`（非 macOS 回退到 AWT `Desktop.browse`） | `UIApplication.openURL:` | `Intent.ACTION_VIEW` |
+| 能力 | 桌面端 |
+| --- | --- |
+| 全局热键 | JNA 调 Carbon `RegisterEventHotKey` |
+| 来源应用 | JNA 调 `NSWorkspace.frontmostApplication` |
+| 应用图标 | 读取 `.app` 包内 `.icns` 并抽出最大 PNG 块 |
+| 图片 OCR | JNA 调 Vision `VNRecognizeTextRequest`（同步 `performRequests:`，避开 ObjC block） |
+| 剪贴板类型 | AWT `DataFlavor` mime types |
+| 开机自启 | JNA 调 `SMAppService`（未打包运行时会静默失败） |
+| 屏幕数量 | AWT `GraphicsEnvironment.screenDevices` |
+| 打开链接（About） | JNA 调 `NSWorkspace.openURL:`（非 macOS 回退到 AWT `Desktop.browse`） |
 
-新增的桌面端依赖只有 `net.java.dev.jna:jna-platform`；Android 增加 `com.google.mlkit:text-recognition`。
+桌面端依赖 `net.java.dev.jna:jna-platform`。
 
 ## 尚未实现（平台专属，无跨端等价能力）
 
@@ -181,13 +125,9 @@ Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能�
 | 平台 | 剪贴板监听方式 | 图片 | 文件 | 自动粘贴 | 持久化位置 |
 | --- | --- | --- | --- | --- | --- |
 | Desktop (JVM) | 轮询 AWT 剪贴板（默认 500ms，可调） | 读/写 | 读/写 | `Robot` 发送 `⌘V`/`Ctrl+V` | Room（`~/.clipper/clipper.db`） |
-| Android | `OnPrimaryClipChangedListener` | 读 | 读 | 不支持 | Room（`clipper.db`） |
-| iOS | 轮询 `UIPasteboard.changeCount`（默认 500ms） | 读/写 | 读/写 | 不支持 | Room（`clipper.db`） |
 
 已知限制：
 
-* **Android 10+** 只在前台时才能收到剪贴板变更回调，其他应用中的复制会在 Clipper 回到前台时补采；
-  图片内容无法写回剪贴板（需要 `FileProvider`），复制图片条目时会给出提示。
 * **自动粘贴 / 全局热键** 依赖系统辅助功能权限：macOS 需要在「系统设置 → 隐私与安全性 → 辅助功能」中
   授权，否则合成的按键事件会被系统丢弃（与 Maccy 的行为一致）。
 * **桌面端失焦即隐藏**：面板失去焦点会自动收起（有弹窗时不收起）。用托盘菜单或全局热键重新呼出。
@@ -228,9 +168,9 @@ Maccy 依赖 `NSPasteboard` 的多表示（RTF / HTML / TIFF / 文件 URL）能�
   （捕获去重、选中粘贴、置顶、清空、改设置、退出清理）。不依赖 Compose。
 * **Data 层**：`ClipboardRepository` 接口 + `DefaultClipboardRepository`（用
   `StateFlow` 暴露状态，不再持有 Compose 状态），底层是三个数据源接口。
-* **持久化**：Android / iOS / Desktop 统一使用 **Room（SQLite）**：`clip_history` 存历史，
-  `app_settings` 存设置（单行 JSON）。驱动分别为 `BundledSQLiteDriver`，数据库文件位置由各
-  平台源集提供；`ClipStorageDataSource` 因此改为挂起接口。
+* **持久化**：统一使用 **Room（SQLite）**：`clip_history` 存历史，
+  `app_settings` 存设置（单行 JSON）。驱动为 `BundledSQLiteDriver`，数据库文件位置由
+  jvm 源集提供；`ClipStorageDataSource` 因此改为挂起接口。
 * **依赖注入**：`di/AppContainer` 手动装配，无需 DI 框架。
 * **桌面宿主同样分层**：`desktopApp/desktop/domain`（`WindowPlacement.kt`、`WindowSizing.kt`）
   是窗口定位 / 尺寸的纯函数；`desktopApp/desktop/viewmodel`（`DesktopShellViewModel.kt`，官方
@@ -265,9 +205,5 @@ shared/src/
     settings/      AppSettings
     util/          平台无关工具（base64、时间、JSON）
   jvmMain/         AWT 剪贴板、文件存储、macOS 原生层（JNA）
-  androidMain/     ClipboardManager、SharedPreferences、ML Kit OCR
-  iosMain/         UIPasteboard、NSUserDefaults、Vision OCR
-androidApp/     Android 入口
 desktopApp/     Desktop 入口：`main.kt` 组合根 + `desktop/{ui,viewmodel,domain}`
-iosApp/         iOS 入口
 ```
