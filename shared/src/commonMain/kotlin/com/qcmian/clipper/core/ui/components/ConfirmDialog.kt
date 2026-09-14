@@ -43,8 +43,6 @@ fun ConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     comment: String? = null,
-    confirmLabel: String = "确定",
-    dismissLabel: String = "取消",
     suppress: Boolean = false,
     onSuppressChange: (Boolean) -> Unit = {},
 ) {
@@ -108,13 +106,13 @@ fun ConfirmDialog(
                     horizontalArrangement = Arrangement.End,
                 ) {
                     TextButton(onClick = onDismiss) {
-                        Text(dismissLabel)
+                        Text("取消")
                     }
                     TextButton(
                         onClick = onConfirm,
                         colors = ButtonDefaults.textButtonColors(contentColor = colors.error),
                     ) {
-                        Text(confirmLabel, fontWeight = FontWeight.SemiBold)
+                        Text("确定", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

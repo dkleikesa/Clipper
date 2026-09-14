@@ -8,9 +8,7 @@ package com.qcmian.clipper.feature.history.state
 data class HistorySelection(
     val historyIndex: Int = 0,
     val footerIndex: Int = -1,
-) {
-    val isHistoryHighlighted: Boolean get() = footerIndex < 0
-}
+)
 
 /**
  * 历史面板的高亮移动规则。

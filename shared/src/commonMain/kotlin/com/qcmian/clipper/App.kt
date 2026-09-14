@@ -13,6 +13,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.feature.history.ui.HistoryScreen
+import com.qcmian.clipper.feature.history.ui.PreviewHostPolicy
 import com.qcmian.clipper.host.HostUiState
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
@@ -34,8 +35,8 @@ import kotlinx.coroutines.launch
  *   使按键能到达此前聚焦的应用。
  * @param onQuit 「退出」页脚行。无法退出的平台上传入 `null` 会隐藏该行。
  * @param onPreviewOpenChange 上报预览滑出面板的状态，使桌面宿主能加宽窗口。
- * @param previewOnLeft 对应 `SlideoutController.computePlacement`：弹窗右侧放不下时，
- *   预览改从左侧滑出。
+ * @param previewHost 宿主为预览面板提供的空间约束：停靠侧、是否只能覆盖、是否加宽窗口。
+ *   见 [PreviewHostPolicy]。
  * @param windowController 让宿主观察面板投影并驱动窗口事件（显示 / 隐藏 / 退出）。
  * @param hotkeyController 让宿主的全局热键状态机把按键意图发给面板。
  * @param onPreferredHeightChange 上报弹窗希望得到的高度，使桌面宿主能
@@ -48,7 +49,8 @@ fun App(
     onRequestHideWindow: () -> Unit = {},
     onQuit: (() -> Unit)? = null,
     onPreviewOpenChange: (Boolean) -> Unit = {},
-    previewOnLeft: Boolean = false,
+    /** 宿主为预览面板提供的空间约束；见 [HistoryScreen] 的同名参数。 */
+    previewHost: PreviewHostPolicy = PreviewHostPolicy(),
     windowController: WindowController? = null,
     hotkeyController: HotkeyController? = null,
     onPreferredHeightChange: (Dp) -> Unit = {},
@@ -121,11 +123,9 @@ fun App(
         SideEffect {
             windowController?.setHostUiState(HostUiState(
                 settings = state.settings,
-                isPaused = state.settings.ignoreEvents,
                 isStatusItemDisabled = state.isStatusItemDisabled,
                 isStatusItemActive = statusItemActive,
                 isWindowVisible = panelVisible,
-                isPreviewOpen = state.previewOpen,
                 isModalOpen = state.isModalOpen,
             ))
         }
@@ -138,7 +138,7 @@ fun App(
             applicationIcon = viewModel::applicationIcon,
             applicationName = viewModel::applicationName,
             availablePins = viewModel::availablePins,
-            previewOnLeft = previewOnLeft,
+            previewHost = previewHost,
             modifier = Modifier.fillMaxSize(),
         )
     }

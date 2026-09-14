@@ -31,12 +31,6 @@ interface ClipboardDataSource {
      */
     fun paste(): Boolean = false
 
-    /** 该平台是否能够读取图片。 */
-    val supportsImages: Boolean get() = true
-
-    /** 该平台是否能够读取文件引用。 */
-    val supportsFiles: Boolean get() = false
-
     /**
  * 检查剪贴板的频率，单位毫秒。。
      * 依赖变更通知的平台会忽略它。

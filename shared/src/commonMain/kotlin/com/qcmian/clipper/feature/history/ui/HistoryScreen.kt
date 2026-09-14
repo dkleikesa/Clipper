@@ -1,21 +1,23 @@
 package com.qcmian.clipper.feature.history.ui
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,10 +26,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -35,10 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -55,19 +53,15 @@ import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.PinPosition
-import com.qcmian.clipper.core.ui.KeyShortcut
 import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.Popup
-import com.qcmian.clipper.core.ui.keyShortcuts
 import com.qcmian.clipper.core.ui.visibleShortcut
-import kotlin.math.roundToInt
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
 import com.qcmian.clipper.feature.history.ui.components.EmptyState
 import com.qcmian.clipper.feature.history.ui.components.FooterRows
 import com.qcmian.clipper.feature.history.ui.components.HistoryHeader
 import com.qcmian.clipper.feature.history.ui.components.HistoryRow
+import com.qcmian.clipper.feature.history.ui.components.HistoryScrollbar
 import com.qcmian.clipper.feature.history.ui.components.PausedBanner
 import com.qcmian.clipper.feature.history.ui.components.PinsSeparator
 import com.qcmian.clipper.feature.history.ui.components.PreviewPane
@@ -83,6 +77,7 @@ import com.qcmian.clipper.feature.history.state.ClipboardDialog
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.state.ClipboardUiState
 import com.qcmian.clipper.feature.history.viewmodel.resolveKeyActions
+import com.qcmian.clipper.feature.history.viewmodel.shortcutMap
 
 /** 低于此宽度时，预览面板改为覆盖在列表上，而不是并排显示。 */
 private val OverlayThreshold = 700.dp
@@ -93,11 +88,23 @@ private val ImageRowPadding = 10.dp
 /** 高度估算的安全余量，见 `preferredHeight` 的注释。 */
 private val HeightSlack = 4.dp
 
+/** 面板最小高度对应的内容条数：历史很少时窗口也保持这么高。 */
+private const val MinimumVisibleItems = 6
+
+/** 预览卡片横向滑入的时长。 */
+private const val PreviewAnimationMillis = 180
+
+/** 宽度比较容差，吸收 dp↔px 取整。 */
+private val WidthTolerance = 2.dp
+
 /**
  * 主界面：头部、历史列表、页脚，外加预览滑出面板。
  *
  * 界面是 [state] 的纯函数；每一次交互都通过 [onAction] 回传。所有行为都在
  * `ClipboardViewModel` 中。
+ *
+ * @param previewHost 宿主为预览面板提供的空间约束（停靠侧、是否只能覆盖、是否加宽窗口）。
+ *   落位的推导见 [previewPlacement]。
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -109,7 +116,7 @@ fun HistoryScreen(
     applicationIcon: (String?) -> String?,
     applicationName: (String) -> String?,
     availablePins: (ClipItem) -> List<String>,
-    previewOnLeft: Boolean = false,
+    previewHost: PreviewHostPolicy = PreviewHostPolicy(),
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -131,21 +138,16 @@ fun HistoryScreen(
     var pointerAlt by remember { mutableStateOf(false) }
     var pointerMeta by remember { mutableStateOf(false) }
 
-    // `BoxWithConstraints` 会在布局阶段对内容做子组合，因此搜索框的焦点修饰符
-    // 要等到第一帧之后才会挂上；没挂上时 `requestFocus()` 会抛
-    // "FocusRequester is not initialized"，所以统一包一层 runCatching。
-    LaunchedEffect(Unit) {
-        withFrameNanos { }
-        runCatching { searchFocusRequester.requestFocus() }
-    }
-
-    // `Popup.handleFirstKeyDown`：宿主请求显示面板后，搜索框重新获得焦点。
+    // `BoxWithConstraints` 会在布局阶段对内容做子组合，因此搜索框的焦点修饰符要等到第一帧
+    // 之后才会挂上；没挂上时 `requestFocus()` 会抛 "FocusRequester is not initialized"，
+    // 所以统一包一层 runCatching。
     //
-    // 同样必须先等一帧：面板每次显示都会重新测量，`BoxWithConstraints` 随之在布局阶段重新
-    // 子组合，紧跟状态变化同步调用 `requestFocus()` 可能落在焦点修饰符挂上之前，
-    // 于是这次聚焦静默失效——表现为「一次能输入、一次不能」。
+    // `focusRequestToken` 由宿主在请求显示面板时自增（`Popup.handleFirstKeyDown`）；首次组合
+    // 时它为 0，这次请求顺带覆盖了「面板第一次打开」，因此不需要再单独起一个 `Unit` 副作用。
+    // 必须等一帧：面板每次显示都会重新测量，`BoxWithConstraints` 随之在布局阶段重新子组合，
+    // 紧跟状态变化同步调用 `requestFocus()` 可能落在焦点修饰符挂上之前，于是这次聚焦静默
+    // 失效——表现为「一次能输入、一次不能」。
     LaunchedEffect(state.focusRequestToken) {
-        if (state.focusRequestToken <= 0) return@LaunchedEffect
         withFrameNanos { }
         runCatching { searchFocusRequester.requestFocus() }
     }
@@ -163,10 +165,11 @@ fun HistoryScreen(
 
     val footerEntries = footerEntries(state.showQuit)
 
-    // 下面这些派生值都是 [results] 的函数，而 `BoxWithConstraints` 在约束变化时会重新子组合
-    // 整个界面——拖动窗口尺寸时每帧都会发生——所以在这里算一次并缓存，避免每帧重建列表与映射。
-    val pinnedEntries = remember(results) { state.pinnedEntries }
-    val unpinnedEntries = remember(results) { state.unpinnedEntries }
+    // 置顶 / 未置顶的切分由 [ClipboardUiState] 按实例缓存（见其 KDoc），这里直接读即可。
+    val pinnedEntries = state.pinnedEntries
+    val unpinnedEntries = state.unpinnedEntries
+    // 快捷键映射是纯 UI 交互模型，不在状态里，因此这里自己缓存：`BoxWithConstraints` 在约束
+    // 变化时会重新子组合整个界面——拖动窗口尺寸时每帧都会发生——缓存可避免每帧重建映射。
     val shortcuts = remember(results, settings.pasteByDefault) {
         shortcutMap(results, settings.pasteByDefault)
     }
@@ -191,14 +194,12 @@ fun HistoryScreen(
         if (result.item.image != null) imageRowHeight else Popup.itemHeight
     }
 
-    // 滚动条的像素高度模型。与窗口高度估算共用同一个 [rowHeight]：条目高度是「每条一眼
+    // 滚动条所需的逐条高度。与窗口高度估算共用同一个 [rowHeight]：条目高度是「每条一眼
     // 可算」的确定性值，因此滚动条不必再用「可见行平均高」这类随可见集合逐帧变化的估算。
-    val scrollModel = remember(unpinnedEntries, settings.imageMaxHeight, density) {
-        ListHeightModel(
-            FloatArray(unpinnedEntries.size) { index ->
-                with(density) { rowHeight(unpinnedEntries[index].value).toPx() }
-            },
-        )
+    val scrollHeights = remember(unpinnedEntries, settings.imageMaxHeight, density) {
+        FloatArray(unpinnedEntries.size) { index ->
+            with(density) { rowHeight(unpinnedEntries[index].value).toPx() }
+        }
     }
     val scrollPadding = with(density) {
         (Popup.verticalSeparatorPadding + listBottomPadding).toPx()
@@ -226,14 +227,12 @@ fun HistoryScreen(
 
     val chromeHeight = headerHeight + topPinsHeight + bottomPinsHeight + footerHeight
     val suitableHeight = listHeight + chromeHeight
-    val threeItemHeight = chromeHeight + Popup.itemHeight * 3
-    val minimumHeight = (
-        if (state.previewOpen && state.selectedItem != null) {
-            threeItemHeight.coerceAtLeast(Popup.minimumPreviewHeight)
-        } else {
-            threeItemHeight
-        }
-        ).coerceAtLeast(headerHeight + Popup.verticalPadding)
+    // 面板最小高度：至少放下 [MinimumVisibleItems] 条内容（原来是 3 条，按要求翻倍），
+    // 因此历史很少时窗口也不会缩成一条缝。预览不参与这里——预览面板的高度恒等于窗口高度
+    // （`fillMaxHeight`），打开或关闭预览都不会改变窗口尺寸，也就不会出现「开预览时窗口
+    // 突然长高」的跳动。
+    val minimumHeight = (chromeHeight + Popup.itemHeight * MinimumVisibleItems)
+        .coerceAtLeast(headerHeight + Popup.verticalPadding)
     // 估算高度与真实布局之间难免有 1–2px 的出入（AWT 窗口尺寸取整、字体度量等），
     // 出入会让列表「差一点装得下」——残留一小段可滚动区间和一截滚动条。留一点余量，
     // 内容本该放得下时窗口总是略高于内容，这个小滚动区间就消失了；内容真的超高时
@@ -307,20 +306,49 @@ fun HistoryScreen(
         bundleId = state.selectedItem?.application?.bundleId,
     )
 
-    // 「当前宽度是否够并排显示预览面板」。刻意不用 `BoxWithConstraints`：它每次测量都会给
+    // 「预览能不能与主列表并排显示」。刻意不用 `BoxWithConstraints`：它每次测量都会给
     // `SubcomposeLayout` 传一个新的 content lambda，而后者按引用比较 lambda、判定「内容变了」
     // 就重组整个槽位——拖动窗口尺寸时约束每帧都在变，等于每帧把整棵界面重组一遍。
-    // 这里把宽度收敛成一个布尔值：宽度每帧都在变，但它只在跨过阈值的那一刻才改变，
-    // 于是整段拖动通常一次重组都不会发生。
-    var wideLayout by remember { mutableStateOf(false) }
+    // 这里只记录两个数字（窗口宽度、主列表宽度），它们的变化频率远低于每帧。
+    var windowWidth by remember { mutableStateOf(0.dp) }
+    // 主列表的宽度：预览关闭时它等于窗口宽度，预览并排展开后它等于窗口宽度减去滑出面板。
+    // 桌面端把窗口加宽到「它 + 滑出面板」时，就说明窗口已经为预览让出位置了。
+    var listWidth by remember { mutableStateOf(0.dp) }
+
+    val slideoutWidth = Popup.slideoutWidth(settings.previewWidth)
+    val docked = when {
+        !state.previewOpen -> false
+        // 固定尺寸窗口（手机）：窗口本身够宽才并排，否则退回覆盖层。
+        !previewHost.expandsWindow -> windowWidth >= OverlayThreshold
+        // 桌面端：宿主把窗口加宽到「主列表宽度 + 滑出面板」才算到位。
+        else -> listWidth > 0.dp &&
+            windowWidth >= listWidth + slideoutWidth - WidthTolerance
+    }
+    val placement = previewPlacement(
+        previewOpen = state.previewOpen,
+        host = previewHost,
+        docked = docked,
+    )
+    // 预览槽位「已经让出来、但还没被卡片占住」的那几帧：
+    //
+    // - 打开时：窗口正在加宽，卡片还没进场；
+    // - 收起时：卡片已经移除，窗口还没收回来——窗口比主列表宽出来的那一段正是残留的槽位。
+    //
+    // 这几帧要把主列表的宽度钉在打开前的值，否则它会先占满整窗（文字重排、滚动条跟着跑）
+    // 再被窗口收回来——一次收起闪两下。
+    //
+    // 宽度差只在「恰好一块滑出面板」时才算残留槽位：别的差值只是两者尚未同步，据此钉住
+    // 列表会把它永久留在旧宽度上。
+    val leftoverSlot = windowWidth - listWidth
+    val slotLeftOver = leftoverSlot > WidthTolerance &&
+        leftoverSlot <= slideoutWidth + WidthTolerance
+    // 覆盖层占位不走这条路：那种情况窗口尺寸不变，列表照旧跟随窗口。
+    val slotReserved = previewHost.expandsWindow && !previewHost.overlays &&
+        listWidth > 0.dp && !docked && (state.previewOpen || slotLeftOver)
 
     Box(
         modifier
             .fillMaxSize()
-            .onSizeChanged { size ->
-                val wide = with(density) { size.width.toDp() } >= OverlayThreshold
-                if (wide != wideLayout) wideLayout = wide
-            }
             .clip(RoundedCornerShape(10.dp)),
     ) {
         Box(
@@ -328,6 +356,10 @@ fun HistoryScreen(
                 .fillMaxSize()
                 .background(colors.background)
                 .safeDrawingPadding()
+                // 与主列表量在同一层（安全区内侧），两个宽度才可比。
+                .onSizeChanged { size ->
+                    windowWidth = with(density) { size.width.toDp() }
+                }
                 // 记录指针按下期间按住的修饰键，这样 ⌥-点击会粘贴、
                 // ⌘⇧-点击会不带格式粘贴（`HistoryItemView.performSelect`）。
                 .pointerInput(Unit) {
@@ -353,7 +385,10 @@ fun HistoryScreen(
                 .onPreviewKeyEvent(keyHandler),
         ) {
             Row(Modifier.fillMaxSize()) {
-                if (previewOnLeft && wideLayout && state.previewOpen) {
+                AnimatedPreviewCard(
+                    visible = placement == PreviewPlacement.DOCK_LEFT,
+                    onLeft = true,
+                ) {
                     PreviewSlideout(
                         item = state.selectedItem,
                         appIconBase64 = previewAppIcon,
@@ -366,7 +401,24 @@ fun HistoryScreen(
                     )
                 }
 
-                Column(Modifier.weight(1f).fillMaxHeight()) {
+                // 预览的槽位先占住：主列表于是始终停在「窗口左边缘 + 预览宽度」上，与窗口
+                // 宽度无关。预览停靠左侧时窗口要同时「左移」和「变宽」，界面看到的中间状态
+                // 可能只是其中之一——按宽度定位（靠右对齐）的话，主列表会跟着窗口宽度左右
+                // 跳一下。卡片进场 / 退场时直接接管或让出这段槽位，位置不变。
+                if (previewHost.onLeft && slotReserved) {
+                    Spacer(Modifier.width(slideoutWidth).fillMaxHeight())
+                }
+
+                Column(
+                    Modifier
+                        // 预览关闭时列表跟随窗口；并排显示时列表占满预览之外的部分；
+                        // 槽位空着的那几帧把宽度钉住，避免宽度跳变（见 [slotReserved]）。
+                        .then(if (slotReserved) Modifier.width(listWidth) else Modifier.weight(1f))
+                        .fillMaxHeight()
+                        .onSizeChanged { size ->
+                            listWidth = with(density) { size.width.toDp() }
+                        },
+                ) {
                     // 对应 `HeaderView.readHeight(appState, into: \.popup.headerHeight)`。
                     // 暂停横幅是复刻版新增的，因此折进同一个被测量的区块。
                     Column(
@@ -381,7 +433,7 @@ fun HistoryScreen(
                             onCompositionChange = { composing = it },
                             focusRequester = searchFocusRequester,
                             previewOpen = state.previewOpen,
-                            previewOnLeft = previewOnLeft,
+                            previewOnLeft = previewHost.onLeft,
                             onTogglePreview = { onAction(ClipboardUiAction.TogglePreview) },
                         )
 
@@ -440,7 +492,7 @@ fun HistoryScreen(
                                     }
                                     HistoryScrollbar(
                                         state = listState,
-                                        model = scrollModel,
+                                        heights = scrollHeights,
                                         contentPadding = scrollPadding,
                                         // 无标题栏窗口默认沿边缘 8dp 内是缩放热区
                                         // （WindowDecorationDefaults.ResizerThickness），
@@ -474,7 +526,10 @@ fun HistoryScreen(
                             }
                         }
 
-                        if (state.previewOpen && !wideLayout) {
+                        AnimatedPreviewCard(
+                            visible = placement == PreviewPlacement.OVERLAY,
+                            onLeft = previewHost.onLeft,
+                        ) {
                             Surface(color = colors.background, modifier = Modifier.fillMaxSize()) {
                                 PreviewPane(
                                     item = state.selectedItem,
@@ -504,7 +559,10 @@ fun HistoryScreen(
                     )
                 }
 
-                if (!previewOnLeft && wideLayout && state.previewOpen) {
+                AnimatedPreviewCard(
+                    visible = placement == PreviewPlacement.DOCK_RIGHT,
+                    onLeft = false,
+                ) {
                     PreviewSlideout(
                         item = state.selectedItem,
                         appIconBase64 = previewAppIcon,
@@ -573,201 +631,41 @@ fun HistoryScreen(
 }
 
 /**
- * 未置顶列表的像素高度模型。
+ * 预览卡片的进场动画：从**主面板那一侧**横向推出来。
  *
- * 每条记录的高度只取决于它自身（文本行固定 `Popup.itemHeight`，图片行固定
- * `imageMaxHeight + ImageRowPadding`），因此可以对整份内容做精确的前缀和推算，而不必再
- * 依赖「可见行的平均高度」——那种估算会随可见集合逐帧变化，估算一变，滑块的长度与位置
- * 就跟着跳。
+ * 卡片停靠右侧时，它的槽位紧贴主面板右边缘，于是让卡片从槽位左侧（也就是主面板右边缘）
+ * 向右滑到位——观感就是「卡片从主面板右侧滑出来，左→右」；停靠左侧时方向相反，自槽位右侧
+ * 向左滑到位，即「右→左」。
  *
- * 前缀和给出的「条目顶端偏移」与「滚动像素」严格互逆；滚动条的绘制与拖拽共用同一份数据，
- * 于是手指移动多少、滑块就移动多少。
- */
-private class ListHeightModel(private val heights: FloatArray) {
-    /** `starts[i]` 是第 i 条顶端相对内容起点的偏移，末项为全部条目的总高。 */
-    private val starts = FloatArray(heights.size + 1).also { array ->
-        heights.forEachIndexed { index, height -> array[index + 1] = array[index] + height }
-    }
-
-    val count: Int get() = heights.size
-
-    /** 全部条目的总高，不含列表的 contentPadding。 */
-    val contentHeight: Float get() = starts[starts.size - 1]
-
-    /** 第 [index] 条顶端相对内容起点的偏移；越界时收敛到首尾。 */
-    fun startOf(index: Int): Float = starts[index.coerceIn(0, count)]
-
-    /** 距离内容起点 [offset] 像素处对应的条目下标。 */
-    fun indexAt(offset: Float): Int {
-        if (count == 0) return 0
-        var low = 0
-        var high = count - 1
-        while (low < high) {
-            val mid = (low + high + 1) / 2
-            if (starts[mid] <= offset) low = mid else high = mid - 1
-        }
-        return low
-    }
-}
-
-/** 滑块的最小像素高度：内容极长时也要留出可抓取的长度。 */
-private const val ThumbMinHeight = 36f
-
-/** 滑块的像素几何：顶端 [top]、高度 [height]，均在轨道坐标系内。 */
-private data class ThumbGeometry(val top: Float, val height: Float)
-
-/**
- * 由当前滚动状态推出滑块几何；列表没有可滚动空间（或尚未布局）时返回 `null`。
+ * 槽位加了 [clipToBounds]：滑出过程中卡片超出槽位的部分（也就是压在主列表上的部分）会被裁掉，
+ * 卡片才像是从主面板边缘推出来，而不是从窗口外侧飞进来。
  *
- * 绘制与拖拽都经由这里，因此「滑块位置 ↔ 滚动位置」两个方向的换算严格互逆。
- */
-private fun thumbGeometry(
-    state: LazyListState,
-    model: ListHeightModel,
-    contentPadding: Float,
-    trackHeight: Float,
-): ThumbGeometry? {
-    if (model.count == 0 || trackHeight <= 0f || state.layoutInfo.visibleItemsInfo.isEmpty()) return null
-
-    // 轨道高就是列表的可见高度；可滚动内容 = 条目总高 + 上下的 contentPadding。
-    val viewport = trackHeight
-    val contentHeight = model.contentHeight + contentPadding
-    if (contentHeight <= viewport) return null
-
-    val thumbHeight = (viewport * viewport / contentHeight)
-        .coerceAtLeast(ThumbMinHeight)
-        .coerceAtMost(trackHeight)
-    val maxScroll = contentHeight - viewport
-    val scrolled = model.startOf(state.firstVisibleItemIndex) + state.firstVisibleItemScrollOffset
-
-    // 估算高度与真实布局之间可能有几像素出入，首尾改用 LazyListState 的精确判定兜住，
-    // 这样滚到头时滑块一定贴住轨道两端。
-    val fraction = when {
-        !state.canScrollBackward -> 0f
-        !state.canScrollForward -> 1f
-        else -> (scrolled / maxScroll).coerceIn(0f, 1f)
-    }
-    return ThumbGeometry(top = fraction * (trackHeight - thumbHeight), height = thumbHeight)
-}
-
-/**
- * 把滑块顶端放到轨道的 [thumbTop] 像素处。换算与 [thumbGeometry] 严格互逆，
- * 因此拖动时滑块与手指 1:1 跟随，滚动距离也与滑块位移一致。
+ * 卡片内部的内容不做淡入：淡入会让文字一点点浮现，看起来像「整块在闪」。
  *
- * 本身不是挂起函数：指针手势运行在受限的挂起作用域里，只能在此完成纯计算，
- * 真正改动 [LazyListState] 的那一步交给 [scope]。
+ * 关闭不做退场动画是有意为之：桌面宿主收到「预览已关闭」后会把窗口收窄，卡片若还占着布局，
+ * 就会和收窄中的窗口抢同一段宽度。现在卡片立即让出槽位，槽位由 [slotReserved] 先占着，
+ * 等窗口收回来再一起消失——主列表在整段过程中宽度不变。
  *
- * 每次指针移动都新起一个协程，但不必自己合并：`scrollToItem` 内部用 `MutatorMutex` 串行化，
- * 后一次调用会取消前一次，最终生效的必然是最后一个目标。拖动期间产生的协程数跟着指针事件走、
- * 有界且很小，不值得为此再引入通道或额外的状态。
- */
-private fun scrollToThumbTop(
-    scope: CoroutineScope,
-    state: LazyListState,
-    model: ListHeightModel,
-    contentPadding: Float,
-    trackHeight: Float,
-    thumbTop: Float,
-) {
-    val geometry = thumbGeometry(state, model, contentPadding, trackHeight) ?: return
-    val travel = trackHeight - geometry.height
-    val maxScroll = model.contentHeight + contentPadding - trackHeight
-    if (travel <= 0f || maxScroll <= 0f) return
-
-    val target = (thumbTop / travel).coerceIn(0f, 1f) * maxScroll
-    val index = model.indexAt(target)
-    val offset = (target - model.startOf(index)).roundToInt()
-    scope.launch { state.scrollToItem(index, offset) }
-}
-
-/**
- * 历史列表右侧的细滚动条（自绘 overlay）：列表不可滚动时整条隐藏（连点击热区一起消失）。
- * 滑块的位置与长度来自 [model] 的确定性高度，绘制与拖拽共用同一套换算。
+ * 只做水平位移：卡片高度由 `fillMaxHeight` 跟随窗口，宽度由布局决定，主列表的宽度也由窗口
+ * 宽度减去槽位宽度得到，因此整段动画期间主面板的位置与大小都不会变化。
  *
- * 交互：按住滑块拖动时保持按下瞬间的相对位置（1:1 跟手，不会把滑块顶端吸到手指上）；
- * 按住轨道空白处则把滑块中心移过去，等同于点击跳转。
+ * 三处卡片由同一个 [PreviewPlacement] 驱动，同一时刻只有一处可见，因此一次打开只会跑一次
+ * 进场动画。
  */
 @Composable
-private fun HistoryScrollbar(
-    state: LazyListState,
-    model: ListHeightModel,
-    contentPadding: Float,
-    modifier: Modifier = Modifier,
+private fun AnimatedPreviewCard(
+    visible: Boolean,
+    onLeft: Boolean,
+    content: @Composable AnimatedVisibilityScope.() -> Unit,
 ) {
-    // 精确的「可滚动」判定（LazyListState 内部算好，不用估算），只在越过边界时变化，
-    // 不会因为普通滚动逐帧重组。
-    val scrollable by remember(state) {
-        derivedStateOf { state.canScrollForward || state.canScrollBackward }
-    }
-    if (!scrollable) return
-
-    val thumbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f)
-    val scope = rememberCoroutineScope()
-    Canvas(
-        modifier
-            .width(10.dp)
-            .pointerInput(state, model, contentPadding) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    down.consume()
-
-                    val trackHeight = size.height.toFloat()
-                    val geometry = thumbGeometry(state, model, contentPadding, trackHeight)
-                    val grab = when {
-                        // 抓住滑块：记住手指相对滑块顶端的位置，拖动全程保持这个关系才会跟手。
-                        geometry != null &&
-                            down.position.y in geometry.top..(geometry.top + geometry.height) ->
-                            down.position.y - geometry.top
-                        // 按在轨道空白处：把滑块中心对到手指。
-                        geometry != null -> geometry.height / 2f
-                        else -> 0f
-                    }
-                    scrollToThumbTop(scope, state, model, contentPadding, trackHeight, down.position.y - grab)
-
-                    var lastY = down.position.y
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        change.consume()
-                        if (!change.pressed) break
-                        if (change.position.y != lastY) {
-                            lastY = change.position.y
-                            scrollToThumbTop(scope, state, model, contentPadding, trackHeight, lastY - grab)
-                        }
-                    }
-                }
-            },
-    ) {
-        val geometry = thumbGeometry(state, model, contentPadding, size.height) ?: return@Canvas
-        // 滑块画满整个画布宽度（10dp），不再是细 3dp 居中。
-        val barWidth = size.width
-        drawRoundRect(
-            color = thumbColor,
-            topLeft = Offset((size.width - barWidth) / 2f, geometry.top),
-            size = Size(barWidth, geometry.height),
-            cornerRadius = CornerRadius(barWidth / 2f),
-        )
-    }
-}
-
-/**
- * 置顶项使用分配到的字母，前九个未置顶项使用 `1`…`9`。
- * 每个条目携带 `KeyShortcut.create(character:)` 产生的三个变体。
- */
-private fun shortcutMap(
-    results: List<SearchResult>,
-    pasteByDefault: Boolean,
-): Map<String, List<KeyShortcut>> {
-    val map = mutableMapOf<String, List<KeyShortcut>>()
-    var counter = 1
-    results.forEach { result ->
-        val item = result.item
-        val character = when {
-            item.isPinned -> item.pin
-            counter <= 9 -> (counter++).toString()
-            else -> null
-        } ?: return@forEach
-        map[item.id] = keyShortcuts(character.uppercase(), pasteByDefault)
-    }
-    return map
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier.clipToBounds(),
+        enter = slideInHorizontally(
+            animationSpec = tween(durationMillis = PreviewAnimationMillis),
+            initialOffsetX = { width -> if (onLeft) width else -width },
+        ),
+        exit = ExitTransition.None,
+        content = content,
+    )
 }

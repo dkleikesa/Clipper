@@ -25,6 +25,8 @@ internal class HistorySearchController(
     private val settings: () -> AppSettings,
     private val items: () -> List<ClipItem>,
     private val scope: CoroutineScope,
+    /** 新的查询结果落地时调用：键盘导航重新接管选择。 */
+    private val onQueryApplied: () -> Unit = {},
 ) {
     private var searchJob: Job? = null
     private var lastSearchAt = 0L
@@ -59,11 +61,11 @@ internal class HistorySearchController(
         val results = resultsFor(value)
         val firstUnpinned = results.indexOfFirst { it.item.isUnpinned }.coerceAtLeast(0)
 
+        onQueryApplied()
         state.update {
             it.copy(
                 appliedQuery = value,
                 results = results,
-                keyboardNavigating = true,
                 footerSelection = -1,
                 historySelection = if (value.isEmpty()) firstUnpinned else 0,
             )

@@ -16,12 +16,6 @@ data class GlobalShortcut(
     val control: Boolean = false,
 ) {
     companion object {
- /** `⇧⌘C`，呼出面板的默认快捷键。 */
-        val POPUP = GlobalShortcut(keyCode = KEY_C, command = true, shift = true)
-
-        /** `C` 的 Carbon 虚拟键码。 */
-        const val KEY_C = 8
-
         /**
  * /`Sauce` 查表：把用户录制的字符转换成
          * `RegisterEventHotKey` 期望的 Carbon 虚拟键码。对没有稳定 ANSI 键码的字符返回 `null`。

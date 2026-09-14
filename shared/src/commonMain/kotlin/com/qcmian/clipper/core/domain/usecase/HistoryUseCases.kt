@@ -23,35 +23,6 @@ class TogglePinUseCase(
     private fun randomAvailablePin(): String = availablePins().randomOrNull().orEmpty()
 }
 
-/** 对应 `PinsSettingsPane`：允许用户重新指定置顶项的快捷键。 */
-class UpdatePinUseCase(private val repository: ClipboardRepository) {
-    operator fun invoke(item: ClipItem, pin: String?) = repository.replace(item) { it.copy(pin = pin) }
-}
-
-/** 对应 `PinsSettingsPane` 的别名列，它编辑的是 `HistoryItem.title`。 */
-class UpdateTitleUseCase(private val repository: ClipboardRepository) {
-    operator fun invoke(item: ClipItem, title: String) = repository.replace(item) { it.copy(title = title) }
-}
-
-/** 对应 `PinValueView.updateItemContent()`：替换纯文本表示。 */
-class UpdateContentUseCase(private val repository: ClipboardRepository) {
-    operator fun invoke(item: ClipItem, text: String) {
-        // 只有纯文本条目才提供可编辑的内容字段。
-        val hasPlainText = item.text != null && item.image == null && item.files.isEmpty()
-        if (!hasPlainText) return
-        repository.replace(item) { it.copy(text = text) }
-    }
-}
-
-/** 删除单条记录。 */
-class DeleteClipUseCase(private val repository: ClipboardRepository) {
-    operator fun invoke(item: ClipItem) {
-        val items = repository.items.value
-        if (items.none { it.id == item.id }) return
-        repository.setItems(items.filterNot { it.id == item.id })
-    }
-}
-
 /**
  * 「清除」（仅未置顶）与「全部清除」。普通清除会保留置顶项，
  * 当偏好要求时还会清空系统剪贴板。
@@ -93,15 +64,4 @@ class AvailablePinsUseCase(private val repository: ClipboardRepository) {
  /** `a`、`q`、`v`、`w`、`z` 被快捷键占用。 */
         const val PIN_CHARACTERS = "bcdefghijklmnoprstuxy"
     }
-}
-
-/** 共用的「替换一条记录并持久化」辅助函数。 */
-private inline fun ClipboardRepository.replace(
-    item: ClipItem,
-    transform: (ClipItem) -> ClipItem,
-) {
-    val items = items.value
-    val index = items.indexOfFirst { it.id == item.id }
-    if (index < 0) return
-    setItems(items.toMutableList().also { it[index] = transform(it[index]) })
 }

@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -30,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.Popup
+import com.qcmian.clipper.core.ui.components.VerticalScrollbar
+import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
@@ -61,7 +65,8 @@ fun PreviewPane(
     Column(
         modifier = modifier
             .padding(horizontal = 16.dp)
-            .padding(top = Popup.verticalPadding, bottom = 16.dp),
+            // 底部信息区只占必要的高度：预览内容（`weight(1f)`）是主体，间距一大它就没了。
+            .padding(top = Popup.verticalPadding, bottom = 8.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -97,8 +102,13 @@ fun PreviewPane(
                     bitmap = bitmap,
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
+                    // 宽高都必须钉满：`Image` 的尺寸就是修饰符链跑完之后的最小约束，
+                    // 只给 `fillMaxWidth()` 时高度仍是 0，`ContentScale.Fit` 的缩放比会退化成
+                    // 「位图自身像素高」，比预览区小的图片因此永远按原尺寸居中显示，撑不满。
+                    // 钉满整个区域后 `Fit` 才会按可用空间等比放大到最大，与原生 `NSImageView`
+                    // 的 `scaleProportionallyUpOrDown`（圆角同样加在这个视图的 frame 上）一致。
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxSize()
                         .clip(RoundedCornerShape(5.dp)),
                 )
             } else {
@@ -107,10 +117,13 @@ fun PreviewPane(
                 // 能力，因此这里直接截断尾部，而不是每帧去布局一个数兆字节的字符串。
                 val text = item.previewableText
                 val truncated = text.length > LARGE_TEXT_LIMIT
+                val textScrollState = rememberScrollState()
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                        // 给右侧滚动条留出位置：文字不会被滑块压住，滚动条出现 / 消失时也不重排。
+                        .padding(end = VerticalScrollbarWidth + 4.dp)
+                        .verticalScroll(textScrollState),
                 ) {
                     Text(
                         text = if (truncated) text.take(LARGE_TEXT_LIMIT) else text,
@@ -127,12 +140,17 @@ fun PreviewPane(
                         )
                     }
                 }
+                // 文本超长时出现，内容放得下时整条隐藏。
+                VerticalScrollbar(
+                    scrollState = textScrollState,
+                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                )
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
         HorizontalDivider(color = colors.outline.copy(alpha = 0.5f))
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(6.dp))
 
         item.application?.let { application ->
             MetadataRow(
@@ -169,12 +187,14 @@ private fun ToolbarIconButton(kind: ClipperIconKind, onClick: () -> Unit) {
 private fun MetadataRow(label: String, value: String, icon: ImageBitmap? = null) {
     val colors = MaterialTheme.colorScheme
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = label,
             fontSize = 11.sp,
+            // 行高收到比字号略大：五行元信息一共也就几十 dp，默认行高会白占掉一截高度。
+            lineHeight = 14.sp,
             color = colors.onSurfaceVariant,
             fontWeight = FontWeight.Normal,
         )
@@ -190,6 +210,7 @@ private fun MetadataRow(label: String, value: String, icon: ImageBitmap? = null)
         Text(
             text = value,
             fontSize = 11.sp,
+            lineHeight = 14.sp,
             color = colors.onSurface,
         )
     }

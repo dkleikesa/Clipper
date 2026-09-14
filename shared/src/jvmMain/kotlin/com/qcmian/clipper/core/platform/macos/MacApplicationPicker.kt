@@ -41,7 +41,7 @@ object MacApplicationPicker {
     }
 
     /** 从选中的 `.app` 中读出 bundle 标识符与显示名。 */
-    fun fromPath(path: String): SourceApplication? {
+    private fun fromPath(path: String): SourceApplication? {
         val bundle = MacNative.send(
             MacNative.clazz("NSBundle"),
             "bundleWithPath:",

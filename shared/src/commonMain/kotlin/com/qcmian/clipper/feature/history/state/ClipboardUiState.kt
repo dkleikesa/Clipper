@@ -33,8 +33,6 @@ data class ClipboardUiState(
     /** 由历史列表持有高亮时为 `-1`。 */
     val footerSelection: Int = -1,
     val previewOpen: Boolean = false,
-    /** 鼠标移动后变为 `false`，这样悬停会重新开始选择。 */
-    val keyboardNavigating: Boolean = true,
     val statusMessage: String? = null,
     val storageSize: String? = null,
     /** 未置顶条目占用的近似字节数，与「历史上限」比较的是同一个口径。 */
@@ -49,15 +47,23 @@ data class ClipboardUiState(
     /** 每当搜索框需要重新获得焦点时自增。 */
     val focusRequestToken: Int = 0,
 ) {
- /** 固定的置顶区块，放在滚动区之外。 */
-    val pinnedEntries: List<IndexedValue<SearchResult>>
-        get() = results.withIndex().filter { it.value.item.isPinned }
+    /**
+     * 固定的置顶区块，放在滚动区之外。
+     *
+     * 用 `by lazy` 按状态实例缓存：状态是不可变的，只有 `copy` 才会重算，因此界面在重组中
+     * （拖动窗口尺寸时每帧都会发生）反复读它也只付一次 O(n) 的代价，调用方不必自己 `remember`。
+     */
+    val pinnedEntries: List<IndexedValue<SearchResult>> by lazy {
+        results.withIndex().filter { it.value.item.isPinned }
+    }
 
-    /** 置顶区块下方（或上方）可滚动的历史。 */
-    val unpinnedEntries: List<IndexedValue<SearchResult>>
-        get() = results.withIndex().filterNot { it.value.item.isPinned }
+    /** 置顶区块下方（或上方）可滚动的历史。缓存方式同 [pinnedEntries]。 */
+    val unpinnedEntries: List<IndexedValue<SearchResult>> by lazy {
+        results.withIndex().filterNot { it.value.item.isPinned }
+    }
 
-    val pinnedItems: List<ClipItem> get() = results.map { it.item }.filter { it.isPinned }
+    /** 置顶项，供偏好设置编辑。缓存方式同 [pinnedEntries]。 */
+    val pinnedItems: List<ClipItem> by lazy { results.map { it.item }.filter { it.isPinned } }
 
     val selectedResult: SearchResult? get() = results.getOrNull(historySelection)
 

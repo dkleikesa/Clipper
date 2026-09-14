@@ -22,9 +22,6 @@ private class AndroidClipboardDataSource(private val context: Context) : Clipboa
 
     private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { notifyChange() }
 
-    override val supportsImages: Boolean get() = true
-    override val supportsFiles: Boolean get() = true
-
     override fun write(snapshot: ClipboardSnapshot): Boolean {
         val clip = when {
             !snapshot.text.isNullOrEmpty() -> ClipData.newPlainText(LABEL, snapshot.text)

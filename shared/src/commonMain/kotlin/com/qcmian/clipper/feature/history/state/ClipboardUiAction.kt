@@ -29,7 +29,6 @@ sealed interface ClipboardUiAction {
     data object PointerMoved : ClipboardUiAction
     data class HoverHistory(val index: Int) : ClipboardUiAction
     data class HoverFooter(val index: Int) : ClipboardUiAction
-    data class SelectHistory(val index: Int) : ClipboardUiAction
     data class MoveNext(val allowCycle: Boolean = false) : ClipboardUiAction
     data object MovePrevious : ClipboardUiAction
     data object MoveToFirst : ClipboardUiAction
@@ -75,9 +74,6 @@ sealed interface ClipboardUiAction {
     data class RequestClear(val all: Boolean, val hidePanel: Boolean = true) : ClipboardUiAction
     data object ConfirmClear : ClipboardUiAction
     data object DismissClear : ClipboardUiAction
-
-    // ------------------------------------------------------------------ 状态消息
-    data object DismissStatus : ClipboardUiAction
 
     // ------------------------------------------------------------------ 宿主驱动
     /** 全局热键打开了面板（`Popup.handleFirstKeyDown`）。 */

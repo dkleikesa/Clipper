@@ -16,6 +16,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qcmian.clipper.App
 import com.qcmian.clipper.desktop.viewmodel.DesktopShellViewModel
 import com.qcmian.clipper.di.AppContainer
+import com.qcmian.clipper.feature.history.ui.PreviewHostPolicy
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
@@ -67,7 +68,16 @@ fun ApplicationScope.ClipperWindow(
 
         // 内容组合由窗口宿主提供 ViewModelStoreOwner：窗口隐藏时组合保留、store 不销毁。
         val viewModel = viewModel {
-            DesktopShellViewModel(container, windowController, hotkeyController, windowState)
+            DesktopShellViewModel(
+                container = container,
+                panel = windowController,
+                hotkey = hotkeyController,
+                windowState = windowState,
+                // 位置与尺寸一次应用。Compose 自己的实现是 `setSize` + `setLocation` 两次
+                // 调用，左侧停靠时窗口要同时「左移」和「变宽」，两次之间的中间帧会被系统
+                // 画出来——整个窗口左右闪一下；`setBounds` 是原子的。
+                applyBounds = { x, y, width, height -> window.setBounds(x, y, width, height) },
+            )
         }
         val uiState by viewModel.uiState.collectAsStateWithLifecycle()
         val systemDark by viewModel.systemDark.collectAsStateWithLifecycle()
@@ -132,7 +142,13 @@ fun ApplicationScope.ClipperWindow(
             onRequestHideWindow = { viewModel.hidePanel() },
             onQuit = { viewModel.quit() },
             onPreviewOpenChange = viewModel::onPreviewOpenChanged,
-            previewOnLeft = uiState.previewOnLeft,
+            previewHost = PreviewHostPolicy(
+                onLeft = uiState.previewOnLeft,
+                overlays = uiState.previewOverlays,
+                // 桌面端会为预览加宽窗口（`autoWindowSize`），因此预览永远与主列表并排：
+                // 界面等窗口加宽到位再让它进场，不会先盖在列表上闪一下。
+                expandsWindow = true,
+            ),
             windowController = windowController,
             hotkeyController = hotkeyController,
             onPreferredHeightChange = viewModel::onPreferredHeightChanged,

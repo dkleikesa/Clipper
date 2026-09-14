@@ -17,9 +17,6 @@ data class HostUiState(
     /** 偏好设置，便于宿主遵循窗口尺寸、屏幕与快捷键。 */
     val settings: AppSettings = AppSettings(),
 
-    /** `Defaults[.ignoreEvents]`。 */
-    val isPaused: Boolean = false,
-
     /**
      * `AppDelegate.isStatusItemDisabled`：记录被暂停时托盘图标变灰，
      * 存储偏好中把所有内容类型都关掉时同样如此。
@@ -34,9 +31,6 @@ data class HostUiState(
 
     /** 面板是否可见（不区分触发来源）。托盘点击时用它预推翻转后的按下态。 */
     val isWindowVisible: Boolean = false,
-
-    /** 预览滑出面板当前是否打开。 */
-    val isPreviewOpen: Boolean = false,
 
     /**
      * 有对话框（偏好设置、关于、清除确认）显示时为 `true`。

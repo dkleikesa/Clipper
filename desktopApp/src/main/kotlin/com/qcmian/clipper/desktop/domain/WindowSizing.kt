@@ -41,9 +41,15 @@ internal fun autoWindowSize(
 internal fun contentWidthOf(settings: AppSettings): Dp =
     (settings.customWindowWidth?.dp ?: Popup.contentWidth).coerceAtLeast(Popup.minimumContentWidth)
 
-/** 预览滑出面板宽度。 */
+/**
+ * 预览滑出面板占用的总宽度：面板本身加上与主列表之间的分隔条。
+ *
+ * 与界面共用 [Popup.slideoutWidth]：界面用同一个值判断「窗口是否已经宽到能与主列表并排」，
+ * 两处一旦不一致，窗口加宽之后主列表就会被挤掉分隔条那一条（表现为打开预览时列表宽度变窄、
+ * 文字重新折行）。
+ */
 internal fun slideoutWidthOf(settings: AppSettings): Dp =
-    settings.previewWidth.dp.coerceAtLeast(Popup.minimumPreviewWidth)
+    Popup.slideoutWidth(settings.previewWidth)
 
 /** 两个尺寸在 [RESIZE_TOLERANCE_DP] 之内一致时返回 `true`，忽略亚像素舍入。 */
 internal fun DpSize.nearlyEquals(other: DpSize): Boolean =
