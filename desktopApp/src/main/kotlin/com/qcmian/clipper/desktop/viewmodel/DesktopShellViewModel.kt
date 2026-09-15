@@ -15,11 +15,8 @@ import com.qcmian.clipper.desktop.domain.CYCLE_START_DELAY_MILLIS
 import com.qcmian.clipper.desktop.domain.FOCUS_GRACE_MILLIS
 import com.qcmian.clipper.desktop.domain.InitialPanelHeight
 import com.qcmian.clipper.desktop.domain.MODIFIER_POLL_MILLIS
-import com.qcmian.clipper.desktop.domain.MOUSE_BUTTONS_MASK
-import com.qcmian.clipper.desktop.domain.OUTSIDE_CLICK_POLL_MILLIS
 import com.qcmian.clipper.desktop.domain.PANEL_WINDOW_TITLE
 import com.qcmian.clipper.desktop.domain.PopupMode
-import com.qcmian.clipper.desktop.domain.SYSTEM_APPEARANCE_POLL_MILLIS
 import com.qcmian.clipper.desktop.domain.nsModifierMask
 import com.qcmian.clipper.desktop.domain.RESIZE_SETTLE_MILLIS
 import com.qcmian.clipper.desktop.domain.TRAY_CLICK_GRACE_MILLIS
@@ -184,7 +181,8 @@ class DesktopShellViewModel(
 
     init {
         captureFrontmostWindow()
-        // 同步预读一次系统外观，避免首帧用回退路径导致主题闪一下。
+        // 同步预读一次系统外观：首帧不必退回 `isSystemInDarkTheme()`；观察者装不上时，
+        // 它也是本次会话唯一的外观来源（见 [observeSystemAppearance]）。
         _systemDark.value = runCatching { MacWorkspace.isSystemAppearanceDark() }.getOrNull()
         viewModelScope.launch { observeShortcut() }
         viewModelScope.launch { observeWindowGeometry() }
@@ -645,69 +643,35 @@ class DesktopShellViewModel(
     }
 
     /**
-     * 观察面板外的点击：优先用 NSEvent 全局 / 本地监视器（事件驱动、零轮询），
-     * 安装失败时退回 `pressedMouseButtons` 轮询。收起前检查弹窗状态——
-     * 偏好设置等弹窗的点击属于本应用，不应收起面板。
+     * 观察面板外的点击：只用 NSEvent 全局 / 本地监视器，事件驱动、零轮询。
+     * 收起前检查弹窗状态——偏好设置等弹窗的点击属于本应用，不应收起面板。
+     *
+     * 刻意不保留「监视器装不上就退回 `pressedMouseButtons` 轮询」的兜底：那是面板可见期间
+     * 40ms 一次的常驻原生调用（25Hz），代价远高于它兜住的那点失败概率。装不上时只有
+     * 「点击别处收起」这一条能力静默缺失，其余收起路径（失焦、Esc、托盘、热键）不受影响。
      */
     private suspend fun observeOutsideClicks() {
-        if (MacOutsideClickMonitor.install(PANEL_WINDOW_TITLE)) {
-            MacOutsideClickMonitor.outsideClicks.collect {
-                if (uiState.value.windowVisible && !panel.hostUiState.value.isModalOpen) {
-                    lastOutsideHideAtMillis = System.currentTimeMillis()
-                    hidePanel(restoreFocus = false)
-                }
+        MacOutsideClickMonitor.install(PANEL_WINDOW_TITLE)
+        MacOutsideClickMonitor.outsideClicks.collect {
+            if (uiState.value.windowVisible && !panel.hostUiState.value.isModalOpen) {
+                lastOutsideHideAtMillis = System.currentTimeMillis()
+                hidePanel(restoreFocus = false)
             }
-            return
         }
-
-        // 轮询兜底：面板可见期间观察鼠标按压，始于面板之外的按压在其外松开就收起。
-        combine(
-            uiState.map { it.windowVisible }.distinctUntilChanged(),
-            panel.hostUiState.map { it.isModalOpen }.distinctUntilChanged(),
-        ) { visible, modal -> visible && !modal }
-            .distinctUntilChanged()
-            .collectLatest { watching ->
-                if (!watching) return@collectLatest
-                // 起始就处于按压中（例如热键呼出时用户正在别处拖拽）：
-                // 视为始于面板内部，松开不收起。
-                var pressed = MacWorkspace.pressedMouseButtons() and MOUSE_BUTTONS_MASK != 0L
-                var pressStartedInside = true
-                while (true) {
-                    delay(OUTSIDE_CLICK_POLL_MILLIS)
-                    val nowPressed = MacWorkspace.pressedMouseButtons() and MOUSE_BUTTONS_MASK != 0L
-                    if (nowPressed == pressed) continue
-                    pressed = nowPressed
-                    if (pressed) {
-                        pressStartedInside = isPointerInsidePanel()
-                    } else if (!pressStartedInside) {
-                        lastOutsideHideAtMillis = System.currentTimeMillis()
-                        hidePanel(restoreFocus = false)
-                        return@collectLatest
-                    }
-                }
-            }
-    }
-
-    /** 指针是否落在面板窗口内；位置或判定器不可用时视为在内（宁可漏收起，不可误收起）。 */
-    private fun isPointerInsidePanel(): Boolean {
-        val point = runCatching { java.awt.MouseInfo.getPointerInfo()?.location }.getOrNull()
-            ?: return true
-        return panel.panelContainsPoint?.invoke(point.x.toDouble(), point.y.toDouble()) ?: true
     }
 
     /**
-     * 「跟随系统」主题模式：优先用系统通知（`AppleInterfaceThemeChangedNotification`）
-     * 事件驱动；通知注册失败时退回 1 秒轮询。
+     * 「跟随系统」主题模式：只用系统通知（`AppleInterfaceThemeChangedNotification`）事件驱动，
+     * 零轮询。
+     *
+     * 刻意不保留「观察者装不上就 1 秒轮询 `AppleInterfaceStyle`」的兜底：那是常驻的定时唤醒，
+     * 换来的只是「通知装不上时主题不实时跟随」。装不上时不再覆盖 [systemDark]，界面停在
+     * [init] 里同步读到的那个值——那也是 [MacAppearance.install] 失败时唯一的外观来源，
+     * 不能让它被 `null` 冲掉。
      */
     private suspend fun observeSystemAppearance() {
-        if (MacAppearance.install()) {
-            MacAppearance.systemDark.collect { _systemDark.value = it }
-            return
-        }
-        while (true) {
-            _systemDark.value = runCatching { MacWorkspace.isSystemAppearanceDark() }.getOrNull()
-            delay(SYSTEM_APPEARANCE_POLL_MILLIS)
-        }
+        if (!MacAppearance.install()) return
+        MacAppearance.systemDark.collect { _systemDark.value = it }
     }
 
     /**

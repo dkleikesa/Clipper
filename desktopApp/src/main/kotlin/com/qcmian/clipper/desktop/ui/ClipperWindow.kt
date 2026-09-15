@@ -103,12 +103,7 @@ fun ApplicationScope.ClipperWindow(
                     viewModel.onWindowLostFocus()
             }
             window.addWindowFocusListener(listener)
-            // 供「点击面板之外就收起」判定指针是否落在面板内。
-            windowController.panelContainsPoint = { x, y -> window.bounds.contains(x, y) }
-            onDispose {
-                window.removeWindowFocusListener(listener)
-                windowController.panelContainsPoint = null
-            }
+            onDispose { window.removeWindowFocusListener(listener) }
         }
 
         // 「按住热键循环」的修饰键状态机由 ViewModel 持有，这里只驱动它的生命周期。
@@ -156,7 +151,7 @@ fun ApplicationScope.ClipperWindow(
             // 「托盘触发的可见」——热键呼出时面板虽然可见，托盘保持常态。
             panelVisible = uiState.windowVisible,
             statusItemActive = uiState.windowVisible && uiState.panelOpenedByTray,
-            // 桌面端的 isSystemInDarkTheme() 不实时跟随系统外观，由宿主轮询提供。
+            // 桌面端的 isSystemInDarkTheme() 不实时跟随系统外观，改由宿主提供（系统通知事件驱动）。
             systemDarkTheme = systemDark,
         )
     }
