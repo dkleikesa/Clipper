@@ -57,7 +57,7 @@ fun App(
     /** 面板当前是否可见。桌面宿主据此给托盘图标画按下态；其它平台无此概念。 */
     panelVisible: Boolean = true,
     /**
-     * 系统外观是否为深色，由桌面宿主轮询提供（Compose 的 `isSystemInDarkTheme()`
+     * 系统外观是否为深色，由桌面宿主提供（系统通知事件驱动；Compose 的 `isSystemInDarkTheme()`
      * 在桌面端不实时跟随系统）；`null` 表示平台未提供，退回 [isSystemInDarkTheme]。
      */
     systemDarkTheme: Boolean? = null,

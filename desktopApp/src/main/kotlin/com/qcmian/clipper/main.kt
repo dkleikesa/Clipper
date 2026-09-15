@@ -28,27 +28,49 @@ import kotlinx.coroutines.flow.first
  *   [HotkeyController] 承载热键按键意图，二者都由 [App]（shared）消费。
  * - View（`desktop/ui`）：[ClipperWindow] / [ClipperTray] 只渲染并转发事件。
  */
-fun main() = application {
-    // 应用级作用域：整个进程只有一张依赖图，绝不会因重组而重建。
-    val container = remember { AppContainer() }
-    val windowController = remember { WindowController() }
-    val hotkeyController = remember { HotkeyController() }
+fun main() {
+    hideFromDock()
 
-    // 窗口状态属于 UI 层，由宿主创建后交给窗口的 ViewModel 读写。
-    val windowState = rememberWindowState(
-        width = Popup.contentWidth,
-        height = InitialPanelHeight,
-        position = WindowPosition(Alignment.Center),
-    )
+    application {
+        // 应用级作用域：整个进程只有一张依赖图，绝不会因重组而重建。
+        val container = remember { AppContainer() }
+        val windowController = remember { WindowController() }
+        val hotkeyController = remember { HotkeyController() }
 
-    // 退出：窗口 ViewModel 落盘完成后置位，由应用根结束进程；
-    // `exitApplication()` 只能在应用作用域里调用。
-    LaunchedEffect(windowController) {
-        windowController.exitRequested.first { it }
-        exitApplication()
+        // 窗口状态属于 UI 层，由宿主创建后交给窗口的 ViewModel 读写。
+        val windowState = rememberWindowState(
+            width = Popup.contentWidth,
+            height = InitialPanelHeight,
+            position = WindowPosition(Alignment.Center),
+        )
+
+        // 退出：窗口 ViewModel 落盘完成后置位，由应用根结束进程；
+        // `exitApplication()` 只能在应用作用域里调用。
+        LaunchedEffect(windowController) {
+            windowController.exitRequested.first { it }
+            exitApplication()
+        }
+
+        // 窗口持有自己的 ViewModel（宿主 owner）；托盘只负责点击弹出面板。
+        ClipperWindow(windowState, container, windowController, hotkeyController)
+        ClipperTray(windowController)
     }
+}
 
-    // 窗口持有自己的 ViewModel（宿主 owner）；托盘只负责点击弹出面板。
-    ClipperWindow(windowState, container, windowController, hotkeyController)
-    ClipperTray(windowController)
+/**
+ * macOS：把应用标记成「只在菜单栏里存在」，也就是 Maccy 的 `LSUIElement`——不出现在 Dock
+ * 与 ⌘Tab 中，也不占用菜单栏左侧的应用菜单。
+ *
+ * 三条生效路径：
+ * - `./gradlew :desktopApp:run` 靠 build.gradle.kts 里的 `-Dapple.awt.UIElement=true`；
+ * - 打包后的 `.app` 靠 Info.plist 里的 `LSUIElement`；
+ * - 从 IDE 直接跑 `main()` 时两者都不生效，这里兜底。
+ *
+ * **必须在 AWT 初始化之前设置**：这个属性只在 AWT 建 `NSApplication` 时被读取一次，之后
+ * 再改系统属性表也不会重新配置。因此它是 `main` 的第一条语句——[application] 一旦被调用，
+ * 窗口与托盘会依次初始化 AWT，就来不及了。
+ */
+private fun hideFromDock() {
+    if (!System.getProperty("os.name").orEmpty().startsWith("Mac")) return
+    System.setProperty("apple.awt.UIElement", "true")
 }
