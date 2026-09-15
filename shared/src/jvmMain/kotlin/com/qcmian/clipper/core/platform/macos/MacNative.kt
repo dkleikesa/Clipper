@@ -1,5 +1,6 @@
 package com.qcmian.clipper.core.platform.macos
 
+import java.util.concurrent.ConcurrentHashMap
 import com.sun.jna.Function
 import com.sun.jna.Memory
 import com.sun.jna.NativeLibrary
@@ -10,6 +11,10 @@ import com.sun.jna.Pointer
  *
  * 只暴露本项目需要的那几种 `objc_msgSend` 形态。每次调用都是防御式的：
  * 当运行时或某个类缺失时，辅助函数返回 `null`，让调用方优雅降级而不是崩溃。
+ *
+ * 类与 selector 的查找结果会被缓存：两者在进程内恒定，而原先每次 `send` 都要重新走一遍
+ * `objc_getClass` / `sel_registerName`（一次字符串编码 + 哈希 + 原生调用）。
+ * 剪贴板轮询每 500ms 就有三次这样的调用，缓存之后轮询本身基本免费。
  */
 internal object MacNative {
     private val runtime: NativeLibrary = runCatching {
@@ -34,11 +39,34 @@ internal object MacNative {
     fun loadFramework(path: String): Boolean =
         runCatching { NativeLibrary.getInstance(path); true }.getOrDefault(false)
 
+    /** [clazz] 的查找结果。 */
+    private val classes = ConcurrentHashMap<String, Pointer>()
+
+    /** [selector] 的查找结果。 */
+    private val selectors = ConcurrentHashMap<String, Pointer>()
+
     fun clazz(name: String): Pointer? =
-        runCatching { getClass.invokePointer(arrayOf(name)) }.getOrNull()
+        cached(classes, name) { runCatching { getClass.invokePointer(arrayOf(name)) }.getOrNull() }
 
     fun selector(name: String): Pointer? =
-        runCatching { registerName.invokePointer(arrayOf(name)) }.getOrNull()
+        cached(selectors, name) { runCatching { registerName.invokePointer(arrayOf(name)) }.getOrNull() }
+
+    /**
+     * 取缓存，只在未命中时解析一次；解析失败（返回 `null`）不写缓存。
+     *
+     * 「失败不缓存」对 [clazz] 是必须的：`objc_getClass` 在对应框架尚未加载时返回 `null`，
+     * 缓存这个结果会让该名字永久失效。selector 不存在这个问题，但保持同一套语义更简单。
+     * 并发下两个线程可能同时解析一次，[ConcurrentHashMap.putIfAbsent] 保证只会留下一个。
+     */
+    private fun cached(
+        cache: ConcurrentHashMap<String, Pointer>,
+        name: String,
+        resolve: () -> Pointer?,
+    ): Pointer? {
+        cache[name]?.let { return it }
+        val resolved = resolve() ?: return null
+        return cache.putIfAbsent(name, resolved) ?: resolved
+    }
 
     /** 返回对象指针的 `objc_msgSend`。 */
     fun send(receiver: Pointer?, name: String, vararg args: Any?): Pointer? {

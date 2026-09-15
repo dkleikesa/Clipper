@@ -12,6 +12,7 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.io.File
 import javax.imageio.ImageIO
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -19,7 +20,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.swing.Swing
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.platform.macos.MacPasteboard
@@ -29,13 +29,28 @@ import com.qcmian.clipper.core.platform.macos.MacPasteboard
  *
  * 剪贴板由定时器轮询，而不依赖所有权通知——
  * 后者在不同桌面环境下行为并不一致。
+ *
+ * 轮询刻意跑在 [Dispatchers.IO] 而不是 `Dispatchers.Swing`。这条循环里全是阻塞式原生调用
+ * （JNA 读 `NSPasteboard`，内容变化时还要读整幅图片并做 PNG 编码），放在 EDT 上会阻塞界面；
+ * 而且 `SwingDispatcher` 每次 `delay()` 都新建一个 `javax.swing.Timer`，
+ * 于是每 500ms 就要唤醒 Swing 的 `TimerQueue` 线程、再向 EDT 投递一个事件。
+ *
+ * 写入方向（[write]）仍由调用方线程执行，不受影响。
  */
 private class JvmClipboardDataSource : ClipboardDataSource {
     private val clipboard: Clipboard = Toolkit.getDefaultToolkit().systemClipboard
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Swing)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /**
+     * 轮询协程与 [start] / [stop] 分属不同线程，读写都需要可见性保证。
+     */
+    @Volatile
     private var listener: ((ClipboardSnapshot) -> Unit)? = null
+
     private var pollJob: Job? = null
+
+    /** 同上：轮询协程与 [clear] 分属不同线程。 */
+    @Volatile
     private var lastFingerprint: String? = null
 
     /** macOS 上 `NSPasteboard.changeCount` 的上次读数；`-1` 表示未知（退化为全量读取）。 */
