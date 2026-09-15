@@ -71,6 +71,7 @@ import com.qcmian.clipper.core.ui.components.rememberApplicationName
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.shortcutCharacterOf
+import com.qcmian.clipper.core.ui.theme.hintColor
 import kotlin.math.roundToInt
 
 /**
@@ -372,6 +373,7 @@ private fun HistoryLimitField(
             Text(
                 "当前占用 ${formatMegabytes(usageBytes)}$databaseText；" +
                     "超出后按排序丢弃最旧的未置顶记录，置顶项不计入。",
+                color = MaterialTheme.hintColor,
             )
         },
         singleLine = true,
@@ -391,7 +393,6 @@ private fun formatMegabytes(bytes: Long): String {
 
 @Composable
 private fun BehaviorSection(data: PreferencesUiData, actions: PreferencesActions) {
-    val colors = MaterialTheme.colorScheme
     val settings = data.settings
     SectionCard("行为") {
         SwitchRow(
@@ -411,7 +412,7 @@ private fun BehaviorSection(data: PreferencesUiData, actions: PreferencesActions
                 "${modifierFlagsOf(ClipAction.PASTE, settings)} 粘贴，" +
                 "${modifierFlagsOf(ClipAction.PASTE_WITHOUT_FORMATTING, settings)} 粘贴并去除格式。",
             style = MaterialTheme.typography.labelSmall,
-            color = colors.onSurfaceVariant,
+            color = MaterialTheme.hintColor,
             modifier = Modifier.padding(top = 2.dp),
         )
         SliderRow(
@@ -490,7 +491,7 @@ private fun ShortcutsSection(
                 "点击快捷键即可重新录制；呼出面板的快捷键在系统范围内生效。"
             },
             style = MaterialTheme.typography.labelSmall,
-            color = if (recording != null) colors.primary else colors.onSurfaceVariant,
+            color = if (recording != null) colors.primary else MaterialTheme.hintColor,
             modifier = Modifier.padding(top = 4.dp),
         )
     }
@@ -620,13 +621,12 @@ private fun PinnedItemsSection(
     selectedPinId: String?,
     onSelectPin: (String) -> Unit,
 ) {
-    val colors = MaterialTheme.colorScheme
     SectionCard("置顶项") {
         if (data.pinnedItems.isEmpty()) {
             Text(
                 text = "还没有置顶项目。在列表里按 ⌥P 置顶。",
                 style = MaterialTheme.typography.labelSmall,
-                color = colors.onSurfaceVariant,
+                color = MaterialTheme.hintColor,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         } else {
@@ -645,7 +645,7 @@ private fun PinnedItemsSection(
             Text(
                 text = "键位可自定义，别名会替换列表里显示的标题；选中一行后按 Delete 可删除。",
                 style = MaterialTheme.typography.labelSmall,
-                color = colors.onSurfaceVariant,
+                color = MaterialTheme.hintColor,
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
@@ -704,7 +704,7 @@ private fun IgnoreSection(data: PreferencesUiData, actions: PreferencesActions) 
                 Text(
                     text = "尚未添加任何应用。",
                     style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant,
+                    color = MaterialTheme.hintColor,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             } else {
@@ -730,7 +730,7 @@ private fun IgnoreSection(data: PreferencesUiData, actions: PreferencesActions) 
                 Text(
                     text = "来自这些应用的复制不会被记录。",
                     style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant,
+                    color = MaterialTheme.hintColor,
                     modifier = Modifier.padding(start = 4.dp),
                 )
             }
@@ -738,7 +738,7 @@ private fun IgnoreSection(data: PreferencesUiData, actions: PreferencesActions) 
             Text(
                 text = "当前平台无法识别复制来源的应用，因此没有忽略应用列表。",
                 style = MaterialTheme.typography.labelSmall,
-                color = colors.onSurfaceVariant,
+                color = MaterialTheme.hintColor,
                 modifier = Modifier.padding(top = 6.dp),
             )
         }
