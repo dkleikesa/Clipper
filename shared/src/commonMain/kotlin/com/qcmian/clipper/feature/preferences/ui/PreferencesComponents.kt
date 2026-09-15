@@ -53,6 +53,7 @@ import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
+import com.qcmian.clipper.core.ui.theme.hintColor
 
 /**
  * 偏好设置对话框中可复用的各种行。
@@ -264,7 +265,7 @@ internal fun PinRow(
             Text(
                 text = "该置顶项不是纯文本，无法编辑内容。",
                 style = MaterialTheme.typography.labelSmall,
-                color = colors.onSurfaceVariant,
+                color = MaterialTheme.hintColor,
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
@@ -348,7 +349,7 @@ internal fun SwitchRow(
                 Text(
                     text = description,
                     style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant,
+                    color = MaterialTheme.hintColor,
                 )
             }
         }
@@ -542,7 +543,7 @@ internal fun DelimitedListField(
             onValuesChange(committed)
         },
         label = { Text(label) },
-        supportingText = { Text(supportingText) },
+        supportingText = { Text(supportingText, color = MaterialTheme.hintColor) },
         singleLine = true,
         modifier = modifier,
     )
