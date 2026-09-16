@@ -3,6 +3,7 @@ package com.qcmian.clipper.desktop.viewmodel
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
 import java.awt.Rectangle
@@ -21,10 +22,15 @@ import com.qcmian.clipper.desktop.domain.nsModifierMask
 import com.qcmian.clipper.desktop.domain.RESIZE_SETTLE_MILLIS
 import com.qcmian.clipper.desktop.domain.TRAY_CLICK_GRACE_MILLIS
 import com.qcmian.clipper.core.settings.PopupPosition
+import com.qcmian.clipper.desktop.domain.APPLIED_SIZE_HISTORY
+import com.qcmian.clipper.desktop.domain.RESIZE_TOLERANCE_DP
+import com.qcmian.clipper.desktop.domain.WINDOW_SLIDE_MILLIS
+import com.qcmian.clipper.desktop.domain.WINDOW_SLIDE_STEP_MILLIS
 import com.qcmian.clipper.desktop.domain.autoWindowSize
 import com.qcmian.clipper.desktop.domain.constrained
 import com.qcmian.clipper.desktop.domain.contentWidthOf
-import com.qcmian.clipper.desktop.domain.cursorPosition
+import com.qcmian.clipper.desktop.domain.cursorAnchor
+import com.qcmian.clipper.desktop.domain.minimumWindowSizeOf
 import com.qcmian.clipper.desktop.domain.nearlyEquals
 import com.qcmian.clipper.desktop.domain.resolvePosition
 import com.qcmian.clipper.desktop.domain.screenBounds
@@ -39,6 +45,8 @@ import com.qcmian.clipper.core.platform.macos.MacStatusItem
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,22 +75,26 @@ data class DesktopShellUiState(
     /** 当前这次可见是否由托盘（点击 / 菜单）触发。热键呼出时托盘不画按下态。 */
     val panelOpenedByTray: Boolean = false,
 
-    /** 预览滑出面板是否打开；由 `App` 上报，仅用于计算窗口宽度。 */
-    val previewOpen: Boolean = false,
-
     /** 内容希望得到的高度（由 `HistoryScreen` 上报）。 */
     val preferredHeight: Dp = InitialPanelHeight,
+
+    /**
+     * 窗口的下限高度（由 `HistoryScreen` 上报）：滑动区下限 + 置顶区 + 头部 / 页脚。
+     *
+     * 手动拖拽时不会低于它。首次上报之前用滑动区的下限兜底，界面第一帧就会纠正。
+     */
+    val minimumHeight: Dp = Popup.minimumContentHeight,
 
     /** 预览是否改从左侧滑出（右侧放不下、左侧放得下时）。 */
     val previewOnLeft: Boolean = false,
 
     /**
-     * 预览两侧都放不下（窗口加宽后会超出屏幕），只能覆盖在主列表上。
+     * 窗口已经为预览让出位置（加宽 / 收回的那次几何**已经应用**），界面据此让预览卡片进场。
      *
-     * 这种情况下窗口保持原尺寸不动——一旦为了预览加宽窗口，窗口就会被夹回屏幕内，
-     * 主列表跟着平移，看起来就是「预览盖在主列表上、主列表被推到一边」。
+     * 必须是宿主算出来的信号，不能让界面拿量到的窗口宽度去猜——实测值慢窗口一帧，收起预览时
+     * 会让卡片在已经收窄的窗口里多画一帧（见 `PreviewHostPolicy.windowReady`）。
      */
-    val previewOverlays: Boolean = false,
+    val previewWindowReady: Boolean = false,
 
     /** 当前弹窗交互阶段：按住会话的投影，由本类写；界面目前不读它。 */
     val popupMode: PopupMode = PopupMode.TOGGLE,
@@ -126,6 +138,13 @@ class DesktopShellViewModel(
      * 两次调用之间的中间帧会被系统画出来——整个窗口左右闪一下。宿主改为一次 `setBounds`。
      */
     private val applyBounds: (x: Int, y: Int, width: Int, height: Int) -> Unit,
+    /**
+     * 设置窗口允许的最小尺寸（AWT `window.minimumSize`）。
+     *
+     * 手动拖拽窗口边缘时由框架读它拦下收缩（`UndecoratedWindowResizer`），因此这里算的
+     * 就是内容区的下限（预览并排时再加上滑出面板），见 [minimumWindowSizeOf]。
+     */
+    private val applyMinimumSize: (width: Int, height: Int) -> Unit,
 ) : ViewModel() {
     private val native = container.native
 
@@ -140,11 +159,27 @@ class DesktopShellViewModel(
     private val _systemDark = MutableStateFlow<Boolean?>(null)
     val systemDark: StateFlow<Boolean?> = _systemDark.asStateFlow()
 
-    /** 应用自己最后设定过的尺寸，任何其它尺寸都说明是用户拖动。 */
-    private val lastAppliedSize = MutableStateFlow<DpSize?>(null)
+    /**
+     * 程序自己最近应用过的窗口尺寸（新的在前）。
+     *
+     * 不能只记「最后那一个」：尺寸通知会滞后于程序的最新一次设定。预览打开 / 收起、内容高度
+     * 变化、偏好改动都可能在几帧内连着改几次几何，第 N 次的尺寸通知常常在第 N+1 次之后才到，
+     * 此时最后值已经是第 N+1 次的了——这条「自己造成的」通知会被误判成用户在拖窗口边缘，几何
+     * 更新随之冻结（见 [userIsResizing]），表现为窗口不再跟随设置。
+     */
+    private val recentAppliedSizes = ArrayDeque<DpSize>()
 
     /** 应用自己最后设定过的窗口几何（位置 + 尺寸），用来跳过重复的原生调用。 */
     private var lastAppliedBounds: Rectangle? = null
+
+    /** 最后**落到原生窗口上**的几何。预览滑出 / 收回的过渡从这里开始插值，见 [applyWindowBounds]。 */
+    private var lastNativeBounds: Rectangle? = null
+
+    /** 正在跑的窗口几何过渡（位置 / 宽度逐帧插值）；新目标到来时取代上一次。 */
+    private var geometryJob: Job? = null
+
+    /** 应用自己最后设定过的窗口最小尺寸，用来跳过重复的原生调用。 */
+    private var lastAppliedMinimumSize: DpSize? = null
 
     /**
      * 用户正在拖动窗口边缘时的「静默期」截止时刻。拖动是一个连续过程，期间不接受任何
@@ -157,6 +192,16 @@ class DesktopShellViewModel(
      * 面板隐藏后清空，下次显示时重新取。
      */
     private var contentAnchor: WindowPosition.Absolute? = null
+
+    /**
+     * [contentAnchor] 是在「预览宽度为这个值」时定下来的。
+     *
+     * 预览停靠左侧时，窗口左边缘由「锚点 − 滑出宽度」推出：预览宽度一变，窗口就会跟着平移。
+     * 而拖动分隔条只该改变两个面板的划分（见 `HistoryScreen.draggedPreviewWidth`），窗口一帧
+     * 都不该动——因此按这个差值把锚点挪过去（见 [applyWindowGeometry]），两者必须一起更新。
+     * `null` 表示锚点已失效（面板隐藏或尚未摆放）。
+     */
+    private var anchorPreviewWidth: Int? = null
 
     /** 上一次取锚点所用的位置偏好；变化时要重新取。 */
     private var lastPlacementSignature: Pair<PopupPosition, Int>? = null
@@ -232,6 +277,7 @@ class DesktopShellViewModel(
         viewModelScope.launch { observeShortcut() }
         viewModelScope.launch { observeHotKeyHold() }
         viewModelScope.launch { observeWindowGeometry() }
+        viewModelScope.launch { observeMinimumWindowSize() }
         viewModelScope.launch { observeUserResize() }
         viewModelScope.launch { observeToggleRequests() }
         viewModelScope.launch { observeOutsideClicks() }
@@ -359,14 +405,14 @@ class DesktopShellViewModel(
         hidePanel(restoreFocus = false)
     }
 
-    /** `App` 上报预览滑出面板的开关状态。 */
-    fun onPreviewOpenChanged(open: Boolean) {
-        _uiState.update { it.copy(previewOpen = open) }
-    }
-
     /** `App` 上报内容希望得到的高度。 */
     fun onPreferredHeightChanged(height: Dp) {
         _uiState.update { it.copy(preferredHeight = height) }
+    }
+
+    /** `App` 上报窗口的下限高度（滑动区下限 + 置顶区 + 头部 / 页脚）。 */
+    fun onMinimumHeightChanged(height: Dp) {
+        _uiState.update { it.copy(minimumHeight = height) }
     }
 
     /** 退出：应用「退出时清空历史」偏好并等待落盘，然后请求宿主结束进程。 */
@@ -508,22 +554,25 @@ class DesktopShellViewModel(
     private fun placementPreference(settings: AppSettings): PopupPosition =
         if (openedByTray) PopupPosition.MENU_BAR else settings.popupPosition
 
-    /** 面板已稳定显示时再按热键：把窗口移到鼠标处，并同步预览展开所用的锚点。 */
+    /**
+     * 面板已稳定显示时再按热键：把窗口移到鼠标处。
+     *
+     * 只重设锚点，位置与尺寸一起交给 [applyWindowGeometry]（它对同一个锚点算尺寸、再把窗口夹进
+     * 屏幕）。刻意**不**在这里用「当前窗口尺寸」摆放窗口：那样算出来的 y 会被当前高度顶高，而它
+     * 紧接着又被记成锚点——高度于是等于自己的旧值，鼠标往下移也不会变小，只能往上长。
+     */
     private fun moveToCursor() {
         val settings = container.repository.settings.value
-        val placed = cursorPosition(windowState.size, settings.popupScreen) as WindowPosition.Absolute
-        applyWindowBounds(
-            x = placed.x.value.roundToInt(),
-            y = placed.y.value.roundToInt(),
-            size = windowState.size,
-        )
+        val cursor = cursorAnchor(settings.popupScreen) as WindowPosition.Absolute
         // 同步「内容区锚点」：否则下次切换预览会按旧锚点摆放，窗口会跳回去。
         contentAnchor = if (_uiState.value.previewOnLeft) {
-            WindowPosition.Absolute(placed.x + slideoutWidthOf(settings), placed.y)
+            WindowPosition.Absolute(cursor.x + slideoutWidthOf(settings), cursor.y)
         } else {
-            placed
+            cursor
         }
+        anchorPreviewWidth = settings.previewWidth
         lastPlacementSignature = Pair(placementPreference(settings), settings.popupScreen)
+        applyWindowGeometry(_uiState.value, settings)
     }
 
     /** 用户录制了不同的快捷键时重新注册全局热键。 */
@@ -552,24 +601,56 @@ class DesktopShellViewModel(
     }
 
     /**
+     * 窗口允许的最小尺寸（内容区下限），交给 AWT 的 `window.minimumSize`。
+     *
+     * 用户拖拽窗口边缘时由框架读它拦下收缩（`UndecoratedWindowResizer` 对左 / 上两侧做了
+     * `coerceAtLeast(window.minimumSize)`），所以下限要在拖拽开始之前就已经设好。宽度是常量、
+     * 高度用界面报上来的 [DesktopShellUiState.minimumHeight]，两者都**不含**预览滑出面板——
+     * 见 [minimumWindowSizeOf]。值没变时不产生原生调用。
+     *
+     * 下限**变小**时额外补一次几何：之前可能有一次尺寸请求被旧下限夹住（系统接受的是夹过之后
+     * 的值，而 [lastAppliedBounds] 记的是请求值，于是再也去重不掉），清掉记录再请求一次，
+     * 窗口才收得回来。
+     */
+    private suspend fun observeMinimumWindowSize() {
+        uiState.map { minimumWindowSizeOf(it.minimumHeight) }
+            .distinctUntilChanged()
+            .collect { size ->
+                val previous = lastAppliedMinimumSize
+                if (size == previous) return@collect
+                lastAppliedMinimumSize = size
+                applyMinimumSize(size.width.value.roundToInt(), size.height.value.roundToInt())
+                if (previous != null && size.height < previous.height) {
+                    lastAppliedBounds = null
+                    applyWindowGeometry(_uiState.value, container.repository.settings.value)
+                }
+            }
+    }
+
+    /**
      * 窗口几何：位置与尺寸一起算、一起写。
      *
      * 两者必须落在同一帧。预览停靠在左侧时窗口要同时「左移」和「变宽」（右边缘不动，主列表
      * 才停在原地）；若位置与尺寸由两次独立的写入驱动，界面就会先看到「位置已移、宽度未变」
      * 或「宽度已变、位置未移」的中间状态——主列表于是左右抖一下。
      *
-     * 触发来源涵盖：面板显示 / 隐藏、预览开关、内容高度、偏好设置，以及窗口位置本身的变化
-     * （位置一变，可用高度与主列表锚点都要重算）。
+     * 触发来源涵盖：面板显示 / 隐藏、预览开关、内容高度、偏好设置，以及窗口位置本身的变化。
+     * 位置只当**触发键**用，不参与计算：尺寸由内容与偏好决定，位置由锚点决定，因此每次重算都
+     * 收敛到同一个结果（`applyWindowBounds` 再去重），顺带保证窗口被外部挪走后仍会被拉回锚点。
      */
     private suspend fun observeWindowGeometry() {
         combine(
             uiState,
-            panel.hostUiState.map { it.settings }.distinctUntilChanged(),
+            // 直接用仓库里的偏好，而不是 `panel.hostUiState` 投影：投影由 `App` 在组合里用
+            // `SideEffect` 写入，于是「改设置」到「窗口跟上」要多等一帧。拖动预览分隔条时每帧
+            // 都在改设置，那一帧的差值会让预览抢在窗口前面变宽、主列表替它吸收差额——两边的
+            // 尺寸一起抖（与 `observeShortcut` 是同一个坑）。
+            container.repository.settings,
             snapshotFlow { windowState.position },
         ) { state, settings, position ->
             Triple(state, settings, position)
-        }.collect { (state, settings, position) ->
-            applyWindowGeometry(state, settings, position)
+        }.collect { (state, settings, _) ->
+            applyWindowGeometry(state, settings)
         }
     }
 
@@ -583,11 +664,11 @@ class DesktopShellViewModel(
     private fun applyWindowGeometry(
         state: DesktopShellUiState,
         settings: AppSettings,
-        position: WindowPosition,
     ) {
         if (!state.windowVisible) {
             // 隐藏后下次显示要重新取锚点，否则会把上一次的旧位置带过来。
             contentAnchor = null
+            anchorPreviewWidth = null
             lastPlacementSignature = null
             return
         }
@@ -597,7 +678,7 @@ class DesktopShellViewModel(
         if (userIsResizing()) return
 
         val contentWidth = contentWidthOf(settings)
-        val slideoutWidth = slideoutWidthOf(settings)
+        val desiredSlideout = slideoutWidthOf(settings)
         val bounds = screenBounds(settings.popupScreen)
 
         val preferred = placementPreference(settings)
@@ -605,7 +686,7 @@ class DesktopShellViewModel(
         // 只在「重新显示」或「位置偏好变化」时取锚点；仅切换预览时沿用旧锚点，
         // 主列表不会跟着鼠标或上次的窗口尺寸跳动。
         val signature = Pair(preferred, settings.popupScreen)
-        val anchor = contentAnchor?.takeIf { signature == lastPlacementSignature }
+        var anchor = contentAnchor?.takeIf { signature == lastPlacementSignature }
             ?: (
                 resolvePosition(
                     position = preferred,
@@ -613,7 +694,30 @@ class DesktopShellViewModel(
                     screenIndex = settings.popupScreen,
                     statusItem = MacStatusItem.currentAnchor(),
                 ) as WindowPosition.Absolute
-                ).also { lastPlacementSignature = signature }
+                ).also {
+                    lastPlacementSignature = signature
+                    anchorPreviewWidth = settings.previewWidth
+                }
+
+        // 预览停靠左侧时，窗口左边缘是「锚点 − 滑出宽度」推出来的：预览宽度一变，窗口就会
+        // 跟着平移。而拖动分隔条只该改变两个面板的划分（见 `HistoryScreen.draggedPreviewWidth`），
+        // 窗口一帧都不该动。锚点本来就表示「主列表左上角在哪」，预览变宽时主列表的左边缘正是
+        // 往右让出这么多，因此把它按同样的差值挪过去——算出来的窗口位置与改动前完全相同，
+        // `applyWindowBounds` 直接去重，原生窗口一动不动。
+        //
+        // 用 [state] 里的停靠侧判断（那是上一次布局的结论）：本次停靠侧要等锚点定下来才能算，
+        // 而锚点正是这里要先挪的东西。预览开关、换屏幕、换位置偏好都会重取锚点，那些情况下这次
+        // 挪动作用在即将被丢弃的旧锚点上，没有影响。
+        if (state.previewOnLeft) {
+            val reference = anchorPreviewWidth
+            if (reference != null && reference != settings.previewWidth) {
+                anchor = WindowPosition.Absolute(
+                    anchor.x + (settings.previewWidth - reference).dp,
+                    anchor.y,
+                )
+                anchorPreviewWidth = settings.previewWidth
+            }
+        }
         contentAnchor = anchor
 
         // 预览停靠在哪一侧：优先右侧，右侧放不下时改左侧，两侧都放不下就退回覆盖层。
@@ -621,38 +725,77 @@ class DesktopShellViewModel(
         // 判断的是「窗口整个（主列表 + 滑出面板）放不放得进屏幕」，而不是「预览放不放得进
         // 列表旁边」：主列表是跟着窗口走的，只要窗口被 `constrained` 夹回屏幕内，主列表就会
         // 跟着平移——表现为「预览先盖在主列表原来的位置上，主列表被推到一边」，收起时再推回来。
-        val fitsRight = anchor.x.value + contentWidth.value + slideoutWidth.value <=
-            bounds.x + bounds.width
-        val fitsLeft = anchor.x.value - slideoutWidth.value >= bounds.x
-        val overlays = state.previewOpen && !fitsRight && !fitsLeft
-        val previewOnLeft = state.previewOpen && !overlays && !fitsRight
-        _uiState.update {
-            if (it.previewOnLeft == previewOnLeft && it.previewOverlays == overlays) {
-                it
-            } else {
-                it.copy(previewOnLeft = previewOnLeft, previewOverlays = overlays)
+        //
+        // 余量按「能不能放下**最小**宽度的预览」算，实际给出去的宽度再夹进这个余量：面板宽度
+        // 超过这一侧的余量时（用户把窗口拖到了屏幕边上），它只会在边缘停住，而不是翻到另一侧
+        // ——翻侧会让整个窗口跳到锚点另一边，主列表跟着平移。
+        val roomRight = (bounds.x + bounds.width - anchor.x.value - contentWidth.value).dp
+            .coerceAtLeast(0.dp)
+        val roomLeft = (anchor.x.value - bounds.x).dp.coerceAtLeast(0.dp)
+        val fitsRight = roomRight >= Popup.minimumSlideoutWidth
+        // 预览开没开直接读设置，**不**从界面上报：这里它决定窗口要不要为预览让位，这一份一旦
+        // 停在「开着」，窗口就再也收不回来——预览早已收起，窗口右侧却留着预览那一块空白。
+        val previewOpen = settings.previewOpen
+        // 桌面端**永远**并排，不走覆盖层（`overlays` 恒为 false，见 [DesktopShellUiState]）：
+        // 窗口宽度由内容 + 滑出面板决定，放不下时把滑出宽度按这一侧的余量夹小（下面 `slideout`），
+        // 而不是让预览盖在主列表上——覆盖层只要在过渡里出现一帧，看起来就是「预览整块盖住了
+        // 列表」，而并排布局里卡片与列表各占一边，任何一帧都不可能互相遮盖。
+        val previewOnLeft = previewOpen && !fitsRight
+
+        // 尺寸由内容与偏好决定（预览并排时额外容纳滑出面板）；位置以锚点为基准，预览停靠左侧时
+        // 窗口向左展开——两者用的必须是**同一个**滑出宽度，否则窗口边缘和面板会差着一段。
+        //
+        // 高度截的是「锚点下方还剩多少」，不是窗口当前的 y：那样会让「窗口有多高」和「窗口在哪」
+        // 互相追赶（见 `autoWindowSize`）。实在放不下时由下面的 `constrained` 把窗口上移。
+        val slideout = if (previewOpen) {
+            desiredSlideout.coerceAtMost(if (previewOnLeft) roomLeft else roomRight)
+        } else {
+            null
+        }
+        // 屏幕放不下时，把设置里的预览宽度也收敛掉——只夹窗口是不够的：界面里的面板会照设置值
+        // 继续变宽，多出来的部分只能挤主列表；而设置值一路涨到拖动上限之后，用户往回拖一大段都
+        // 不见效（一段死区）。夹到同一个值，分隔条就会在屏幕边缘自然停住，与窗口被屏幕夹住是
+        // 同一件事。
+        if (slideout != null && slideout < desiredSlideout) {
+            val capped = (slideout - Popup.previewDividerWidth).value.roundToInt()
+                .coerceAtLeast(Popup.minimumPreviewWidth.value.toInt())
+            if (capped < settings.previewWidth) {
+                container.repository.setSettings(settings.copy(previewWidth = capped))
             }
         }
-
-        // 尺寸由内容与偏好决定（预览打开且能并排时额外容纳滑出面板）；位置以锚点为基准，
-        // 预览停靠左侧时窗口向左展开。
-        val top = (position as? WindowPosition.Absolute)?.y?.value?.toInt()
-            ?: anchor.y.value.toInt()
         val target = autoWindowSize(
             settings = settings,
-            previewOpen = state.previewOpen && !overlays,
+            slideoutWidth = slideout,
             preferredHeight = state.preferredHeight,
-            top = top,
+            minimumHeight = state.minimumHeight,
+            anchorY = anchor.y.value.toInt(),
+            bounds = bounds,
         )
         val windowX = if (previewOnLeft) {
-            anchor.x.value - slideoutWidth.value
+            anchor.x.value - (slideout ?: 0.dp).value
         } else {
             anchor.x.value
         }
 
-        lastAppliedSize.value = target
-        // 位置与尺寸必须一次应用（见 [applyBounds]）。这里不写 `windowState`：它由窗口自身的
-        // 尺寸 / 位置通知回写，程序再写一遍只会让 Compose 又按「先尺寸后位置」应用一次。
+        // 预览是不是（还）在窗口里：设置说开着；或者这次收起的过渡还没把窗口收回去（原生宽度仍
+        // 多着一段）——那几帧里卡片要继续占着槽位，主列表才不会随窗口一起挪。用户自己拖窗口
+        // 边缘时窗口也会比内容宽，那种情况不算（否则已经关闭的预览会凭空冒出来）。
+        val windowReady = previewOpen || (
+            !userIsResizing() &&
+                (lastNativeBounds?.width ?: 0) >
+                target.width.value.roundToInt() + RESIZE_TOLERANCE_DP.toInt()
+            )
+        _uiState.update {
+            if (it.previewOnLeft == previewOnLeft && it.previewWindowReady == windowReady) {
+                it
+            } else {
+                it.copy(previewOnLeft = previewOnLeft, previewWindowReady = windowReady)
+            }
+        }
+
+        rememberAppliedSize(target)
+        // 位置与尺寸必须一次应用（见 [applyBounds]），`windowState` 也由 [applyWindowBounds] 一并
+        // 对齐——不写它会留下一帧「尺寸已新、位置仍旧」的窗口，理由见那里。
         val placed = constrained(
             x = windowX.toInt(),
             y = anchor.y.value.toInt(),
@@ -675,9 +818,80 @@ class DesktopShellViewModel(
             size.height.value.roundToInt(),
         )
         if (lastAppliedBounds == bounds) return
+        val from = lastNativeBounds
         lastAppliedBounds = bounds
-        applyBounds(bounds.x, bounds.y, bounds.width, bounds.height)
+        geometryJob?.cancel()
+
+        // 首次摆放、或高度也变了：一次到位。高度由内容决定（条目增减），逐帧插值只会让窗口
+        // 长得比内容慢；首次摆放时窗口本来就在进场，也不该滑一下。`WINDOW_SLIDE_MILLIS` 置 0
+        // 即关掉过渡，退回一次到位。
+        if (from == null || from.height != bounds.height || from.width == bounds.width ||
+            WINDOW_SLIDE_MILLIS <= 0L
+        ) {
+            applyNativeBounds(bounds)
+            return
+        }
+
+        // 只有「预览滑出 / 收回」这一类变化（位置与宽度一起变、高度不变）才逐帧插值，见
+        // [WINDOW_SLIDE_MILLIS]：一次到位会留下系统按旧内容补位的那一帧，看起来就是预览整块
+        // 盖在主列表上。
+        geometryJob = viewModelScope.launch {
+            val startedAt = System.nanoTime()
+            try {
+                while (true) {
+                    val progress = (
+                        (System.nanoTime() - startedAt) / 1_000_000f / WINDOW_SLIDE_MILLIS
+                        ).coerceIn(0f, 1f)
+                    applyNativeBounds(
+                        Rectangle(
+                            from.x + ((bounds.x - from.x) * progress).roundToInt(),
+                            bounds.y,
+                            from.width + ((bounds.width - from.width) * progress).roundToInt(),
+                            bounds.height,
+                        ),
+                    )
+                    if (progress >= 1f) return@launch
+                    delay(WINDOW_SLIDE_STEP_MILLIS)
+                }
+            } catch (cancellation: CancellationException) {
+                // 被新的目标取代：停在当前帧，由新的那次过渡接着走。
+                throw cancellation
+            } catch (error: Throwable) {
+                // 过渡本身出岔子也不能让窗口停在半路：直接把目标摆上。
+                applyNativeBounds(bounds)
+            }
+        }
     }
+
+    /**
+     * 真正落到原生窗口上的一次应用，并把 `windowState` 对齐到同一组值。
+     *
+     * 对齐 state 是因为 Compose 自己的窗口实现会把 state 里的尺寸与位置**分两次**应用到窗口
+     * 上（先尺寸、后位置），而它读到的这两个值来自窗口的通知，到达有先后：缩放通知先到、移动
+     * 通知后到。左侧停靠时窗口要同时「左移」和「变宽」，于是它可能在「尺寸已新、位置仍旧」的
+     * 那一帧按旧位置再摆一次窗口。我们把 state 一并对齐后，它那两次应用都是空操作。
+     *
+     * 每一帧都要记进 [recentAppliedSizes]：插值的中间尺寸也是**程序自己**设的，漏记的话会被
+     * 当成「用户在拖窗口边缘」（见 [observeUserResize]）。
+     */
+    private fun applyNativeBounds(bounds: Rectangle) {
+        lastNativeBounds = bounds
+        applyBounds(bounds.x, bounds.y, bounds.width, bounds.height)
+        val size = DpSize(bounds.width.dp, bounds.height.dp)
+        rememberAppliedSize(size)
+        windowState.size = size
+        windowState.position = WindowPosition.Absolute(bounds.x.dp, bounds.y.dp)
+    }
+
+    /** 记下这次由程序应用的尺寸；保留一小段历史的原因见 [recentAppliedSizes]。 */
+    private fun rememberAppliedSize(size: DpSize) {
+        recentAppliedSizes.addFirst(size)
+        while (recentAppliedSizes.size > APPLIED_SIZE_HISTORY) recentAppliedSizes.removeLast()
+    }
+
+    /** 这个尺寸是不是程序自己刚设过的（[RESIZE_TOLERANCE_DP] 之内）。 */
+    private fun wasAppliedByProgram(size: DpSize): Boolean =
+        recentAppliedSizes.any { size.nearlyEquals(it) }
 
     /**
      * 用户拖动窗口边缘改变尺寸：手停下来之后，把最终尺寸记为「自定义尺寸」。
@@ -689,21 +903,21 @@ class DesktopShellViewModel(
     private suspend fun observeUserResize() {
         snapshotFlow { windowState.size }
             .collectLatest { size ->
-                // 与「应用最后设定的尺寸」一致 —— 这次通知是程序自己造成的，直接忽略。
-                val applied = lastAppliedSize.value ?: return@collectLatest
-                if (size.nearlyEquals(applied)) return@collectLatest
+                // 命中程序最近设过的某个尺寸 —— 这次通知是自己造成的，直接忽略。
+                // 判据必须是「最近若干次」而不是「最后一次」，理由见 [recentAppliedSizes]。
+                if (wasAppliedByProgram(size)) return@collectLatest
 
                 userResizeUntil = System.currentTimeMillis() + RESIZE_SETTLE_MILLIS
                 delay(RESIZE_SETTLE_MILLIS)
 
                 val settings = container.repository.settings.value
                 // 预览打开时拖的是整窗宽度，写回前要减掉滑出面板：自定义宽度始终表示主列表宽度。
-                val contentWidth = if (_uiState.value.previewOpen) {
+                val contentWidth = if (settings.previewOpen) {
                     size.width - slideoutWidthOf(settings)
                 } else {
                     size.width
                 }
-                lastAppliedSize.value = size
+                rememberAppliedSize(size)
                 // 窗口已经不在「应用设定的几何」上了：清掉记录，让随后的补正一定重新应用一次
                 // （否则算出来的几何恰好等于旧值就会被当成「已经应用过」而跳过）。
                 lastAppliedBounds = null
@@ -713,9 +927,15 @@ class DesktopShellViewModel(
                 rememberContentAnchor()
                 container.repository.setSettings(
                     settings.copy(
+                        // 内容区下限：右 / 下两侧的拖拽框架不读 `minimumSize`，落盘时收敛一次，
+                        // 最终尺寸同样不会低于下限（见 [minimumWindowSizeOf]）。这里用的是
+                        // 「划分里的下限」[Popup.minimumSplitContentWidth]（比窗口下限小）：
+                        // 预览开着时拖窄窗口，同时被挤窄的是主列表，按窗口下限收敛会把窗口又顶宽。
+                        // 高度用的是界面报上来的窗口下限，滑动区因此总是留着「剪贴板为空时」那一档。
                         customWindowWidth = contentWidth.value.roundToInt()
-                            .coerceAtLeast(Popup.minimumContentWidth.value.toInt()),
-                        customWindowHeight = size.height.value.roundToInt(),
+                            .coerceAtLeast(Popup.minimumSplitContentWidth.value.toInt()),
+                        customWindowHeight = size.height.value.roundToInt()
+                            .coerceAtLeast(_uiState.value.minimumHeight.value.roundToInt()),
                     ),
                 )
 
@@ -724,7 +944,6 @@ class DesktopShellViewModel(
                 applyWindowGeometry(
                     state = _uiState.value,
                     settings = container.repository.settings.value,
-                    position = windowState.position,
                 )
             }
     }
@@ -739,6 +958,7 @@ class DesktopShellViewModel(
         } else {
             position
         }
+        anchorPreviewWidth = settings.previewWidth
         lastPlacementSignature = Pair(placementPreference(settings), settings.popupScreen)
     }
 

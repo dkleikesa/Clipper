@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.Popup
+import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.components.VerticalScrollbar
 import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
@@ -74,21 +75,28 @@ fun PreviewPane(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (item != null) {
-                // `ToolbarView.selectedImageText`：仅当图片有识别出的文字、
-                // 且宿主接上了该动作时才提供。
-                if (onCopyExtractedText != null && item.image != null && item.title.isNotBlank()) {
+                // `ToolbarView.selectedImageText`：仅当图片有识别出的文字、且宿主接上了该动作时
+                // 才提供。判据必须是 `hasRecognizedText` 而不是 `title.isNotBlank()`：带正文的图文
+                // 混合条目，其标题来自正文，用它判定会凭空多出一个「复制图片文字」按钮。
+                if (onCopyExtractedText != null && item.hasRecognizedText) {
                     ToolbarIconButton(
                         kind = ClipperIconKind.TEXT_VIEWFINDER,
+                        tooltip = "复制图片中识别出的文字",
                         onClick = onCopyExtractedText,
                     )
                     Spacer(Modifier.width(4.dp))
                 }
                 ToolbarIconButton(
                     kind = if (item.isPinned) ClipperIconKind.PIN_SLASH else ClipperIconKind.PIN,
+                    tooltip = if (item.isPinned) "取消置顶" else "置顶这一条",
                     onClick = onTogglePin,
                 )
                 Spacer(Modifier.width(4.dp))
-                ToolbarIconButton(kind = ClipperIconKind.TRASH, onClick = onDelete)
+                ToolbarIconButton(
+                    kind = ClipperIconKind.TRASH,
+                    tooltip = "删除这一条",
+                    onClick = onDelete,
+                )
             }
         }
 
@@ -169,17 +177,19 @@ fun PreviewPane(
 }
 
 @Composable
-private fun ToolbarIconButton(kind: ClipperIconKind, onClick: () -> Unit) {
+private fun ToolbarIconButton(kind: ClipperIconKind, tooltip: String, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    Box(
-        modifier = Modifier
-            .height(23.dp)
-            .clip(RoundedCornerShape(Popup.cornerRadius))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        ClipperIcon(kind, size = 14.dp, tint = colors.onSurface)
+    HoverTooltip(tooltip) {
+        Box(
+            modifier = Modifier
+                .height(23.dp)
+                .clip(RoundedCornerShape(Popup.cornerRadius))
+                .clickable(onClick = onClick)
+                .padding(horizontal = 4.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            ClipperIcon(kind, size = 14.dp, tint = colors.onSurface)
+        }
     }
 }
 

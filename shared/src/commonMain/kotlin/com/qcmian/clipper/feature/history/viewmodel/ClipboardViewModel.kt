@@ -2,6 +2,7 @@ package com.qcmian.clipper.feature.history.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.di.ClipboardUseCases
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * 历史界面的状态持有者。它持有整个 [ClipboardUiState]，把 [ClipboardUiAction] 转成领域用例调用，
@@ -53,7 +55,6 @@ class ClipboardViewModel(
     private val navigation = HistoryNavigationController(
         state = _uiState,
         footerCount = ::footerCount,
-        onFooterHovered = ::togglePreview,
     )
 
     /** 持有查询节流与搜索任务。 */
@@ -150,8 +151,7 @@ class ClipboardViewModel(
                 if (platform.copyExtractedText(item)) search.clearSearch()
             }
 
-            is ClipboardUiAction.SetPreviewWidth ->
-                useCases.updateSettings { it.copy(previewWidth = action.width) }
+            is ClipboardUiAction.SetPreviewWidth -> setPreviewWidth(action.width)
 
             is ClipboardUiAction.TogglePin -> useCases.togglePin(action.item)
             is ClipboardUiAction.DeleteItem -> repository.deleteClip(action.item)
@@ -175,7 +175,9 @@ class ClipboardViewModel(
             ClipboardUiAction.Opened -> onOpened()
             ClipboardUiAction.Cycle -> navigation.moveNext(allowCycle = true)
             ClipboardUiAction.Accept -> onAccept()
-            ClipboardUiAction.Hidden -> _uiState.update { it.copy(previewOpen = false) }
+            // 面板被宿主隐藏时不再收起预览：开关是持久化的用户选择，
+            // 只有用户主动切换才会翻转（见 `AppSettings.previewOpen`）。
+            ClipboardUiAction.Hidden -> Unit
         }
     }
 
@@ -288,6 +290,8 @@ class ClipboardViewModel(
         _uiState.update {
             it.copy(
                 settings = settings,
+                // 预览开关来自设置：它是持久化的用户选择，界面状态只是它的投影。
+                previewOpen = settings.previewOpen,
                 results = results,
                 historySelection = it.historySelection.coerceIn(0, maxOf(0, results.lastIndex)),
                 storageSize = platform.storageSize,
@@ -297,12 +301,56 @@ class ClipboardViewModel(
                 screenCount = platform.screenCount,
                 supportsLaunchAtLogin = platform.supportsLaunchAtLogin,
                 supportsApplicationInfo = platform.supportsApplicationInfo,
+                supportsTextRecognition = platform.supportsTextRecognition,
             )
         }
     }
 
-    /** 对应 `SlideoutController.togglePreview(trigger: .manual)`。 */
-    private fun togglePreview() = _uiState.update { it.copy(previewOpen = !it.previewOpen) }
+    /**
+     * 对应 `SlideoutController.togglePreview(trigger: .manual)`。
+     *
+     * 写的是设置而不是界面状态：开关随设置持久化，因此面板关闭、应用重启都不会把它复位，
+     * 打开的预览会一直开着（见 `AppSettings.previewOpen`）。
+     */
+    private fun togglePreview() =
+        useCases.updateSettings { it.copy(previewOpen = !it.previewOpen) }
+
+    /**
+     * 拖动分隔条松手：把预览宽度落盘。
+     *
+     * 界面在拖动期间只改自己那份临时宽度（见 `HistoryScreen.draggedPreviewWidth`），因此窗口
+     * 一帧都不动；这里落盘时必须**连同主列表的新宽度一起**写——预览多占的那一段正是主列表
+     * 让出来的。分开写会出两种毛病：
+     *
+     * - 只写 `AppSettings.previewWidth`：宿主按「主列表 + 预览」重算窗口宽度，窗口跟着变宽，
+     *   等于把「拖分隔条」做成了「拖窗口」；
+     * - 分两次写：中间那一帧的窗口宽度是「旧主列表 + 新预览」，窗口会跳一下。
+     *
+     * 两者之和不变，宿主算出来的窗口几何与拖动前完全相同，`applyWindowBounds` 因此直接去重掉
+     * 这次「变化」，原生窗口一动不动。
+     */
+    private fun setPreviewWidth(width: Int) {
+        useCases.updateSettings { current ->
+            val preview = width.coerceIn(
+                Popup.minimumPreviewWidth.value.toInt(),
+                Popup.maximumPreviewWidth.value.toInt(),
+            )
+            val listBefore = Popup.contentWidthOf(current.customWindowWidth)
+            val listAfter = listBefore.value.roundToInt() + current.previewWidth - preview
+            current.copy(
+                previewWidth = preview,
+                // 主列表宽度没变时保持原值：`null` 表示「自动宽度」，别被一次没改变布局的
+                // 拖动写成常量。下限用「划分里的下限」而不是窗口自身的下限：预览多占的宽度正是
+                // 主列表让出来的，夹到窗口下限会让这一段宽度既没给预览、也没留在列表上——窗口
+                // 反而被撑宽（与 `Popup.minimumSplitContentWidth` 的说明同源）。
+                customWindowWidth = if (listAfter == listBefore.value.roundToInt()) {
+                    current.customWindowWidth
+                } else {
+                    listAfter.coerceAtLeast(Popup.minimumSplitContentWidth.value.toInt())
+                },
+            )
+        }
+    }
 
     private fun footerCount(): Int = 3 + if (showQuit) 1 else 0
 

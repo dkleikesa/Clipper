@@ -27,16 +27,37 @@ import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.isHexColor
 import com.qcmian.clipper.core.settings.HighlightMatch
 import com.qcmian.clipper.core.ui.KeyShortcut
+import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
 import com.qcmian.clipper.core.ui.hexToColor
+
+/**
+ * 缩略图在 `maxImageHeight` 之上额外增加的垂直内边距（上下各一半）。
+ *
+ * 行高（`HistoryRow` 传给 `ListItemRow` 的 `height`）与图片槽位都由它推导，
+ * `HistoryScreen` 推算窗口高度与滚动条时也读同一个常量，三处必须一致。
+ */
+internal val ImageRowPadding = 10.dp
+
+/**
+ * 一条记录的行高：文本行为 [Popup.itemHeight]，图片行为 [imageMaxHeight] 加 [ImageRowPadding]。
+ *
+ * 这是行高的**唯一依据**：列表渲染（[HistoryRow]）、窗口高度与滚动条的内容总高
+ * （`HistoryScreen` 的 `rowHeight`）都调用它，三处因此不可能各自推算出一套数来。
+ *
+ * 判定只看 `item.image` 是否为 `null`，不看位图能否解码出来：位图解码失败时行内改显示
+ * 标题，但内容总高仍按图片行推算——两者一旦用不同的判据，滑块长度与拖拽落点就会和真实
+ * 内容对不上（滑块很短、一拖就跳到底）。
+ */
+internal fun historyRowHeight(item: ClipItem, imageMaxHeight: Dp): Dp =
+    if (item.image != null) imageMaxHeight + ImageRowPadding else Popup.itemHeight
 
 /**
  *。一行要么是色块加标题，要么只有图片缩略图——
  * 绝不会同时出现标题与缩略图。
  *
- * 行高是**确定性**的：文本行为 [com.qcmian.clipper.core.ui.Popup.itemHeight]，图片行为
- * [maxImageHeight] 加 10dp 的垂直内边距。窗口高度与滚动条都按这两个常量推算整份内容的高度，
- * 因此两处都必须是固定高度（见 `ListItemRow` 与下方 `ContentScale.Inside`）。
+ * 行高是**确定性**的，由 [historyRowHeight] 给出。窗口高度与滚动条都按同一函数推算整份内容的
+ * 高度，因此两处都必须是固定高度（见 `ListItemRow` 与下方 `ContentScale.Inside`）。
  */
 @Composable
 fun HistoryRow(
@@ -63,6 +84,12 @@ fun HistoryRow(
     ListItemRow(
         isSelected = isSelected,
         shortcut = shortcut,
+        // 行高与 `HistoryScreen` 推算窗口高度、滚动条内容总高时读的是同一个函数，因此不可能分叉。
+        //
+        // 判据只看 `item.image`（见 [historyRowHeight]），**不能**用 `thumbnail`：解码失败时
+        // 行内会退回标题文本，但行高仍留出图片槽位，只是多一段留白；若改用 `thumbnail`，
+        // 那一行的真实高度就与滚动条前缀和差出一截，滑块长度、位置与拖动落点会一起漂移。
+        height = historyRowHeight(item, maxImageHeight),
         onClick = onClick,
         onHover = onHover,
         appIcon = appIcon?.let {
@@ -89,12 +116,14 @@ fun HistoryRow(
                 contentScale = ContentScale.Inside,
                 alignment = Alignment.Center,
                 modifier = Modifier
-                    .padding(vertical = 5.dp)
+                    .padding(vertical = ImageRowPadding / 2)
                     .height(maxImageHeight)
                     .clip(RoundedCornerShape(2.dp)),
             )
         } else {
-            RowTitle(highlightedTitle(item.title, ranges, highlight, isSelected, colors))
+            // 图片文字识别的标题是识别原文、带真换行（复制时要还原原文），单行展示时压平。
+            // `\n` 换成等长的空格，因此不会让搜索高亮的偏移错位；文本条目的标题本来就没有换行。
+            RowTitle(highlightedTitle(item.title.replace('\n', ' '), ranges, highlight, isSelected, colors))
         }
     }
 }

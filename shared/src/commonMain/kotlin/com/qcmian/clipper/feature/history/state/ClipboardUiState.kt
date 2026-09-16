@@ -40,6 +40,8 @@ data class ClipboardUiState(
     val screenCount: Int = 1,
     val supportsLaunchAtLogin: Boolean = false,
     val supportsApplicationInfo: Boolean = false,
+    /** 宿主是否能做图片文字识别；为假时偏好设置里的识别开关会被禁用。 */
+    val supportsTextRecognition: Boolean = false,
     /** 宿主是否能退出应用，决定是否多出一行「退出」页脚。 */
     val showQuit: Boolean = false,
     val dialog: ClipboardDialog? = null,

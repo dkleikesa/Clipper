@@ -59,7 +59,8 @@ fun ClipboardPlatform.copySearchQuery(query: String): Boolean {
  * 放回剪贴板。返回 `true` 表示确实写入了剪贴板。
  */
 fun ClipboardPlatform.copyExtractedText(item: ClipItem): Boolean {
-    val text = item.title.trim()
-    if (item.image == null || text.isEmpty()) return false
-    return writeClipboard(ClipboardSnapshot(text = text))
+    // 与工具栏按钮同源：只有标题确实来自图片文字识别时才复制，否则会把条目本来的正文
+    // 当成「图片里的文字」写回剪贴板。
+    if (!item.hasRecognizedText) return false
+    return writeClipboard(ClipboardSnapshot(text = item.title.trim()))
 }

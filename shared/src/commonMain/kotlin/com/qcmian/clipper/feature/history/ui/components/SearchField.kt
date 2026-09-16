@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.ui.Popup
+import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 
@@ -109,18 +110,20 @@ fun SearchField(
 
             if (query.isNotEmpty()) {
                 Spacer(Modifier.width(5.dp))
-                Box(
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clip(CircleShape)
-                        .clickable { onQueryChange("") },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    ClipperIcon(
-                        ClipperIconKind.CLEAR,
-                        size = 11.dp,
-                        tint = foreground.copy(alpha = 0.9f),
-                    )
+                HoverTooltip("清空搜索") {
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .clickable { onQueryChange("") },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ClipperIcon(
+                            ClipperIconKind.CLEAR,
+                            size = 11.dp,
+                            tint = foreground.copy(alpha = 0.9f),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.width(5.dp))

@@ -25,7 +25,7 @@ internal fun resolvePosition(
 ): WindowPosition = when (position) {
     PopupPosition.SCREEN_CENTER -> screenCenterPosition(size, screenIndex)
     PopupPosition.MENU_BAR -> menuBarPosition(size, screenIndex, statusItem)
-    PopupPosition.CURSOR -> cursorPosition(size, screenIndex)
+    PopupPosition.CURSOR -> cursorAnchor(screenIndex)
 }
 
 /**
@@ -84,11 +84,20 @@ internal fun GraphicsDevice.visibleBounds(): Rectangle {
     )
 }
 
-internal fun cursorPosition(size: DpSize, screenIndex: Int): WindowPosition {
+/**
+ * `PopupPosition.origin`：面板从光标处向下展开。
+ *
+ * 锚点只取光标本身（只夹进屏幕可见区域），**不**按窗口尺寸往上夹：窗口放不下时该由摆放阶段
+ * （`applyWindowGeometry` 里的 `constrained`）把整个窗口上移。
+ *
+ * 一旦按「当前窗口高度」去夹锚点，锚点就会被推高，而高度又是按「锚点下方还剩多少」算的——
+ * 高度等于自己的旧高度，于是鼠标往下移时窗口只是被推回原位，**高度再也降不回来**。
+ */
+internal fun cursorAnchor(screenIndex: Int): WindowPosition {
     val mouse = runCatching { MouseInfo.getPointerInfo()?.location }.getOrNull()
-        ?: return screenCenterPosition(size, screenIndex)
+        ?: return screenCenterPosition(DpSize.Zero, screenIndex)
     // AWT 在 macOS 上报告的是逻辑点，与 Compose 的 dp 一一对应。
-    return constrained(mouse.x, mouse.y, size, screenBounds(screenIndex))
+    return constrained(mouse.x, mouse.y, DpSize.Zero, screenBounds(screenIndex))
 }
 
 internal fun screenCenterPosition(size: DpSize, screenIndex: Int): WindowPosition {

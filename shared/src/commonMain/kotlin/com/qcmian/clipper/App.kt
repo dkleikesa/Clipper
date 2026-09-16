@@ -34,13 +34,14 @@ import kotlinx.coroutines.launch
  * @param onRequestHideWindow 让宿主在「自动粘贴」动作送达之前隐藏窗口，
  *   使按键能到达此前聚焦的应用。
  * @param onQuit 「退出」页脚行。无法退出的平台上传入 `null` 会隐藏该行。
- * @param onPreviewOpenChange 上报预览滑出面板的状态，使桌面宿主能加宽窗口。
  * @param previewHost 宿主为预览面板提供的空间约束：停靠侧、是否只能覆盖、是否加宽窗口。
  *   见 [PreviewHostPolicy]。
  * @param windowController 让宿主观察面板投影并驱动窗口事件（显示 / 隐藏 / 退出）。
  * @param hotkeyController 让宿主的全局热键状态机把按键意图发给面板。
  * @param onPreferredHeightChange 上报弹窗希望得到的高度，使桌面宿主能
  *   贴合内容。
+ * @param onMinimumHeightChange 上报窗口的下限高度（滑动区下限 + 置顶区 + 头部 / 页脚），
+ *   使桌面宿主在用户手动拖拽时不会把内容区压到下限以下。
  */
 @Composable
 fun App(
@@ -48,12 +49,13 @@ fun App(
     container: AppContainer,
     onRequestHideWindow: () -> Unit = {},
     onQuit: (() -> Unit)? = null,
-    onPreviewOpenChange: (Boolean) -> Unit = {},
     /** 宿主为预览面板提供的空间约束；见 [HistoryScreen] 的同名参数。 */
     previewHost: PreviewHostPolicy = PreviewHostPolicy(),
     windowController: WindowController? = null,
     hotkeyController: HotkeyController? = null,
     onPreferredHeightChange: (Dp) -> Unit = {},
+    /** 窗口的下限高度；见 [HistoryScreen] 的同名参数。 */
+    onMinimumHeightChange: (Dp) -> Unit = {},
     /** 面板当前是否可见。桌面宿主据此给托盘图标画按下态；其它平台无此概念。 */
     panelVisible: Boolean = true,
     /**
@@ -133,8 +135,8 @@ fun App(
         HistoryScreen(
             state = state,
             onAction = viewModel::onAction,
-            onPreviewOpenChange = onPreviewOpenChange,
             onPreferredHeightChange = onPreferredHeightChange,
+            onMinimumHeightChange = onMinimumHeightChange,
             applicationIcon = viewModel::applicationIcon,
             applicationName = viewModel::applicationName,
             availablePins = viewModel::availablePins,

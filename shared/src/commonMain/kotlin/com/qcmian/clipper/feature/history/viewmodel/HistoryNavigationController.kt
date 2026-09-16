@@ -10,13 +10,12 @@ import kotlinx.coroutines.flow.update
  * 掌管历史列表与页脚的键盘 / 鼠标导航，包括「键盘导航」与「悬停」之间的交接
  *。
  *
- * 它直接读写 [ClipboardViewModel] 持有的同一份 [ClipboardUiState]；只有「悬停页脚会关闭预览」
- * 这一个副作用以 [onFooterHovered] 注入，因此本类无需知道预览面板的其余细节。
+ * 它直接读写 [ClipboardViewModel] 持有的同一份 [ClipboardUiState]，不碰预览面板——
+ * 预览开关是持久化的用户选择，鼠标划过页脚不该改变它（见 `AppSettings.previewOpen`）。
  */
 internal class HistoryNavigationController(
     private val state: MutableStateFlow<ClipboardUiState>,
     private val footerCount: () -> Int,
-    private val onFooterHovered: () -> Unit,
 ) {
     /** 对应 `NavigationManager.isKeyboardNavigating` 中待处理的悬停。 */
     private var pendingHoverSelection = -1
@@ -68,7 +67,7 @@ internal class HistoryNavigationController(
         }
     }
 
-    /** `FooterItemView.onHover`：悬停页脚会关闭预览；`index < 0` 表示鼠标已离开页脚。 */
+    /** `FooterItemView.onHover`；`index < 0` 表示鼠标已离开页脚。 */
     fun hoverFooter(index: Int) {
         if (index < 0) {
             if (state.value.footerSelection >= 0) {
@@ -77,7 +76,6 @@ internal class HistoryNavigationController(
             return
         }
         selectFooter(index)
-        if (state.value.previewOpen) onFooterHovered()
     }
 
     fun selectHistory(index: Int) {

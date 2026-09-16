@@ -211,10 +211,16 @@ internal object MacNative {
         return send(allocated, "initWithUTF8String:", buffer)
     }
 
-    /** 通过 `UTF8String` 读取一个 `NSString`。 */
+    /**
+     * 通过 `UTF8String` 读取一个 `NSString`。
+     *
+     * 必须显式按 UTF-8 解码：JNA 的 `Pointer.getString` 走的是 `Native.getDefaultStringEncoding()`
+     * （即 `file.encoding`），非 ASCII 字符在那之外的编码下会解成乱码。纯英文看不出来，
+     * 因此这个问题只在识别中文、日文或读取中文应用名时才暴露。
+     */
     fun string(pointer: Pointer?): String? {
         val utf8 = send(pointer, "UTF8String") ?: return null
-        return runCatching { utf8.getString(0) }.getOrNull()
+        return runCatching { utf8.getString(0, Charsets.UTF_8.name()) }.getOrNull()
     }
 
     /** 把 `NSArray` 实体化为元素指针列表。 */
@@ -234,4 +240,28 @@ internal object MacNative {
         }
         return array
     }
+
+    private val poolPush: Function? =
+        runCatching { runtime.getFunction("objc_autoreleasePoolPush") }.getOrNull()
+
+    private val poolPop: Function? =
+        runCatching { runtime.getFunction("objc_autoreleasePoolPop") }.getOrNull()
+
+    /**
+     * 在 autorelease pool 内运行 [block]。
+     *
+     * 发起调用的线程——协程的 `Dispatchers.Default` 工作线程——不是 Cocoa 线程，栈上不存在
+     * pool，因此框架内部 `autorelease` 出来的对象永远不会被回收：Vision 每识别一次，它返回的
+     * 请求结果就是一大批。两个符号都拿不到时退化为直接执行，不影响正确性。
+     */
+    fun <T> autoreleasePool(block: () -> T): T {
+        val token = poolPush?.let { runCatching { it.invokePointer(NO_ARGS) }.getOrNull() }
+        return try {
+            block()
+        } finally {
+            if (token != null) poolPop?.let { runCatching { it.invoke(arrayOf<Any?>(token)) } }
+        }
+    }
+
+    private val NO_ARGS = emptyArray<Any?>()
 }

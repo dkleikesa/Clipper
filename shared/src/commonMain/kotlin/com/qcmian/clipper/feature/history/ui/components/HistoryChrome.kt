@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.ui.Popup
+import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 
@@ -43,6 +44,8 @@ fun HistoryHeader(
     focusRequester: FocusRequester,
     previewOpen: Boolean,
     previewOnLeft: Boolean,
+    /** 预览开关的悬停提示；由 `HistoryScreen` 拼上当前快捷键。 */
+    previewTooltip: String,
     onTogglePreview: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -63,21 +66,23 @@ fun HistoryHeader(
         )
 
         Spacer(Modifier.width(5.dp))
-        Box(
-            modifier = Modifier
-                .height(23.dp)
-                .clip(RoundedCornerShape(Popup.cornerRadius))
-                .clickable(onClick = onTogglePreview)
-                .padding(horizontal = 4.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            // `HeaderView` 会镜像滑出面板的位置：预览在右侧时用 `sidebar.left`，
-            // 停靠在左侧时用 `sidebar.right`。
-            ClipperIcon(
-                if (previewOnLeft) ClipperIconKind.SIDEBAR_RIGHT else ClipperIconKind.SIDEBAR_LEFT,
-                size = 15.dp,
-                tint = if (previewOpen) colors.primary else colors.onSurface,
-            )
+        HoverTooltip(previewTooltip) {
+            Box(
+                modifier = Modifier
+                    .height(23.dp)
+                    .clip(RoundedCornerShape(Popup.cornerRadius))
+                    .clickable(onClick = onTogglePreview)
+                    .padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                // `HeaderView` 会镜像滑出面板的位置：预览在右侧时用 `sidebar.left`，
+                // 停靠在左侧时用 `sidebar.right`。
+                ClipperIcon(
+                    if (previewOnLeft) ClipperIconKind.SIDEBAR_RIGHT else ClipperIconKind.SIDEBAR_LEFT,
+                    size = 15.dp,
+                    tint = if (previewOpen) colors.primary else colors.onSurface,
+                )
+            }
         }
         Spacer(Modifier.width(5.dp))
     }

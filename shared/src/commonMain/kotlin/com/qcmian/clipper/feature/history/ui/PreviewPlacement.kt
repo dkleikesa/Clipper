@@ -15,6 +15,17 @@ data class PreviewHostPolicy(
     val onLeft: Boolean = false,
     val overlays: Boolean = false,
     val expandsWindow: Boolean = false,
+    /**
+     * 宿主已经在窗口里为预览让出位置（那次加宽 / 收回的几何**已经应用**）。
+     *
+     * 桌面端加宽窗口是异步的，界面要等它到位再让预览进场（[PreviewPlacement.WAITING_FOR_RESIZE]）。
+     * 这个信号必须由宿主给出，**不能**让界面拿量出来的窗口宽度去猜：实测值要等下一次布局才
+     * 更新，比窗口本身慢一帧——预览收起那一帧窗口已经收窄、界面却还认为放得下，卡片就会画在
+     * 已经变窄的窗口里（看起来是主面板闪了一下预览内容）。
+     *
+     * 固定尺寸窗口没有「加宽」这回事，保持 `false` 即可。
+     */
+    val windowReady: Boolean = false,
 )
 
 /**

@@ -6,7 +6,9 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import com.qcmian.clipper.core.ui.components.ScrollbarTarget
+import com.qcmian.clipper.core.ui.components.ScrollbarThumbMinHeight
 import com.qcmian.clipper.core.ui.components.ScrollbarTrack
 import com.qcmian.clipper.core.ui.components.ThumbGeometry
 import com.qcmian.clipper.core.ui.components.scrollOffsetForThumbTop
@@ -77,8 +79,9 @@ internal fun HistoryScrollbar(
     }
     if (!scrollable) return
 
-    val target = remember(state, heights, contentPadding) {
-        LazyListScrollbarTarget(state, ListHeightModel(heights), contentPadding)
+    val minThumbHeight = with(LocalDensity.current) { ScrollbarThumbMinHeight.toPx() }
+    val target = remember(state, heights, contentPadding, minThumbHeight) {
+        LazyListScrollbarTarget(state, ListHeightModel(heights), contentPadding, minThumbHeight)
     }
     ScrollbarTrack(target, modifier)
 }
@@ -94,6 +97,8 @@ private class LazyListScrollbarTarget(
     private val state: LazyListState,
     private val model: ListHeightModel,
     private val contentPadding: Float,
+    /** 滑块的最小高度（像素），见 `thumbHeightFor`。 */
+    private val minThumbHeight: Float,
 ) : ScrollbarTarget {
 
     /** 列表当前的可滚动区间：`null` 表示内容放得下（或还没完成布局）。 */
@@ -116,7 +121,12 @@ private class LazyListScrollbarTarget(
         // 会差出一截。
         val range = scrollRange() ?: return null
 
-        val thumbHeight = thumbHeightFor(trackHeight, range.viewport, range.viewport + range.scrollable)
+        val thumbHeight = thumbHeightFor(
+            trackHeight = trackHeight,
+            viewportHeight = range.viewport,
+            contentHeight = range.viewport + range.scrollable,
+            minThumbHeight = minThumbHeight,
+        )
         val scrolled = model.startOf(state.firstVisibleItemIndex) + state.firstVisibleItemScrollOffset
 
         // 前缀和与真实布局可能有几像素出入，首尾改用 LazyListState 的精确判定兜住，
