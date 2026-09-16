@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,7 +63,11 @@ fun ListItemRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = Popup.itemHeight)
+            // 行高必须**恒定**，不能只是下限：窗口高度与滚动条都按「文本行 = `Popup.itemHeight`」
+            // 推算整份内容的高度（见 `HistoryScreen` 的 `rowHeight`），任何让它长高的内容都会
+            // 让那两处算少——前置图标的上下内边距就曾经把行撑到 25dp。需要居中的配件一律靠
+            // `verticalAlignment` 解决，不要靠内边距撑开行。
+            .height(Popup.itemHeight)
             .clip(RoundedCornerShape(4.dp))
             .background(if (isSelected) colors.primary.copy(alpha = 0.8f) else Color.Transparent)
             .hoverable(interactionSource)
@@ -71,7 +75,7 @@ fun ListItemRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (appIcon != null) {
-            Box(Modifier.padding(start = 4.dp, top = 5.dp, bottom = 5.dp)) { appIcon() }
+            Box(Modifier.padding(start = 4.dp)) { appIcon() }
             Spacer(Modifier.width(5.dp))
         } else {
             Spacer(Modifier.width(10.dp))

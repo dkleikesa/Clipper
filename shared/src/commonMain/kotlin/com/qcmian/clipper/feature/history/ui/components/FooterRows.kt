@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
@@ -114,7 +113,9 @@ private fun FooterButton(
 
     Row(
         modifier = modifier
-            .heightIn(min = Popup.itemHeight)
+            // 同样是固定行高（不是下限）：`FooterRows` 的实测高度会进入 `chromeHeight`，
+            // 从而参与窗口高度与滚动条的内容总高，任何能让它长高的内容都会让那两处算少。
+            .height(Popup.itemHeight)
             .clip(RoundedCornerShape(4.dp))
             .background(
                 when {

@@ -18,8 +18,9 @@ import kotlinx.coroutines.launch
 /**
  * 未置顶列表的像素高度模型。
  *
- * 每条记录的高度只取决于它自身（文本行固定 `Popup.itemHeight`，图片行固定
- * `imageMaxHeight + ImageRowPadding`），因此可以对整份内容做精确的前缀和推算，而不必再
+ * 每条记录的高度只取决于它自身（文本行固定 `Popup.itemHeight`，图片行的槽位固定
+ * `imageMaxHeight + ImageRowPadding`——见 `HistoryRow` 的 `.height()` 与
+ * `ContentScale.Inside`），因此可以对整份内容做精确的前缀和推算，而不必再
  * 依赖「可见行的平均高度」——那种估算会随可见集合逐帧变化，估算一变，滑块的长度与位置
  * 就跟着跳。
  *
@@ -84,7 +85,10 @@ internal fun HistoryScrollbar(
 
 /**
  * `LazyListState` 的滚动条适配：`LazyColumn` 不报告内容总高，因此用 [ListHeightModel]
- * 的前缀和代替。
+ * 的前缀和代替；视口高则从布局结果直接取（`viewportEndOffset - viewportStartOffset`）。
+ *
+ * 正向（滑块几何）与反向（拖动落点）换算共用 [scrollRange]，因此两者严格互逆：
+ * 拖到轨道末端必然滚到内容末端。
  */
 private class LazyListScrollbarTarget(
     private val state: LazyListState,
@@ -92,36 +96,47 @@ private class LazyListScrollbarTarget(
     private val contentPadding: Float,
 ) : ScrollbarTarget {
 
-    override fun thumb(trackHeight: Float): ThumbGeometry? {
-        if (model.count == 0 || trackHeight <= 0f || state.layoutInfo.visibleItemsInfo.isEmpty()) return null
-
-        // 轨道高就是列表的可见高度；可滚动内容 = 条目总高 + 上下的 contentPadding。
-        val viewport = trackHeight
+    /** 列表当前的可滚动区间：`null` 表示内容放得下（或还没完成布局）。 */
+    private fun scrollRange(): ScrollRange? {
+        if (model.count == 0 || state.layoutInfo.visibleItemsInfo.isEmpty()) return null
+        // 视口高与内容高都取精确值：
+        // - 视口 = `viewportEndOffset - viewportStartOffset`（内容内边距不计入视口，`start` 为负）；
+        // - 内容 = 条目总高 + `contentPadding`。
+        // 早先用「轨道高」当视口，长度会偏小一点点，而且与本类内部的正反换算用的是两套数。
+        val info = state.layoutInfo
+        val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
         val contentHeight = model.contentHeight + contentPadding
-        if (contentHeight <= viewport) return null
+        if (viewport <= 0f || contentHeight <= viewport) return null
+        return ScrollRange(viewport = viewport, scrollable = contentHeight - viewport)
+    }
 
-        val thumbHeight = thumbHeightFor(trackHeight, viewport, contentHeight)
-        val maxScroll = contentHeight - viewport
+    override fun thumb(trackHeight: Float): ThumbGeometry? {
+        if (trackHeight <= 0f) return null
+        // 滑块几何与实际可滚动区间必须出自同一份换算，否则「滑块走到底」与「内容滚到底」
+        // 会差出一截。
+        val range = scrollRange() ?: return null
+
+        val thumbHeight = thumbHeightFor(trackHeight, range.viewport, range.viewport + range.scrollable)
         val scrolled = model.startOf(state.firstVisibleItemIndex) + state.firstVisibleItemScrollOffset
 
-        // 估算高度与真实布局之间可能有几像素出入，首尾改用 LazyListState 的精确判定兜住，
+        // 前缀和与真实布局可能有几像素出入，首尾改用 LazyListState 的精确判定兜住，
         // 这样滚到头时滑块一定贴住轨道两端。
         val fraction = when {
             !state.canScrollBackward -> 0f
             !state.canScrollForward -> 1f
-            else -> (scrolled / maxScroll).coerceIn(0f, 1f)
+            else -> (scrolled / range.scrollable).coerceIn(0f, 1f)
         }
         return ThumbGeometry(top = fraction * (trackHeight - thumbHeight), height = thumbHeight)
     }
 
     override fun scrollTo(scope: CoroutineScope, trackHeight: Float, thumbTop: Float) {
         val geometry = thumb(trackHeight) ?: return
-        val maxScroll = model.contentHeight + contentPadding - trackHeight
+        val range = scrollRange() ?: return
         val target = scrollOffsetForThumbTop(
             thumbTop = thumbTop,
             thumbHeight = geometry.height,
             trackHeight = trackHeight,
-            maxScroll = maxScroll,
+            maxScroll = range.scrollable,
         ) ?: return
 
         val index = model.indexAt(target)
@@ -132,3 +147,6 @@ private class LazyListScrollbarTarget(
         scope.launch { state.scrollToItem(index, offset) }
     }
 }
+
+/** 列表在某一刻的可滚动区间（像素）：视口高，以及内容比视口多出来的部分。 */
+private data class ScrollRange(val viewport: Float, val scrollable: Float)

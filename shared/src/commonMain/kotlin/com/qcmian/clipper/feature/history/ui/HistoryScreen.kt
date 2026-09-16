@@ -88,6 +88,15 @@ private val ImageRowPadding = 10.dp
 /** 高度估算的安全余量，见 `preferredHeight` 的注释。 */
 private val HeightSlack = 4.dp
 
+/**
+ * 列表 `contentPadding` 中落在条目之下的部分：列表底部内边距 + 置顶分隔线的间距。
+ *
+ * 窗口高度如果只补到「条目总高」，列表视口就比内容少这一条，`canScrollForward` 会一直是
+ * true——表现为**内容明明全部放得下，右侧滚动条却始终显示**，还能滚几个像素。
+ * 补上它，内容放得下时窗口才真正装得下全部内容。
+ */
+private val ListPaddingBelowItems = Popup.verticalSeparatorPadding + Popup.verticalSeparatorPadding - 1.dp
+
 /** 面板最小高度对应的内容条数：历史很少时窗口也保持这么高。 */
 private const val MinimumVisibleItems = 6
 
@@ -96,6 +105,15 @@ private const val PreviewAnimationMillis = 180
 
 /** 宽度比较容差，吸收 dp↔px 取整。 */
 private val WidthTolerance = 2.dp
+
+/**
+ * 呼出面板后为搜索框争取焦点的最大重试帧数。
+ *
+ * 面板显示时界面会重新测量并重组，搜索框节点随之重建；一次请求很容易落在节点就绪之前而
+ * 静默失败（异常被 `runCatching` 吞掉），表现为「呼出后打不了字」。因此多试几帧——
+ * `requestFocus()` 幂等，已聚焦时是空操作。
+ */
+private const val FOCUS_REQUEST_ATTEMPTS = 12
 
 /**
  * 主界面：头部、历史列表、页脚，外加预览滑出面板。
@@ -144,12 +162,18 @@ fun HistoryScreen(
     //
     // `focusRequestToken` 由宿主在请求显示面板时自增（`Popup.handleFirstKeyDown`）；首次组合
     // 时它为 0，这次请求顺带覆盖了「面板第一次打开」，因此不需要再单独起一个 `Unit` 副作用。
-    // 必须等一帧：面板每次显示都会重新测量，`BoxWithConstraints` 随之在布局阶段重新子组合，
-    // 紧跟状态变化同步调用 `requestFocus()` 可能落在焦点修饰符挂上之前，于是这次聚焦静默
-    // 失效——表现为「一次能输入、一次不能」。
+    //
+    // 只请求一次是不够的：面板每次显示都会重新测量、搜索框节点随之重建，请求早一帧就会
+    // 静默失败（异常被 `runCatching` 吞掉），表现为「呼出后打不了字」。因此跨若干帧重申焦点：
+    // `requestFocus()` 幂等，已聚焦时是空操作。
+    //
+    // 注意这里只解决「场景内哪个节点接收键盘」；「按键能不能进到场景」是另一件事，由宿主在
+    // 窗口显示时把 AWT 焦点交给窗口内容组件负责（见 `ClipperWindow.focusKeyboardTarget`）。
     LaunchedEffect(state.focusRequestToken) {
-        withFrameNanos { }
-        runCatching { searchFocusRequester.requestFocus() }
+        repeat(FOCUS_REQUEST_ATTEMPTS) {
+            withFrameNanos { }
+            runCatching { searchFocusRequester.requestFocus() }
+        }
     }
 
     LaunchedEffect(state.previewOpen) { onPreviewOpenChange(state.previewOpen) }
@@ -185,17 +209,21 @@ fun HistoryScreen(
 
     // 对应 `Popup.suitableHeight(for:)` + `Popup.preferredHeight(for:)`。
     //
-    // `LazyColumn` 只布局可见行，因此无法直接报告总高度。行高先用 `Popup.itemHeight` /
-    // `imageMaxHeight` 估算；当所有条目都进入布局（内容放得下）时，再用布局结果给出的
-    // **实测**条目总高覆盖估算值——估算与真实渲染之间的偏差（字体度量、窗口尺寸取整等）
-    // 正是「窗口没被撑满 / 残留一小段可滚动区间」的原因，实测修正让窗口精确贴合内容。
+    // 条目高度是**精确值**，不是估算：文本行恒为 `Popup.itemHeight`，图片行的槽位恒为
+    // `imageMaxHeight`（`HistoryRow` 里的 `.height()`，小图靠 `ContentScale.Inside`
+    // 在原尺寸居中留白）。两处都是**固定高度而非下限**——行高是内容高度、窗口高度与
+    // 滚动条三者共用的唯一依据，任何让行长高的内容都会让它们一起算少。
+    //
+    // 刻意不再保留「全部条目进入布局后用实测值覆盖求和」的兜底：它只在所有条目都可见时
+    // 才更新，一旦有一帧因为图片行高度不定而没做到，那个实测值就永远停在旧内容上——
+    // 窗口从此不再跟随条数变化。高度确定之后，兜底没有存在价值，反而是个单向锁。
     val imageRowHeight = settings.imageMaxHeight.dp + ImageRowPadding
     val rowHeight: (SearchResult) -> Dp = { result ->
         if (result.item.image != null) imageRowHeight else Popup.itemHeight
     }
 
-    // 滚动条所需的逐条高度。与窗口高度估算共用同一个 [rowHeight]：条目高度是「每条一眼
-    // 可算」的确定性值，因此滚动条不必再用「可见行平均高」这类随可见集合逐帧变化的估算。
+    // 滚动条所需的逐条高度。与窗口高度共用同一个 [rowHeight]：两个消费者读同一个函数，
+    // 「窗口为什么这么高」与「滑块为什么这么长」就不可能对不上。
     val scrollHeights = remember(unpinnedEntries, settings.imageMaxHeight, density) {
         FloatArray(unpinnedEntries.size) { index ->
             with(density) { rowHeight(unpinnedEntries[index].value).toPx() }
@@ -205,24 +233,7 @@ fun HistoryScreen(
         (Popup.verticalSeparatorPadding + listBottomPadding).toPx()
     }
 
-    // 实测的未置顶条目总高（不含列表 contentPadding）；`null` 表示还没有实测值。
-    var measuredItemsHeight by remember { mutableStateOf<Dp?>(null) }
-    LaunchedEffect(listState, unpinnedEntries.size) {
-        measuredItemsHeight = null
-        snapshotFlow { listState.layoutInfo }.collect { info ->
-            val visible = info.visibleItemsInfo
-            if (info.totalItemsCount == 0) {
-                measuredItemsHeight = 0.dp
-            } else if (visible.size == info.totalItemsCount) {
-                // 全部条目都在布局里：最后一条的底部就是条目总高（offset 以内容起点计）。
-                val contentBottom = visible.maxOf { it.offset + it.size }
-                measuredItemsHeight = with(density) { contentBottom.toDp() }
-            }
-        }
-    }
-
-    val itemsHeight = measuredItemsHeight
-        ?: unpinnedEntries.fold(0.dp) { total, entry -> total + rowHeight(entry.value) }
+    val itemsHeight = unpinnedEntries.fold(0.dp) { total, entry -> total + rowHeight(entry.value) }
     val listHeight = itemsHeight + Popup.verticalSeparatorPadding + listBottomPadding
 
     val chromeHeight = headerHeight + topPinsHeight + bottomPinsHeight + footerHeight
@@ -233,11 +244,11 @@ fun HistoryScreen(
     // 突然长高」的跳动。
     val minimumHeight = (chromeHeight + Popup.itemHeight * MinimumVisibleItems)
         .coerceAtLeast(headerHeight + Popup.verticalPadding)
-    // 估算高度与真实布局之间难免有 1–2px 的出入（AWT 窗口尺寸取整、字体度量等），
-    // 出入会让列表「差一点装得下」——残留一小段可滚动区间和一截滚动条。留一点余量，
-    // 内容本该放得下时窗口总是略高于内容，这个小滚动区间就消失了；内容真的超高时
-    // 余量也会被吃掉，滚动行为不受影响。
-    val preferredHeight = (suitableHeight + HeightSlack)
+    // 内容高度已经是精确值，这里只吸收 dp↔px 的取整：AWT 窗口尺寸按整数点应用，而
+    // 内容高可能带小数，差一点点就会让列表「差一点装得下」——残留一小段可滚动区间和一截
+    // 滚动条。留一点余量，内容本该放得下时窗口总是略高于内容；内容真的超高时余量会被吃掉，
+    // 滚动行为不受影响。
+    val preferredHeight = (suitableHeight + ListPaddingBelowItems + HeightSlack)
         .coerceAtLeast(minimumHeight)
 
     LaunchedEffect(preferredHeight) { onPreferredHeightChange(preferredHeight) }

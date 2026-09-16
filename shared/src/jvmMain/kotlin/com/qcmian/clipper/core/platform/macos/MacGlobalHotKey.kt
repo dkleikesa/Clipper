@@ -36,9 +36,9 @@ object MacGlobalHotKey {
     /**
      * 注册热键。[onTrigger] 在按下时调用，[onRelease] 在松开时调用。
      *
-     * 注意 [onRelease] 未必会被调用：`kEventHotKeyReleased` 虽然写在 HIToolbox 的头文件里，
-     * 但系统不会把它交给应用（只有 `kEventHotKeyPressed` 会到），因此调用方不能依赖它——
-     * 这里装它只是「收到就用」，收不到时行为与只装按下处理器一致。
+     * [onRelease] 是否派发取决于系统：真机日志确认当前的 macOS **会**在组合键被拆开时送来
+     * `kEventHotKeyReleased`（抬起主键、修饰键仍按着时也一样），因此调用方可以据此判断
+     * 「主键已经抬起」；但不要假设它一定到——调用方仍需准备收不到时的退路。
      */
     @Synchronized
     fun register(
