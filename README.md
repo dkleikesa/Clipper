@@ -108,7 +108,7 @@
 | 空内容过滤 | 逐个 pasteboard item 判断：带 `string` 类型、内容为空且非富文本 → 整条跳过 | 所有表示合并为一个快照后再判断，因此「空文本 + 图片」的组合会保留图片 |
 | 置顶项内容编辑 | 富文本也可编辑，并给出 `RichTextEditWarning` 警告图标 | 仅纯文本可编辑，其它类型显示「无法编辑内容」 |
 | 快捷键徽标 | 同时叠放 3 个 `KeyboardShortcutView`，按修饰键切换透明度 | 只渲染当前可见的那一个（视觉结果等价） |
-| 悬停提示（tooltip） | 页脚项、预览工具栏按钮、多个设置项都有 `.help()` 提示 | Compose Multiplatform 的公共 API 没有桌面式 tooltip，全部省略 |
+| 悬停提示（tooltip） | 页脚项、预览工具栏按钮、多个设置项都有 `.help()` 提示 | 图标按钮统一用 `HoverTooltip`（material3 `TooltipBox`，悬停 500ms 后弹出）；纯文字控件不重复提示。气泡由 `Popup` 绘制，只能留在窗口内，贴边时会被裁掉一角 |
 | 偏好设置窗口 | 独立的设置窗口，6 个分页（General / Storage / Appearance / Pins / Ignore / Advanced）+ 工具栏图标 | 单个可滚动对话框，按同样的 6 组分区组织，全部选项保留 |
 | 置顶项删除 | `Table` 原生 selection + `onDeleteCommand` | 自绘行选中 + 冒泡阶段的 `onKeyEvent`；打开对话框时根节点先取得焦点，文本框编辑时会先消费 `Delete` 而不会误删 |
 | `ImageCache` 并发 | 每个 item 在 `HistoryItemDecorator` 内持有，天然隔离 | 全局有界 LRU，仅在 Compose 组合线程访问；多窗口并发解码时存在理论上的竞态（未加锁） |

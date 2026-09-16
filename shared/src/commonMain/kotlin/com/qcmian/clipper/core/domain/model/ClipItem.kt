@@ -47,6 +47,16 @@ data class ClipItem(
             else -> title
         }
 
+    /**
+     * [title] 是否真的来自图片文字识别。
+     *
+     * 只有本身没有别的文本表示的纯图片条目，才会把识别结果写进 `title`（见 `CaptureClipboardUseCase`）。
+     * 条目一旦带着 [text] 或 [files]，标题就是由它们的文本派生出来的（见 [previewableText]），
+     * 此时 `title` 非空**不代表**图里有文字——用它当判据会让工具栏多出一个按钮。
+     */
+    val hasRecognizedText: Boolean
+        get() = image != null && text.isNullOrBlank() && files.isEmpty() && title.isNotBlank()
+
     /** 当本条目已包含 [other] 提供的全部内容时返回 `true`。 */
     fun supersedes(other: ClipItem): Boolean {
         val hasContent = other.text != null || other.image != null || other.files.isNotEmpty()
@@ -60,16 +70,8 @@ data class ClipItem(
      * 构建列表显示的单行标题。对应 `HistoryItem.generateTitle()`，包含 `showSpecialSymbols`
      * 偏好：开启时首尾空格显示为 `·`，换行与制表符显示为 `⏎`/`⇥`。
      */
-    fun generateTitle(showSpecialSymbols: Boolean = true): String {
-        val raw = previewableText.take(MAX_TITLE_LENGTH).removingUnsafeTitleScalars()
-        if (!showSpecialSymbols) return raw.trim()
-
-        return raw
-            .replace(Regex("^ +")) { "·".repeat(it.value.length) }
-            .replace(Regex(" +$")) { "·".repeat(it.value.length) }
-            .replace("\n", "\u23ce")
-            .replace("\t", "\u21e5")
-    }
+    fun generateTitle(showSpecialSymbols: Boolean = true): String =
+        previewableText.titleForDisplay(showSpecialSymbols)
 
     companion object {
         const val MAX_TITLE_LENGTH = 1_000
@@ -90,6 +92,23 @@ private val UNSAFE_TITLE_SCALARS = setOf('\uFFFC')
 /** 对应 `String.removingScalarsUnsafeForTitleLayout()`，按标量逐个过滤。 */
 fun String.removingUnsafeTitleScalars(): String =
     if (none { it in UNSAFE_TITLE_SCALARS }) this else filterNot { it in UNSAFE_TITLE_SCALARS }
+
+/**
+ * 把一段「代表条目自身的文本」格式化成列表显示用的单行标题。
+ *
+ * 图片文字识别的原文带着真换行存进 `title`（复制时要还原原文），由渲染方自行压平，
+ * 因此不经过这里——本函数只服务 [ClipItem.generateTitle]。
+ */
+fun String.titleForDisplay(showSpecialSymbols: Boolean = true): String {
+    val raw = take(ClipItem.MAX_TITLE_LENGTH).removingUnsafeTitleScalars()
+    if (!showSpecialSymbols) return raw.trim()
+
+    return raw
+        .replace(Regex("^ +")) { "·".repeat(it.value.length) }
+        .replace(Regex(" +$")) { "·".repeat(it.value.length) }
+        .replace("\n", "\u23ce")
+        .replace("\t", "\u21e5")
+}
 
 private val HEX_COLOR_PATTERN = Regex("^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 

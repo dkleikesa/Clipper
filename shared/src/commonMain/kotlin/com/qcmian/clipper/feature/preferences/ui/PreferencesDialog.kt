@@ -51,9 +51,12 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.domain.action.modifierFlagsOf
@@ -66,6 +69,7 @@ import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.ThemeMode
 import com.qcmian.clipper.core.ui.ModifierFlags
+import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.components.rememberApplicationIcon
 import com.qcmian.clipper.core.ui.components.rememberApplicationName
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
@@ -87,6 +91,7 @@ data class PreferencesUiData(
     val screenCount: Int,
     val supportsLaunchAtLogin: Boolean,
     val supportsApplicationInfo: Boolean,
+    val supportsTextRecognition: Boolean,
 )
 
 /** 偏好设置对话框的全部上行动作。 */
@@ -111,24 +116,58 @@ data class PreferencesActions(
  */
 internal enum class ShortcutSlot { POPUP, PIN, DELETE, TOGGLE_PREVIEW }
 
+/** 设置卡片的设计宽度。 */
+private val CardDesignWidth = 560.dp
+
+/** 设置卡片的高度上限。 */
+private val CardMaxHeight = 680.dp
+
 /**
- * 偏好设置窗口（存储 / 行为 / 快捷键 / 搜索 / 外观 / 置顶 / 识别 / 忽略 / 高级 / 数据），
+ * 卡片与窗口边缘之间的留白：**必须大于 0**，且卡片不能碰到窗口边缘。
+ *
+ * 桌面端的 `Dialog` 是**同一窗口内的 layer**，`layer.boundsInWindow` 恰好等于内容尺寸，
+ * 因此这圈留白有三层作用：
+ * - 卡片之外的区域属于「layer 之外」，点击它会触发 `dismissOnClickOutside`（点卡片外面关闭）
+ *   ——卡片一旦铺满窗口，这条关闭路径就消失了；
+ * - 内容超出窗口的部分**既不绘制也收不到点击**（卡片是垂直居中的，比窗口高时右上角会跑到窗口外），
+ *   留白保证卡片始终完整落在窗口内；
+ * - 右上角的关闭按钮不会贴着窗口边缘。
+ */
+private val CardMargin = 12.dp
+
+/**
+ * 偏好设置窗口（存储 / 行为 / 快捷键 / 搜索 / 外观 / 置顶 / 识别 / 忽略 / 高级 / 数据 / 重置），
  * 这里压缩成一个可滚动的对话框。
  *
  * 视觉：对话框底色用 `background`，每个分区是一张 `surface` 卡片（[SectionCard]），
  * 类似 macOS 系统设置的分组样式；主色只用于分区标题、选中态与录制态。
+ *
+ * 宽度与高度都夹在窗口尺寸之内（见 [CardMargin]）。`usePlatformDefaultWidth = false` 是必需的：
+ * 默认值（`true`）会按「窗口宽高中较小者」把内容最大宽度档位化（≥600dp→580dp、≥480dp→440dp、
+ * 否则 320dp），而面板是自动高度的，改任何影响行高的设置都会让窗口高度跨档、对话框宽度跟着跳。
  */
 @Composable
 fun PreferencesDialog(
     data: PreferencesUiData,
     actions: PreferencesActions,
 ) {
-    Dialog(onDismissRequest = actions.onDismiss) {
+    val density = LocalDensity.current
+    val windowSize = LocalWindowInfo.current.containerSize
+    val maxCardWidth = (with(density) { windowSize.width.toDp() } - CardMargin * 2)
+        .coerceAtLeast(1.dp)
+        .coerceAtMost(CardDesignWidth)
+    val maxCardHeight = (with(density) { windowSize.height.toDp() } - CardMargin * 2)
+        .coerceAtLeast(1.dp)
+        .coerceAtMost(CardMaxHeight)
+    Dialog(
+        onDismissRequest = actions.onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
         Surface(
             shape = RoundedCornerShape(10.dp),
             color = MaterialTheme.colorScheme.background,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
-            modifier = Modifier.width(560.dp).heightIn(max = 680.dp),
+            modifier = Modifier.width(maxCardWidth).heightIn(max = maxCardHeight),
         ) {
             PreferencesContent(data, actions)
         }
@@ -235,15 +274,17 @@ private fun PreferencesContent(
                 color = colors.onBackground,
             )
             Spacer(Modifier.weight(1f))
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(colors.surfaceVariant.copy(alpha = 0.5f))
-                    .clickable(onClick = actions.onDismiss),
-                contentAlignment = Alignment.Center,
-            ) {
-                ClipperIcon(ClipperIconKind.CLEAR, size = 13.dp, tint = colors.onSurfaceVariant)
+            HoverTooltip("关闭设置") {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(colors.surfaceVariant.copy(alpha = 0.5f))
+                        .clickable(onClick = actions.onDismiss),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ClipperIcon(ClipperIconKind.CLEAR, size = 13.dp, tint = colors.onSurfaceVariant)
+                }
             }
         }
 
@@ -281,6 +322,7 @@ private fun PreferencesContent(
             IgnoreSection(data, actions)
             AdvancedSection(data, actions)
             DataSection(data, actions)
+            ResetSection(data, actions)
         }
     }
 }
@@ -527,16 +569,23 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
     val colors = MaterialTheme.colorScheme
     val settings = data.settings
     SectionCard("外观") {
-        // 拖动过窗口后出现：点一下放弃自定义尺寸，恢复「自动贴合内容」。
+        // 拖动过窗口边缘、或拖过预览分隔条之后出现：点一下放弃自定义尺寸与预览宽度，恢复
+        // 「自动贴合内容」。两者必须一起还原——预览宽度是窗口里分出去的一段，只把主列表宽度
+        // 恢复成默认、留着拖出来的预览宽度，窗口会比默认状态宽（或窄）出预览让位的那一截。
         AnimatedVisibility(
-            visible = settings.customWindowWidth != null,
+            visible = settings.customWindowWidth != null ||
+                settings.previewWidth != AppSettings.DEFAULT_PREVIEW_WIDTH,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically(),
         ) {
             TextButton(
                 onClick = {
                     actions.onSettingsChange {
-                        it.copy(customWindowWidth = null, customWindowHeight = null)
+                        it.copy(
+                            customWindowWidth = null,
+                            customWindowHeight = null,
+                            previewWidth = AppSettings.DEFAULT_PREVIEW_WIDTH,
+                        )
                     }
                 },
                 modifier = Modifier.padding(top = 2.dp),
@@ -655,11 +704,17 @@ private fun PinnedItemsSection(
 @Composable
 private fun RecognitionSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
+    val supported = data.supportsTextRecognition
     SectionCard("识别") {
         SwitchRow(
             title = "识别图片中的文字",
-            description = "使用 Vision / ML Kit 识别图片文字并作为标题。",
+            description = if (supported) {
+                "使用 Vision / ML Kit 识别图片文字，并作为纯图片条目的标题。"
+            } else {
+                "当前平台不支持图片文字识别。"
+            },
             checked = settings.recognizeText,
+            enabled = supported,
         ) { value -> actions.onSettingsChange { it.copy(recognizeText = value) } }
     }
 }
@@ -808,5 +863,38 @@ private fun DataSection(data: PreferencesUiData, actions: PreferencesActions) {
                 Text("全部清除", color = colors.error)
             }
         }
+    }
+}
+
+/**
+ * 一键把全部偏好恢复为出厂默认值。
+ *
+ * 单项还原各自已有入口（快捷键、窗口尺寸、忽略类型）；这里是唯一的「全部还原」入口。
+ * 它刻意不新增任何旁路：[onSettingsChange][PreferencesActions.onSettingsChange] 就是其它所有
+ * 修改走的同一条路径，因此标题重算、丢弃不再收集的内容类型、窗口几何 / 托盘 / 热键重注册
+ * 这些副作用，全部交给既有的观察者处理。
+ *
+ * 重置只覆盖设置：历史、置顶项与用户改过的别名都不属于设置，不会被它影响。
+ */
+@Composable
+private fun ResetSection(data: PreferencesUiData, actions: PreferencesActions) {
+    val isDefault = data.settings == AppSettings()
+    SectionCard("重置") {
+        TextButton(
+            onClick = { actions.onSettingsChange { AppSettings() } },
+            enabled = !isDefault,
+        ) {
+            Text("恢复默认设置")
+        }
+        Text(
+            text = if (isDefault) {
+                "当前所有设置都已是默认值。"
+            } else {
+                "把所有设置恢复为默认值；历史与置顶项目不受影响。"
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.hintColor,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 }

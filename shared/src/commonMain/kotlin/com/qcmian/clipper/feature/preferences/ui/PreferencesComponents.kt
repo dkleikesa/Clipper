@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.settings.ShortcutSpec
+import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
@@ -131,8 +132,10 @@ internal fun IgnoredApplicationRow(
             color = colors.onSurface,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
-            ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
+        HoverTooltip("从忽略列表移除") {
+            IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
+                ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
+            }
         }
     }
 }
@@ -150,7 +153,8 @@ internal fun PinRow(
 ) {
     val colors = MaterialTheme.colorScheme
     var expanded by remember { mutableStateOf(false) }
-    var title by remember(item.id, item.title) { mutableStateOf(item.title) }
+    // 别名是一个单行输入框，而图片条目的标题是识别原文、可能带换行：显示时压平成空格。
+    var title by remember(item.id, item.title) { mutableStateOf(item.title.replace('\n', ' ')) }
     // `PinValueView`：只有纯文本条目才提供可编辑的内容字段。
     val editable = item.text != null && item.image == null && item.files.isEmpty()
     var content by remember(item.id, item.text) { mutableStateOf(item.text.orEmpty()) }
@@ -229,8 +233,10 @@ internal fun PinRow(
                 )
             }
 
-            IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                ClipperIcon(ClipperIconKind.TRASH, size = 13.dp, tint = colors.onSurfaceVariant)
+            HoverTooltip("删除这条置顶项") {
+                IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
+                    ClipperIcon(ClipperIconKind.TRASH, size = 13.dp, tint = colors.onSurfaceVariant)
+                }
             }
         }
 
@@ -316,8 +322,10 @@ internal fun ShortcutRow(
             )
         }
         Spacer(Modifier.width(8.dp))
-        IconButton(onClick = onReset, modifier = Modifier.size(28.dp)) {
-            ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
+        HoverTooltip("恢复默认快捷键") {
+            IconButton(onClick = onReset, modifier = Modifier.size(28.dp)) {
+                ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
+            }
         }
     }
 }

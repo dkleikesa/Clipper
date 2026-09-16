@@ -1,10 +1,7 @@
 package com.qcmian.clipper.feature.history.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,8 +32,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -66,8 +64,10 @@ import com.qcmian.clipper.feature.history.ui.components.PausedBanner
 import com.qcmian.clipper.feature.history.ui.components.PinsSeparator
 import com.qcmian.clipper.feature.history.ui.components.PreviewPane
 import com.qcmian.clipper.feature.history.ui.components.PreviewSlideout
+import com.qcmian.clipper.feature.history.ui.components.previewSlot
 import com.qcmian.clipper.feature.history.ui.components.StatusToast
 import com.qcmian.clipper.feature.history.ui.components.footerEntries
+import com.qcmian.clipper.feature.history.ui.components.historyRowHeight
 import com.qcmian.clipper.core.ui.components.rememberApplicationIcon
 import com.qcmian.clipper.core.ui.components.ConfirmDialog
 import com.qcmian.clipper.feature.preferences.ui.PreferencesActions
@@ -82,9 +82,6 @@ import com.qcmian.clipper.feature.history.viewmodel.shortcutMap
 /** 低于此宽度时，预览面板改为覆盖在列表上，而不是并排显示。 */
 private val OverlayThreshold = 700.dp
 
-/** 缩略图在 `imageMaxHeight` 之上额外增加的垂直内边距。 */
-private val ImageRowPadding = 10.dp
-
 /** 高度估算的安全余量，见 `preferredHeight` 的注释。 */
 private val HeightSlack = 4.dp
 
@@ -97,14 +94,20 @@ private val HeightSlack = 4.dp
  */
 private val ListPaddingBelowItems = Popup.verticalSeparatorPadding + Popup.verticalSeparatorPadding - 1.dp
 
-/** 面板最小高度对应的内容条数：历史很少时窗口也保持这么高。 */
-private const val MinimumVisibleItems = 6
-
-/** 预览卡片横向滑入的时长。 */
+/** 预览卡片逐帧揭示的时长。 */
 private const val PreviewAnimationMillis = 180
 
 /** 宽度比较容差，吸收 dp↔px 取整。 */
 private val WidthTolerance = 2.dp
+
+/**
+ * 拖动预览分隔条时，主列表允许被压到的宽度。
+ *
+ * 直接取 [Popup.minimumSplitContentWidth]（而不是窗口自身的下限 [Popup.minimumContentWidth]）：
+ * 两者必须是同一个数。预览槽位（`Modifier.previewSlot`）按它夹宽度，分隔条的拖动上限也按它算，
+ * 一旦不一致，拖动就会报出一个槽位画不出来的宽度——预览一帧不变，表现为「拖不动」。
+ */
+private val DragTimeMinimumListWidth = Popup.minimumSplitContentWidth
 
 /**
  * 呼出面板后为搜索框争取焦点的最大重试帧数。
@@ -129,8 +132,10 @@ private const val FOCUS_REQUEST_ATTEMPTS = 12
 fun HistoryScreen(
     state: ClipboardUiState,
     onAction: (ClipboardUiAction) -> Unit,
-    onPreviewOpenChange: (Boolean) -> Unit,
+    /** 内容希望得到的高度：贴合内容，随条目变化。 */
     onPreferredHeightChange: (Dp) -> Unit,
+    /** 窗口的下限高度：滑动区的下限加上置顶区与头部 / 页脚，手动拖拽时宿主不会低于它。 */
+    onMinimumHeightChange: (Dp) -> Unit,
     applicationIcon: (String?) -> String?,
     applicationName: (String) -> String?,
     availablePins: (ClipItem) -> List<String>,
@@ -176,8 +181,6 @@ fun HistoryScreen(
         }
     }
 
-    LaunchedEffect(state.previewOpen) { onPreviewOpenChange(state.previewOpen) }
-
     val density = LocalDensity.current
 
     // 量出的各区块高度。它们从 0 开始，与 `Popup.height` 一致：
@@ -209,17 +212,17 @@ fun HistoryScreen(
 
     // 对应 `Popup.suitableHeight(for:)` + `Popup.preferredHeight(for:)`。
     //
-    // 条目高度是**精确值**，不是估算：文本行恒为 `Popup.itemHeight`，图片行的槽位恒为
-    // `imageMaxHeight`（`HistoryRow` 里的 `.height()`，小图靠 `ContentScale.Inside`
-    // 在原尺寸居中留白）。两处都是**固定高度而非下限**——行高是内容高度、窗口高度与
-    // 滚动条三者共用的唯一依据，任何让行长高的内容都会让它们一起算少。
+    // 条目高度是**精确值**，不是估算：文本行恒为 `Popup.itemHeight`，图片行恒为
+    // `imageMaxHeight` 加 `ImageRowPadding`。两个高度都由 `historyRowHeight` 一处给出，
+    // 列表渲染（`HistoryRow` 传给 `ListItemRow` 的 `height`）读的也是它——行高是内容高度、
+    // 窗口高度与滚动条三者共用的唯一依据，因此不可能各自推算出一套数来。
+    // 这些都是**固定高度而非下限**，任何让行长高的内容都会让它们一起算少。
     //
     // 刻意不再保留「全部条目进入布局后用实测值覆盖求和」的兜底：它只在所有条目都可见时
     // 才更新，一旦有一帧因为图片行高度不定而没做到，那个实测值就永远停在旧内容上——
     // 窗口从此不再跟随条数变化。高度确定之后，兜底没有存在价值，反而是个单向锁。
-    val imageRowHeight = settings.imageMaxHeight.dp + ImageRowPadding
     val rowHeight: (SearchResult) -> Dp = { result ->
-        if (result.item.image != null) imageRowHeight else Popup.itemHeight
+        historyRowHeight(result.item, settings.imageMaxHeight.dp)
     }
 
     // 滚动条所需的逐条高度。与窗口高度共用同一个 [rowHeight]：两个消费者读同一个函数，
@@ -238,11 +241,13 @@ fun HistoryScreen(
 
     val chromeHeight = headerHeight + topPinsHeight + bottomPinsHeight + footerHeight
     val suitableHeight = listHeight + chromeHeight
-    // 面板最小高度：至少放下 [MinimumVisibleItems] 条内容（原来是 3 条，按要求翻倍），
-    // 因此历史很少时窗口也不会缩成一条缝。预览不参与这里——预览面板的高度恒等于窗口高度
-    // （`fillMaxHeight`），打开或关闭预览都不会改变窗口尺寸，也就不会出现「开预览时窗口
-    // 突然长高」的跳动。
-    val minimumHeight = (chromeHeight + Popup.itemHeight * MinimumVisibleItems)
+    // 窗口最小高度：滑动区（内容区）至少 [Popup.minimumContentHeight]——也就是剪贴板为空时的
+    // 默认值，因此历史很少时窗口也不会缩成一条缝。置顶区与头部 / 页脚都在滑动区之外，先由
+    // `chromeHeight` 计入，所以置顶项再多也只是把窗口顶高，不会吃掉滑动区的高度。
+    //
+    // 预览不参与这里——预览面板的高度恒等于窗口高度（`fillMaxHeight`），打开或关闭预览都不会
+    // 改变窗口尺寸，也就不会出现「开预览时窗口突然长高」的跳动。
+    val minimumHeight = (chromeHeight + Popup.minimumContentHeight)
         .coerceAtLeast(headerHeight + Popup.verticalPadding)
     // 内容高度已经是精确值，这里只吸收 dp↔px 的取整：AWT 窗口尺寸按整数点应用，而
     // 内容高可能带小数，差一点点就会让列表「差一点装得下」——残留一小段可滚动区间和一截
@@ -252,6 +257,9 @@ fun HistoryScreen(
         .coerceAtLeast(minimumHeight)
 
     LaunchedEffect(preferredHeight) { onPreferredHeightChange(preferredHeight) }
+    // 窗口的下限与「希望多高」是两件事：前者是滑动区的下限（外加置顶区与头部 / 页脚），
+    // 后者随内容条数变化。宿主手动拖拽时用的下限就是这里报上去的值。
+    LaunchedEffect(minimumHeight) { onMinimumHeightChange(minimumHeight) }
 
     // `NavigationManager.scroll(to:)` 只会滚动未置顶列表；置顶区块始终可见。
     // 目标行已经完整可见时不再滚动：悬停也会更新选中项，若此时强行滚到视口顶部，
@@ -326,17 +334,47 @@ fun HistoryScreen(
     // 桌面端把窗口加宽到「它 + 滑出面板」时，就说明窗口已经为预览让出位置了。
     var listWidth by remember { mutableStateOf(0.dp) }
 
+    // 拖动分隔条期间的预览宽度：只作用于界面渲染，**不**写设置——设置一变，宿主就会按
+    // 「主列表 + 预览」重算窗口宽度，于是「拖分隔条」变成了「拖整个窗口」。松手时才把新宽度与
+    // 新的主列表宽度一次性写回（见 `ClipboardUiAction.SetPreviewWidth`），窗口全程不动。
+    var draggedPreviewWidth by remember { mutableStateOf<Int?>(null) }
+    // 设置一变、或预览一开一关就丢掉本地值：它是「这次拖动的临时态」，设置跟上了说明拖动已经
+    // 落盘（预览关掉则说明这次拖动被中断，落盘的那一条永远不会来了）。反过来（本地值一直压着
+    // 设置）会让别处改动的预览宽度在界面上看不见。
+    LaunchedEffect(settings.previewWidth, state.previewOpen) { draggedPreviewWidth = null }
+    val previewWidth = draggedPreviewWidth ?: settings.previewWidth
+
+    // 分隔条能拖到的上限：拖动期间窗口尺寸不变，可用空间就是窗口当前的宽度——预览最多占到
+    // 「窗口宽度 − 分隔条 − 主列表在拖动期间的下限」。
+    //
+    // 用实测的 [windowWidth] 而不是「内容区宽度 + 预览宽度」去算：两者稳态下相等，但窗口还没
+    // 跟上设置的几帧里只有实测值是对的。
+    val maxDragWidth = (
+        windowWidth - Popup.previewDividerWidth - DragTimeMinimumListWidth
+        ).coerceAtLeast(Popup.minimumPreviewWidth)
+
+    // 内容区（主列表）的宽度。取自设置，与主列表实测出来的宽度是两回事：后者在槽位钉住的
+    // 几帧里是旧值，甚至是被上一帧挤出来的窄值。
+    val contentWidth = Popup.contentWidthOf(settings.customWindowWidth)
+
     val slideoutWidth = Popup.slideoutWidth(settings.previewWidth)
     val docked = when {
         !state.previewOpen -> false
         // 固定尺寸窗口（手机）：窗口本身够宽才并排，否则退回覆盖层。
         !previewHost.expandsWindow -> windowWidth >= OverlayThreshold
-        // 桌面端：宿主把窗口加宽到「主列表宽度 + 滑出面板」才算到位。
-        else -> listWidth > 0.dp &&
-            windowWidth >= listWidth + slideoutWidth - WidthTolerance
+        // 桌面端：窗口有没有让出位置，由宿主说了算（见 [PreviewHostPolicy.windowReady]）。
+        // 它和那次加宽 / 收回是同一次计算的产物，因此不会落后窗口一帧。
+        //
+        // 刻意**不**用界面量到的窗口宽度（`windowWidth`）判断：那是上一帧的测量值。窗口收起
+        // 是宿主在同一瞬间用原生调用完成的，界面却要在下一帧才知道——照实测值判断，收起的
+        // 那一帧会认为「还放得下」，把卡片画在已经变窄的窗口里（主面板闪一下预览内容）。
+        else -> previewHost.windowReady
     }
     val placement = previewPlacement(
-        previewOpen = state.previewOpen,
+        // 宿主说「窗口已经让出位置」就等于说「预览开着」；把它并进来，进场的判定就与窗口加宽
+        // 同帧发生。只用界面自己那份 `previewOpen` 不行：它要晚一帧，那一帧窗口已经加宽、卡片
+        // 却还没进场，主列表会先铺满整窗再缩回去——一次打开闪两下。
+        previewOpen = state.previewOpen || previewHost.windowReady,
         host = previewHost,
         docked = docked,
     )
@@ -350,12 +388,21 @@ fun HistoryScreen(
     //
     // 宽度差只在「恰好一块滑出面板」时才算残留槽位：别的差值只是两者尚未同步，据此钉住
     // 列表会把它永久留在旧宽度上。
-    val leftoverSlot = windowWidth - listWidth
+    //
+    // 判据用「窗口比**内容区**宽出多少」，而不是「窗口比主列表宽出多少」：主列表被钉住的那几帧
+    // 里测出来的正是那个钉住的宽度，拿它去比会自我印证——差值一旦落在容差里就再也解不开，
+    // 表现为预览收起后主列表右侧永远留一条空白（窗口已经收回来了，这里却还认为槽位没让出）。
+    // 内容区宽度取自设置，与钉不钉住无关，因此窗口一收窄，这个差值必定落到 0。
+    val leftoverSlot = windowWidth - contentWidth
     val slotLeftOver = leftoverSlot > WidthTolerance &&
         leftoverSlot <= slideoutWidth + WidthTolerance
     // 覆盖层占位不走这条路：那种情况窗口尺寸不变，列表照旧跟随窗口。
     val slotReserved = previewHost.expandsWindow && !previewHost.overlays &&
         listWidth > 0.dp && !docked && (state.previewOpen || slotLeftOver)
+    // 主列表的宽度什么时候要钉住：预览槽位空着的那几帧（[slotReserved]）——让卡片进场时
+    // 列表不要先占满又缩回。拖动分隔条期间**不**钉住：窗口这时一帧都不动，预览变宽挤窄的
+    // 本来就该是主列表（`weight(1f)` 收走剩余空间），钉住反而会让两个面板一起溢出窗口。
+    val listPinned = listWidth > 0.dp && slotReserved
 
     Box(
         modifier
@@ -403,12 +450,19 @@ fun HistoryScreen(
                     PreviewSlideout(
                         item = state.selectedItem,
                         appIconBase64 = previewAppIcon,
-                        previewWidth = settings.previewWidth,
+                        previewWidth = previewWidth,
+                        maxDragWidth = maxDragWidth,
                         onLeft = true,
                         onTogglePin = { onAction(ClipboardUiAction.TogglePinSelected) },
                         onDelete = { onAction(ClipboardUiAction.DeleteSelected) },
                         onCopyExtractedText = { onAction(ClipboardUiAction.CopyExtractedText) },
-                        onWidthChange = { value -> onAction(ClipboardUiAction.SetPreviewWidth(value)) },
+                        // 拖动中只改界面上的宽度（窗口不动），松手才连同新的主列表宽度写回设置。
+                        onWidthChange = { value -> draggedPreviewWidth = value },
+                        onWidthChangeFinished = {
+                            draggedPreviewWidth?.let {
+                                onAction(ClipboardUiAction.SetPreviewWidth(it))
+                            }
+                        },
                     )
                 }
 
@@ -416,15 +470,17 @@ fun HistoryScreen(
                 // 宽度无关。预览停靠左侧时窗口要同时「左移」和「变宽」，界面看到的中间状态
                 // 可能只是其中之一——按宽度定位（靠右对齐）的话，主列表会跟着窗口宽度左右
                 // 跳一下。卡片进场 / 退场时直接接管或让出这段槽位，位置不变。
+                // 空槽位也按这一帧的约束夹住（见 `previewSlot`）：窗口还没左移加宽的那一两帧，
+                // 它会被压成 0，主列表因此停在原地、也不会被挤窄。
                 if (previewHost.onLeft && slotReserved) {
-                    Spacer(Modifier.width(slideoutWidth).fillMaxHeight())
+                    Spacer(Modifier.previewSlot().width(slideoutWidth).fillMaxHeight())
                 }
 
                 Column(
                     Modifier
                         // 预览关闭时列表跟随窗口；并排显示时列表占满预览之外的部分；
                         // 槽位空着的那几帧把宽度钉住，避免宽度跳变（见 [slotReserved]）。
-                        .then(if (slotReserved) Modifier.width(listWidth) else Modifier.weight(1f))
+                        .then(if (listPinned) Modifier.width(listWidth) else Modifier.weight(1f))
                         .fillMaxHeight()
                         .onSizeChanged { size ->
                             listWidth = with(density) { size.width.toDp() }
@@ -445,6 +501,7 @@ fun HistoryScreen(
                             focusRequester = searchFocusRequester,
                             previewOpen = state.previewOpen,
                             previewOnLeft = previewHost.onLeft,
+                            previewTooltip = "显示 / 隐藏预览（${settings.togglePreviewShortcut.label}）",
                             onTogglePreview = { onAction(ClipboardUiAction.TogglePreview) },
                         )
 
@@ -558,11 +615,9 @@ fun HistoryScreen(
                         selectedIndex = state.footerSelection,
                         showQuit = state.showQuit,
                         onAction = { action -> onAction(ClipboardUiAction.RunFooter(action)) },
-                        onHover = { index ->
-                            onAction(ClipboardUiAction.HoverFooter(index))
-                            // `FooterItemView.onHover`：悬停页脚会关闭预览（离开时不必再触发）。
-                            if (index >= 0 && state.previewOpen) onAction(ClipboardUiAction.TogglePreview)
-                        },
+                        // `FooterItemView.onHover` 原本会在悬停页脚时收起预览；预览开关现在是持久化的
+                        // 用户选择（见 `AppSettings.previewOpen`），只由按钮 / 快捷键切换，这里不再动它。
+                        onHover = { index -> onAction(ClipboardUiAction.HoverFooter(index)) },
                         // 对应 `FooterView.readHeight(appState, into: \.popup.footerHeight)`。
                         modifier = Modifier.onSizeChanged {
                             footerHeight = with(density) { it.height.toDp() }
@@ -577,12 +632,19 @@ fun HistoryScreen(
                     PreviewSlideout(
                         item = state.selectedItem,
                         appIconBase64 = previewAppIcon,
-                        previewWidth = settings.previewWidth,
+                        previewWidth = previewWidth,
+                        maxDragWidth = maxDragWidth,
                         onLeft = false,
                         onTogglePin = { onAction(ClipboardUiAction.TogglePinSelected) },
                         onDelete = { onAction(ClipboardUiAction.DeleteSelected) },
                         onCopyExtractedText = { onAction(ClipboardUiAction.CopyExtractedText) },
-                        onWidthChange = { value -> onAction(ClipboardUiAction.SetPreviewWidth(value)) },
+                        // 见上面 `DOCK_LEFT` 的说明：拖动中不落盘，松手才一次写回。
+                        onWidthChange = { value -> draggedPreviewWidth = value },
+                        onWidthChangeFinished = {
+                            draggedPreviewWidth?.let {
+                                onAction(ClipboardUiAction.SetPreviewWidth(it))
+                            }
+                        },
                     )
                 }
             }
@@ -605,6 +667,7 @@ fun HistoryScreen(
                 screenCount = state.screenCount,
                 supportsLaunchAtLogin = state.supportsLaunchAtLogin,
                 supportsApplicationInfo = state.supportsApplicationInfo,
+                supportsTextRecognition = state.supportsTextRecognition,
             ),
             actions = PreferencesActions(
                 onSettingsChange = { transform -> onAction(ClipboardUiAction.UpdateSettings(transform)) },
@@ -642,23 +705,24 @@ fun HistoryScreen(
 }
 
 /**
- * 预览卡片的进场动画：从**主面板那一侧**横向推出来。
+ * 预览卡片的进场动画：从**主面板那一侧**逐帧揭示出来。
  *
- * 卡片停靠右侧时，它的槽位紧贴主面板右边缘，于是让卡片从槽位左侧（也就是主面板右边缘）
- * 向右滑到位——观感就是「卡片从主面板右侧滑出来，左→右」；停靠左侧时方向相反，自槽位右侧
- * 向左滑到位，即「右→左」。
+ * 刻意不做水平位移，也不用 `expandHorizontally`——后两者都会让卡片在动画期间的布局宽度与最终
+ * 值不同：位移方案里内容滑进来、槽位先空着，展开方案则会把布局宽度从 0 拉起来，主列表跟着从
+ * 「整窗宽」缩到最终宽度，整段过程都在重排。这里卡片的布局宽度从一开始就是最终宽度，内容原地
+ * 不动，只是被裁剪着逐帧露出：
  *
- * 槽位加了 [clipToBounds]：滑出过程中卡片超出槽位的部分（也就是压在主列表上的部分）会被裁掉，
- * 卡片才像是从主面板边缘推出来，而不是从窗口外侧飞进来。
+ * - 主列表的宽度全程不变（槽位从第一帧起就已占住）；
+ * - 揭示方向是「主面板 → 窗口外缘」：停靠右侧时自左向右推开，停靠左侧时自右向左；
+ * - 和窗口变宽是同一个动作。桌面宿主的加宽是瞬时的（原生 `setBounds` 一次到位，逐帧改窗口
+ *   尺寸会拖垮界面，见 `DesktopShellViewModel.applyBounds`），卡片若再花 180ms 滑进来，就会
+ *   看成「背景先撑开、内容后滑入」两段。
  *
- * 卡片内部的内容不做淡入：淡入会让文字一点点浮现，看起来像「整块在闪」。
+ * 内容不做淡入：淡入会让文字一点点浮现，看起来像「整块在闪」。
  *
  * 关闭不做退场动画是有意为之：桌面宿主收到「预览已关闭」后会把窗口收窄，卡片若还占着布局，
  * 就会和收窄中的窗口抢同一段宽度。现在卡片立即让出槽位，槽位由 [slotReserved] 先占着，
  * 等窗口收回来再一起消失——主列表在整段过程中宽度不变。
- *
- * 只做水平位移：卡片高度由 `fillMaxHeight` 跟随窗口，宽度由布局决定，主列表的宽度也由窗口
- * 宽度减去槽位宽度得到，因此整段动画期间主面板的位置与大小都不会变化。
  *
  * 三处卡片由同一个 [PreviewPlacement] 驱动，同一时刻只有一处可见，因此一次打开只会跑一次
  * 进场动画。
@@ -667,16 +731,32 @@ fun HistoryScreen(
 private fun AnimatedPreviewCard(
     visible: Boolean,
     onLeft: Boolean,
-    content: @Composable AnimatedVisibilityScope.() -> Unit,
+    content: @Composable () -> Unit,
 ) {
-    AnimatedVisibility(
-        visible = visible,
-        modifier = Modifier.clipToBounds(),
-        enter = slideInHorizontally(
-            animationSpec = tween(durationMillis = PreviewAnimationMillis),
-            initialOffsetX = { width -> if (onLeft) width else -width },
-        ),
-        exit = ExitTransition.None,
-        content = content,
-    )
+    // 关闭是瞬时的：立刻从组合里移除，槽位交给 [slotReserved]。
+    if (!visible) return
+
+    // 进度只在绘制阶段读取，动画的每一帧因此只触发重绘、不触发重组。
+    val reveal = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        reveal.animateTo(1f, tween(durationMillis = PreviewAnimationMillis))
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .drawWithContent {
+                val revealed = size.width * reveal.value
+                clipRect(
+                    left = if (onLeft) size.width - revealed else 0f,
+                    top = 0f,
+                    right = if (onLeft) size.width else revealed,
+                    bottom = size.height,
+                ) {
+                    this@drawWithContent.drawContent()
+                }
+            },
+    ) {
+        content()
+    }
 }

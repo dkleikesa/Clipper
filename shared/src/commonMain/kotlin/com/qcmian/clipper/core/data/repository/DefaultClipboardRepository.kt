@@ -120,13 +120,31 @@ class DefaultClipboardRepository(
     private suspend fun load() {
         val settings = storage.loadSettings()
         _settings.value = settings
-        // 对应 `Storage.sanitizeTitles()`：修复在不安全标量被过滤之前持久化的标题，
-        // 否则在 macOS 26 上排版会卡死。
-        val restored = storage.loadItems()
-            .map { it.copy(title = it.title.removingUnsafeTitleScalars()) }
+        // 对应 `Storage.sanitizeTitles()`，外加对旧版图片标题的还原，见 [sanitisedTitle]。
+        val restored = storage.loadItems().map { it.withSanitisedTitle() }
         _items.value = normalise(restored, settings)
         loaded = true
         _settingsLoaded.value = true
+    }
+
+    /**
+     * 修正单条已持久化历史的标题。
+     *
+     * 做两件事：
+     * - 过滤会让 CoreText 在 macOS 26 上卡死的不安全标量（对应 `Storage.sanitizeTitles()`）；
+     * - 还原旧版本图片标题里的 `⏎` / `⇥`。早期实现把识别结果的换行、制表符替换成这两个符号
+     *   之后才存进 `title`，而 `title` 正是「复制图片文字」复制出去的内容，于是复制出来的
+     *   就成了符号。纯图片条目的标题只可能来自识别，因此这两个符号必然是当时格式化留下的。
+     */
+    private fun ClipItem.withSanitisedTitle(): ClipItem {
+        val cleaned = title.removingUnsafeTitleScalars()
+        val plainImage = image != null && text.isNullOrBlank() && files.isEmpty()
+        val restored = if (plainImage) {
+            cleaned.replace('\u23ce', '\n').replace('\u21e5', '\t')
+        } else {
+            cleaned
+        }
+        return if (restored == title) this else copy(title = restored)
     }
 
     override fun setItems(items: List<ClipItem>) {

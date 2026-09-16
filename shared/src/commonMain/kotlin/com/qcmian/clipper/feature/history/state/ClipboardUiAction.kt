@@ -82,6 +82,10 @@ sealed interface ClipboardUiAction {
     data object Cycle : ClipboardUiAction
     /** 循环模式下修饰键松开（`Popup.handleFlagsChanged`）。 */
     data object Accept : ClipboardUiAction
-    /** 宿主隐藏了面板；预览随之关闭（`FloatingPanel.close`）。 */
+    /**
+     * 宿主隐藏了面板（`FloatingPanel.close`）。
+     *
+     * 不再顺带收起预览：预览开关是用户的选择、已随设置持久化，见 `AppSettings.previewOpen`。
+     */
     data object Hidden : ClipboardUiAction
 }

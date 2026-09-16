@@ -131,7 +131,14 @@ data class AppSettings(
     /** 对应 `Defaults[.popupScreen]`：0 表示当前活动屏幕，1 及以上指向特定屏幕。 */
     val popupScreen: Int = 0,
     /** 对应 `Defaults[.previewWidth]`：预览面板宽度，只由预览分隔条的拖拽写入。 */
-    val previewWidth: Int = 400,
+    val previewWidth: Int = DEFAULT_PREVIEW_WIDTH,
+    /**
+     * 预览面板是否打开。
+     *
+     * 与 [previewWidth] 一样属于「用户的选择」，因此随设置持久化：打开后一直开着，关闭后一直
+     * 关着，重启、面板隐藏都不会改变它——只有用户再次切换（按钮 / 快捷键 / 页脚）才会翻转。
+     */
+    val previewOpen: Boolean = false,
 
     // 忽略
     /** 暂停记录新的复制。 */
@@ -156,6 +163,14 @@ data class AppSettings(
 
         /** [historyMaxSizeBytes] 的默认值：50 MB。 */
         const val DEFAULT_HISTORY_MAX_SIZE_BYTES = 50L * BYTES_PER_MEGABYTE
+
+        /**
+         * [previewWidth] 的默认值。
+         *
+         * 单独拿出来是因为设置页的「恢复默认尺寸」也要用它：预览宽度是窗口里分出去的一段，
+         * 只把主列表宽度恢复成默认、留着拖出来的预览宽度，窗口会比默认状态宽（或窄）一截。
+         */
+        const val DEFAULT_PREVIEW_WIDTH = 300
 
  /** `ignoredPasteboardTypes` 的默认值。 */
         val DEFAULT_IGNORED_PASTEBOARD_TYPES = listOf(

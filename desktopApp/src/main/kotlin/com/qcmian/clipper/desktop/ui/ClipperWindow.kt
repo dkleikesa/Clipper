@@ -21,6 +21,7 @@ import com.qcmian.clipper.feature.history.ui.PreviewHostPolicy
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
+import java.awt.Dimension
 import java.awt.event.WindowEvent
 import java.awt.event.WindowFocusListener
 
@@ -115,6 +116,9 @@ fun ApplicationScope.ClipperWindow(
                 // 调用，左侧停靠时窗口要同时「左移」和「变宽」，两次之间的中间帧会被系统
                 // 画出来——整个窗口左右闪一下；`setBounds` 是原子的。
                 applyBounds = { x, y, width, height -> window.setBounds(x, y, width, height) },
+                // 内容区的下限：无标题栏拖拽由框架读 `minimumSize` 拦下，用户拖不过去
+                // （见 `DesktopShellViewModel.observeMinimumWindowSize`）。
+                applyMinimumSize = { width, height -> window.minimumSize = Dimension(width, height) },
             )
         }
         val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -179,17 +183,20 @@ fun ApplicationScope.ClipperWindow(
             container = container,
             onRequestHideWindow = { viewModel.hidePanel() },
             onQuit = { viewModel.quit() },
-            onPreviewOpenChange = viewModel::onPreviewOpenChanged,
             previewHost = PreviewHostPolicy(
                 onLeft = uiState.previewOnLeft,
-                overlays = uiState.previewOverlays,
                 // 桌面端会为预览加宽窗口（`autoWindowSize`），因此预览永远与主列表并排：
                 // 界面等窗口加宽到位再让它进场，不会先盖在列表上闪一下。
+                // 也**不**传 `overlays`：并排布局里卡片与列表各占一边，任何一帧都不会互相遮盖，
+                // 而覆盖层只要在过渡里出现一帧，看起来就是「预览整块盖住了列表」。
                 expandsWindow = true,
+                // 「加宽到位」由本侧直接给出，界面不用量窗口宽度（实测值慢一帧，收起时会闪）。
+                windowReady = uiState.previewWindowReady,
             ),
             windowController = windowController,
             hotkeyController = hotkeyController,
             onPreferredHeightChange = viewModel::onPreferredHeightChanged,
+            onMinimumHeightChange = viewModel::onMinimumHeightChanged,
             // panelVisible：面板可见性（原始值）；statusItemActive：托盘按下态只认
             // 「托盘触发的可见」——热键呼出时面板虽然可见，托盘保持常态。
             panelVisible = uiState.windowVisible,

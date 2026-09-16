@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.ui.KeyShortcut
@@ -43,6 +44,12 @@ fun ListItemRow(
     isSelected: Boolean,
     modifier: Modifier = Modifier,
     shortcut: KeyShortcut? = null,
+    /**
+     * 行的**固定**高度。默认是文本行高 [Popup.itemHeight]；图片行必须把
+     * `maxImageHeight + ImageRowPadding` 传进来，否则这里会把它压回文本行高，
+     * 「图片最大高度」设置就永远不生效（见 `HistoryRow`）。
+     */
+    height: Dp = Popup.itemHeight,
     /** 来源应用图标，在 `showApplicationIcons` 开启时显示。 */
     appIcon: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
@@ -63,11 +70,12 @@ fun ListItemRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            // 行高必须**恒定**，不能只是下限：窗口高度与滚动条都按「文本行 = `Popup.itemHeight`」
-            // 推算整份内容的高度（见 `HistoryScreen` 的 `rowHeight`），任何让它长高的内容都会
-            // 让那两处算少——前置图标的上下内边距就曾经把行撑到 25dp。需要居中的配件一律靠
+            // 行高必须**恒定**，不能只是下限：窗口高度与滚动条都按「文本行 = `Popup.itemHeight`、
+            // 图片行 = `imageMaxHeight + ImageRowPadding`」推算整份内容的高度
+            // （见 `HistoryScreen` 的 `rowHeight`），任何让行长高的内容都会让那两处算少——
+            // 前置图标的上下内边距就曾经把行撑到 25dp。需要居中的配件一律靠
             // `verticalAlignment` 解决，不要靠内边距撑开行。
-            .height(Popup.itemHeight)
+            .height(height)
             .clip(RoundedCornerShape(4.dp))
             .background(if (isSelected) colors.primary.copy(alpha = 0.8f) else Color.Transparent)
             .hoverable(interactionSource)

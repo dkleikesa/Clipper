@@ -21,7 +21,13 @@ class UpdateSettingsUseCase(private val repository: ClipboardRepository) {
         val original = items
 
         if (previous.showSpecialSymbols != updated.showSpecialSymbols) {
-            items = items.map { it.copy(title = it.generateTitle(updated.showSpecialSymbols)) }
+            // 只有标题由正文 / 文件派生的条目才需要重算（判据与 `previewableText` 的分支一致）。
+            // 纯图片条目的 `title` 是识别原文，`previewableText` 在这里只是回退到它；重算会把
+            // 原文里的真换行换成显示用的 `⏎`，用户一开关就再也复制不出换行了。
+            items = items.map { item ->
+                val fromContent = item.files.isNotEmpty() || !item.text.isNullOrBlank()
+                if (fromContent) item.copy(title = item.generateTitle(updated.showSpecialSymbols)) else item
+            }
         }
         if (previous.saveText != updated.saveText ||
             previous.saveImages != updated.saveImages ||

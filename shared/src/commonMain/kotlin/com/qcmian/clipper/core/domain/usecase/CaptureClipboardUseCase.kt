@@ -4,6 +4,7 @@ import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.SourceApplication
+import com.qcmian.clipper.core.domain.model.removingUnsafeTitleScalars
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 import com.qcmian.clipper.core.settings.AppSettings
@@ -80,8 +81,10 @@ class CaptureClipboardUseCase(
 
         val existing = items.firstOrNull { it.id != candidate.id && it.supersedes(candidate) }
         val merged = if (existing != null) {
-            // 保留原条目的身份，只更新计数。
+            // 保留原条目的身份，只更新计数。省略 `id` 会让每次重复复制都换一个新身份，
+            // 正在飞的识别协程按旧 id 就再也找不到自己的条目了。
             candidate.copy(
+                id = existing.id,
                 firstCopiedAt = existing.firstCopiedAt,
                 numberOfCopies = existing.numberOfCopies + 1,
                 pin = existing.pin,
@@ -95,9 +98,21 @@ class CaptureClipboardUseCase(
         val updated = items.filterNot { it.id == existing?.id } + merged
         repository.setItems(updated)
 
-        // 对应 `HistoryItem.generateTitle()`：图片的标题来自文字识别。
-        // 识别放在自己的子协程里，以免阻塞下一份快照的处理。
-        if (image != null && settings.recognizeText && platform.supportsTextRecognition) {
+        // 对应 `HistoryItem.generateTitle()`：图片的标题来自文字识别。识别放在自己的子协程里，
+        // 以免阻塞下一份快照的处理。
+        //
+        // 只有「本来就没有文本表示」的图片才识别：条目带着 `text` / `files` 时，标题由它们的
+        // 文本派生（见 `ClipItem.previewableText`），把识别结果写进去会把这部分文本从搜索里挤掉。
+        //
+        // `merged.title.isBlank()` 同时兼作去重：已经有标题（上一次的识别结果，或用户在偏好设置
+        // 里改过的别名）就不再重跑 Vision——既省下一次识别，也不会把用户的改动覆盖回去。
+        if (image != null &&
+            text.isNullOrBlank() &&
+            files.isEmpty() &&
+            merged.title.isBlank() &&
+            settings.recognizeText &&
+            platform.supportsTextRecognition
+        ) {
             scope.launch { recognizeImageText(merged.id, image) }
         }
     }
@@ -105,13 +120,21 @@ class CaptureClipboardUseCase(
     /** 在后台运行 Vision / ML Kit，并把结果提升为条目标题。 */
     private suspend fun recognizeImageText(itemId: String, image: ClipImage) {
         val recognized = platform.recognizeText(image) ?: return
+        // 空白判定必须发生在格式化之前：格式化会把换行换成 `⏎`，那之后 `isBlank()` 就再也
+        // 认不出「只有空白」的识别结果，垃圾标题会连同工具栏按钮一起冒出来。
+        if (recognized.isBlank()) return
+
         val items = repository.items.value
         val index = items.indexOfFirst { it.id == itemId }
         if (index < 0) return
 
+        // 标题存的是识别**原文**，不是列表显示用的单行串：这个字段同时是「复制图片文字」
+        // 与搜索的数据源，换成 `⏎` / `·` 会把真换行一起复制出去（见 `copyExtractedText`）。
+        // 需要单行显示的地方（历史列表、置顶别名框）在渲染时自行压平。
         val title = recognized
-            .replace("\n", "\u23ce")
-            .take(ClipItem.MAX_TITLE_LENGTH)
+            .take(MAX_RECOGNIZED_TEXT_LENGTH)
+            .removingUnsafeTitleScalars()
+            .trim()
         if (title.isBlank()) return
 
         repository.setItems(items.toMutableList().also { it[index] = it[index].copy(title = title) })
@@ -129,5 +152,15 @@ class CaptureClipboardUseCase(
         val keys = setOfNotNull(application.bundleId, application.name)
         val listed = settings.ignoredApps.any { it in keys }
         return if (settings.ignoreAllAppsExceptListed) !listed else listed
+    }
+
+    private companion object {
+        /**
+         * 识别原文的长度上限，与 `ClipSearch` 模糊匹配读入的长度一致。
+         *
+         * 不再套用标题的 [`ClipItem.MAX_TITLE_LENGTH`]：那个上限是按「列表里的一行」定的，
+         * 而这里的正文是要整段复制出去的。
+         */
+        const val MAX_RECOGNIZED_TEXT_LENGTH = 5_000
     }
 }
