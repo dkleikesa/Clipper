@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.Window
@@ -28,6 +29,43 @@ import java.awt.event.WindowFocusListener
  * 本应用全局只有一个主窗口，全局一份即可。
  */
 var onCloseRequest: () -> Unit = {}
+
+/** 面板显示后为「键盘目标组件」争取 AWT 焦点的最大重试帧数。 */
+private const val FOCUS_TARGET_ATTEMPTS = 12
+
+/**
+ * 把 AWT 焦点交给窗口里真正接收键盘的那个组件。
+ *
+ * Compose 的按键监听挂在窗口**内容组件**上（`ComposeSceneMediator.keyListener` 是个挂在
+ * `SkiaLayerComponent` 上的 `KeyListener`），而 AWT 只把按键派发给焦点所有者。直接
+ * `window.requestFocus()` 会把焦点给窗口框架本身，于是按键全落在框架上、Compose 侧一条都
+ * 收不到——表现为「面板呼出后打不了字，Esc / 方向键也全没反应」，点一下窗口内部才恢复。
+ *
+ * 因此这里沿组件树下探到最深的可聚焦组件（也就是 Compose 的内容组件）再请求焦点；
+ * 找不到时退回窗口本身，行为与改动前一致。
+ */
+private fun focusKeyboardTarget(window: java.awt.Window): Boolean {
+    val target = deepestFocusableChild(window)
+    if (target == null) {
+        // 找不到内容组件（或它不可聚焦）：退回窗口本身，行为与改动前一致。
+        return window.requestFocusInWindow() || window.isFocusOwner
+    }
+    if (target.isFocusOwner) return true
+    // 窗口还没成为 focused window 时 `requestFocusInWindow()` 会返回 `false`，
+    // 调用方据此跨帧重试。
+    return target.requestFocusInWindow() || target.isFocusOwner
+}
+
+/** 组件树里最深的「可聚焦且可见」的组件；只有窗口自身可聚焦时返回 `null`。 */
+private fun deepestFocusableChild(container: java.awt.Container): java.awt.Component? {
+    var found: java.awt.Component? = null
+    fun visit(component: java.awt.Component) {
+        if (component.isFocusable && component.isVisible) found = component
+        (component as? java.awt.Container)?.components?.forEach(::visit)
+    }
+    visit(container)
+    return found?.takeIf { it !== container }
+}
 
 /**
  * 主窗口（View 层）：把 [DesktopShellViewModel] 渲染成一个无标题栏的浮层，并把窗口级事件
@@ -106,8 +144,8 @@ fun ApplicationScope.ClipperWindow(
             onDispose { window.removeWindowFocusListener(listener) }
         }
 
-        // 「按住热键循环」的修饰键状态机由 ViewModel 持有，这里只驱动它的生命周期。
-        LaunchedEffect(uiState.windowVisible, uiState.popupMode) { viewModel.watchModifiers() }
+        // 「按住热键循环」的状态机完全由 ViewModel 自己驱动（见 `observeHotKeyHold`）：
+        // 它按绝对时刻计时，不依赖这里的状态变化，因此视图不需要为它做任何事。
 
         // 每一次「呼出面板」（热键或托盘）都会自增；用来判断这次显示是不是新的一次。
         val openRequests by hotkeyController.openRequests.collectAsStateWithLifecycle()
@@ -116,7 +154,7 @@ fun ApplicationScope.ClipperWindow(
         // 面板才能成为 key window——键盘输入可到达面板，点击窗口外部也会触发失焦收起。
         //
         // 必须跟随 [windowVisible]（真正传给 `Window(visible=...)` 的那个状态），而不是
-        // ViewModel 的原始状态：后者先于窗口参数变化一拍，`toFront()` / `requestFocus()`
+        // ViewModel 的原始状态：后者先于窗口参数变化一拍，`toFront()` / 焦点请求
         // 可能落在窗口显示之前而被 AWT 静默拒绝。
         //
         // 同时依赖 [openRequests]：点击托盘会让面板先失焦，那次隐藏可能和随后的显示
@@ -126,7 +164,12 @@ fun ApplicationScope.ClipperWindow(
             if (windowVisible) {
                 runCatching { MacWorkspace.activateSelf() }
                 window.toFront()
-                window.requestFocus()
+                // 焦点必须落到窗口内的内容组件上，不能停在窗口框架上（见 [focusKeyboardTarget]）。
+                // 窗口刚显示时它还没成为 focused window，请求会被拒，因此跨几帧重试到成功为止。
+                repeat(FOCUS_TARGET_ATTEMPTS) {
+                    if (focusKeyboardTarget(window)) return@LaunchedEffect
+                    withFrameNanos { }
+                }
             }
         }
 

@@ -3,13 +3,14 @@ package com.qcmian.clipper.feature.history.ui.components
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -32,6 +33,10 @@ import com.qcmian.clipper.core.ui.hexToColor
 /**
  *。一行要么是色块加标题，要么只有图片缩略图——
  * 绝不会同时出现标题与缩略图。
+ *
+ * 行高是**确定性**的：文本行为 [com.qcmian.clipper.core.ui.Popup.itemHeight]，图片行为
+ * [maxImageHeight] 加 10dp 的垂直内边距。窗口高度与滚动条都按这两个常量推算整份内容的高度，
+ * 因此两处都必须是固定高度（见 `ListItemRow` 与下方 `ContentScale.Inside`）。
  */
 @Composable
 fun HistoryRow(
@@ -41,7 +46,7 @@ fun HistoryRow(
     isSelected: Boolean,
     highlight: HighlightMatch,
     showColorSwatch: Boolean,
- /** 偏好。 */
+    /** 图片行的高度上限，也是图片槽位的固定高度。 */
     maxImageHeight: Dp,
     /** 来源应用图标的 base64 PNG；图标关闭或未知时为 `null`。 */
     appIconBase64: String?,
@@ -72,13 +77,20 @@ fun HistoryRow(
         accessory = if (swatch != null) ({ ColorSwatch(swatch) }) else null,
     ) {
         if (thumbnail != null) {
+            // 图片行的槽位高度必须恒定，否则「窗口高度」与「滚动条」都只能靠估算：
+            // 它们用 `imageMaxHeight + 10dp` 推算每条的高度，小图按原始尺寸渲染时
+            // 实际只有「真实高 + 10dp」，估算出来的内容总高会比真实值大一截。
+            //
+            // `Inside`：源比槽位大就等比缩小（完整可见、不裁切），比槽位小就保持原始
+            // 尺寸居中——多出来的部分就是留白。`None` 不行：它完全不缩放，大图会被裁掉。
             Image(
                 bitmap = thumbnail,
                 contentDescription = null,
-                contentScale = ContentScale.Fit,
+                contentScale = ContentScale.Inside,
+                alignment = Alignment.Center,
                 modifier = Modifier
                     .padding(vertical = 5.dp)
-                    .heightIn(max = maxImageHeight)
+                    .height(maxImageHeight)
                     .clip(RoundedCornerShape(2.dp)),
             )
         } else {

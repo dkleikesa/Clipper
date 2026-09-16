@@ -84,9 +84,17 @@ data class DesktopShellUiState(
      */
     val previewOverlays: Boolean = false,
 
- /** 当前弹窗交互阶段。 */
+    /** 当前弹窗交互阶段：按住会话的投影，由本类写；界面目前不读它。 */
     val popupMode: PopupMode = PopupMode.TOGGLE,
 )
+
+/**
+ * 一次按住会话里，组合键当前按到什么程度。
+ *
+ * 关键在于区分「松掉一部分」和「全松开」：前者只挂起循环（用户可能只是松了一个修饰键，
+ * 马上又按回去），后者才是一次真正的松手，要选中高亮项并关窗。
+ */
+private enum class ComboState { NONE, PARTIAL, COMPLETE }
 
 /**
  * 桌面外壳的 ViewModel：窗口的可见性、位置、尺寸，全局热键状态机与焦点恢复都集中在这里，
@@ -171,13 +179,50 @@ class DesktopShellViewModel(
     private var lastOutsideHideAtMillis = 0L
 
     /**
-     * 呼出热键的主键（`⇧⌘C` 里的 `C`）是否仍按着。
+     * 每一次热键按下自增，驱动 [observeHotKeyHold] 里的按住会话。
      *
-     * 它只在能收到 `kEventHotKeyReleased` 时有用（macOS 实际不发这个事件，见
-     * [MacGlobalHotKey.register]）：能收到就表示主键松手、停在当前这一条；收不到时恒为
-     * true，一切以修饰键为准——「松手」= 修饰键不再完整。
+     * 热键的按下事件是「用户按了一次快捷键」唯一可靠的信号：Carbon 既不自动重复，
+     * 也几乎不发松开（见 [MacGlobalHotKey.register]）。因此每一次按下都重新开一次会话，
+     * 延迟从头计——松开一个键再按回来，同样算「又按了一次」。
+     */
+    private val holdPresses = MutableStateFlow(0)
+
+    /** 本次按住会话按下的时刻；0 表示没有会话。用绝对时刻，采样协程重建也不会把进度弄丢。 */
+    private var holdStartedAt = 0L
+
+    /** 是否有进行中的按住会话；由 [observeHotKeyHold] 的采样循环结束。 */
+    private var holdActive = false
+
+    /** 本次会话是否已经推进过：推进过，整组键松开时才选中高亮项；轻按（没到延迟）什么都不做。 */
+    private var holdCycled = false
+
+    /**
+     * 这一次「按住修饰键」期间按了几次主键。
+     *
+     * 对应两条交互约定：按一次是「呼出面板」或「往下选一条」，整组键松开后什么都不做；
+     * 按两次及以上说明用户是在挑条目，整组键松开时直接选中并关窗。
+     * 会话可以因为「只抬起主键」而挂起，但计数跟着这一次按住走，不跟着会话走。
+     */
+    private var holdPressCount = 0
+
+    /** 本次会话上一次推进的时刻。 */
+    private var lastCycleAt = 0L
+
+    /**
+     * 主键（`⇧⌘C` 里的 `C`）是否按着，由 Carbon 的按下 / 松开事件维护。
+     *
+     * 真机日志确认 macOS **会**把 `kEventHotKeyReleased` 送到应用（每次短按都能收到），
+     * 所以这个状态值得采信：只抬起主键、修饰键还按着时，它是唯一能说明「组合键已经不完整」的信号。
      */
     private var mainKeyDown = false
+
+    /**
+     * 本进程是否收到过热键松开事件。
+     *
+     * 收不到时（是否派发取决于系统版本）就不能拿 [mainKeyDown] 判松手，否则会话永远收不了尾、
+     * 面板再也关不掉；那种情况下退回「修饰键全松开即松手」。
+     */
+    private var mainKeyReleaseSupported = false
 
     init {
         captureFrontmostWindow()
@@ -185,6 +230,7 @@ class DesktopShellViewModel(
         // 它也是本次会话唯一的外观来源（见 [observeSystemAppearance]）。
         _systemDark.value = runCatching { MacWorkspace.isSystemAppearanceDark() }.getOrNull()
         viewModelScope.launch { observeShortcut() }
+        viewModelScope.launch { observeHotKeyHold() }
         viewModelScope.launch { observeWindowGeometry() }
         viewModelScope.launch { observeUserResize() }
         viewModelScope.launch { observeToggleRequests() }
@@ -207,31 +253,56 @@ class DesktopShellViewModel(
                 it.copy(windowVisible = true, popupMode = PopupMode.OPENING, panelOpenedByTray = false)
             }
             hotkey.requestOpen()
-        } else {
-            when (state.popupMode) {
-                // 呼出之后还接着按：往下选一条，仍留在「打开中」等主键松手或按满时长。
-                PopupMode.OPENING -> hotkey.requestCycle()
-
-                PopupMode.CYCLE -> hotkey.requestCycle()
-
-                // 热键呼出的面板：再按（含连按）都是「往下选一条」，绝不挪窗口——否则
-                // 连按几下窗口就跟着光标跑了。托盘呼出的面板才是原来那条「移到鼠标位置」。
-                PopupMode.TOGGLE -> if (state.panelOpenedByTray) {
-                    moveToCursor()
-                } else {
-                    hotkey.requestCycle()
-                }
-            }
+            beginHoldSession()
+            return
         }
+        // 托盘呼出的面板：再按（含连按）是把窗口移到鼠标位置，不参与「按住循环」；
+        // 热键呼出的面板不挪窗口——否则连按几下窗口就跟着光标跑了。
+        if (state.popupMode == PopupMode.TOGGLE && state.panelOpenedByTray) {
+            moveToCursor()
+            return
+        }
+        if (holdActive) {
+            // 同一次「按住修饰键」里又按了一下主键：往下选一条（短按就是逐条往下选），
+            // 并把延迟重新计满——松了其中一个键再按回来，也算新的一次按住。
+            // 已经循环过的事实保留：这一次修饰键一直没抬起来，松手时仍然要选中。
+            hotkey.requestCycle()
+            holdPressCount++
+            holdStartedAt = System.currentTimeMillis()
+            lastCycleAt = 0L
+            mainKeyDown = true
+            MacModifierMonitor.assumeHeld(requiredModifierMask())
+            setPopupMode(PopupMode.OPENING)
+            return
+        }
+        // 修饰键也已经全松开，这是新的一次按键：先往下选一条（Maccy 的「连按往下选」），
+        // 再开始计时。
+        hotkey.requestCycle()
+        beginHoldSession()
     }
 
     /**
-     * 全局热键松开：主键松手（收到就用，见 [MacGlobalHotKey.register] 说明它未必会到）。
-     *
-     * 「松手选中」不依赖它——那是修饰键的事，这里只是让循环能提前停在当前这一条。
+     * 全局热键松开：主键抬起了。它不直接触发选中——选中要等「整组键都松开」，
+     * 见 [runHoldSession]：修饰键还按着时只挂起，不选中也不关窗。
      */
     fun onHotKeyReleased() {
+        mainKeyReleaseSupported = true
         mainKeyDown = false
+    }
+
+    /** 开启一次新的按住会话；上一次会话（如果还在跑）会被 [observeHotKeyHold] 随即取代。 */
+    private fun beginHoldSession() {
+        holdStartedAt = System.currentTimeMillis()
+        holdActive = true
+        holdCycled = false
+        holdPressCount = 1
+        lastCycleAt = 0L
+        mainKeyDown = true
+        // 按下事件本身就证明组合键此刻是按全的：把监视器就位成「按全」。它此刻的旧值往往
+        // 停在别的应用里按下的那一刻，拿它去比会让松手变成「没有变化」，从而永远收不了尾。
+        MacModifierMonitor.assumeHeld(requiredModifierMask())
+        setPopupMode(PopupMode.OPENING)
+        holdPresses.update { it + 1 }
     }
 
     /** 显示面板（不进入循环模式）。对应托盘菜单的「显示 Clipper」，属托盘触发。 */
@@ -306,79 +377,121 @@ class DesktopShellViewModel(
     }
 
     /**
-     * 对应 `Popup.handleFlagsChanged`：整组键按住期间逐条循环，全部松开时循环模式选中高亮项、
-     * 打开中模式退回切换模式。由视图的 `LaunchedEffect(windowVisible, popupMode)` 驱动，
-     * 因此 [DesktopShellUiState.popupMode] 变化时会重新进入。
+     * 「按住热键循环」状态机：每一次按下（[holdPresses]）开启一次按住会话，会话里每
+     * [MODIFIER_POLL_MILLIS] 采一次组合键按到什么程度（[ComboState]）。
      *
-     * Carbon 的 `RegisterEventHotKey` 只在按下时报一次、不会自动重复，因此这里自己按节奏循环，
-     * 效果与依赖按键自动重复的实现一致。
+     * 三个刻意的设计，报出来的毛病都出在这里：
+     *
+     * 1. 采样间隔独立于循环间隔。原来循环期间每 [CYCLE_INTERVAL_MILLIS]（120ms）才看一眼
+     *    组合键，松掉一个键再按回来（一两百毫秒）会被整段跳过——循环于是停不下来，再按时
+     *    也直接续上。现在固定 30ms 采样，且只在会话进行中采样，空闲时一次原生调用都不发。
+     * 2. 计时用绝对时刻、状态放在 ViewModel 里，而不是放在「由 Compose 状态驱动的协程」里。
+     *    原来那个协程以 `(windowVisible, popupMode)` 为键，模式一变就被取消重建，
+     *    「已经等了多久」跟着丢；而且只有从「打开中」进入才会计时，面板已显示时按住根本不循环。
+     * 3. 「松掉一个键」和「整组键都松开」是两件事：前者只挂起，后者才选中并关窗。
      */
-    suspend fun watchModifiers() {
-        val state = _uiState.value
-        if (!state.windowVisible || state.popupMode == PopupMode.TOGGLE) return
-
-        // 整组键（`⇧⌘C` 的修饰键 + 主键）都按着才算「按住」，都松开才算「松手」。
-        val requiredMask = nsModifierMask(panel.hostUiState.value.settings.popupShortcut)
-
-        // 修饰键读两条来源，任一读到「不完整」就停止：
-        // - `flagsChanged` 事件（[MacModifierMonitor]）：热键按住期间轮询可能读不到松手，
-        //   事件能读到，这是「一直循环停不下来」的修复；
-        // - 轮询 `NSEvent.modifierFlags`：改造前的唯一来源，保留它意味着监视器收不到事件时
-        //   也不会比改前更差。
-        val monitored = MacModifierMonitor.install()
-
-        fun modifiersHeld(): Boolean {
-            if (requiredMask == 0) return false
-            if (native.currentModifierFlags() and requiredMask != requiredMask) return false
-            if (!monitored) return true
-            return MacModifierMonitor.flags.value and requiredMask == requiredMask
+    private suspend fun observeHotKeyHold() {
+        // 修饰键监视器只是「松手」的第二来源，装不上也不影响：那时只剩轮询。
+        MacModifierMonitor.install()
+        holdPresses.collectLatest { presses ->
+            if (presses > 0) runHoldSession()
         }
+    }
 
-        /**
-         * 整组键都按着：这才是「按住」，循环才会往前推进。
-         *
-         * 主键的松手只用来「能收到就停一停」——macOS 不会把 `kEventHotKeyReleased` 交给应用
-         * （Carbon 只发按下），收不到时这个条件就等于只看修饰键。
-         */
-        fun comboHeld(): Boolean = modifiersHeld() && mainKeyDown
-
-        when (state.popupMode) {
-            PopupMode.OPENING -> {
-                // 开始这次按住之前先对齐一次：修饰键是在别的应用里按下的，那几次 `flagsChanged`
-                // 并没有派发到本应用，事件驱动的值这时还是「什么都没按」。
-                if (monitored) MacModifierMonitor.resync()
-                // 先观察一小段时间：轻按一下就松开不算按住，面板停在切换模式，
-                // 用户接着按就是逐条往下选。
-                var held = 0L
-                while (held < CYCLE_START_DELAY_MILLIS) {
-                    delay(MODIFIER_POLL_MILLIS)
-                    if (!comboHeld()) {
-                        _uiState.update { it.copy(popupMode = PopupMode.TOGGLE) }
-                        return
-                    }
-                    held += MODIFIER_POLL_MILLIS
-                }
-                // 一直按着：进入循环并高亮下一条。
-                _uiState.update { it.copy(popupMode = PopupMode.CYCLE) }
-                hotkey.requestCycle()
+    /**
+     * 一次「按住」的采样循环。按全组合键满 [CYCLE_START_DELAY_MILLIS] 之后开始逐条往下走，
+     * 中途松掉哪个键都只是挂起（[ComboState.PARTIAL]），直到整组键都松开才收尾。
+     *
+     * 收尾时是否选中由「这一次按住怎么用的」决定：进过循环，或点按了两次及以上 → 选中并关窗；
+     * 只点按一次 → 什么都不做（那只是呼出面板 / 往下看一眼）。
+     */
+    private suspend fun runHoldSession() {
+        val mask = requiredModifierMask()
+        // 按下这一刻组合键一定是按全的：Carbon 只在按全时才报按下。
+        var previous = ComboState.COMPLETE
+        while (true) {
+            delay(MODIFIER_POLL_MILLIS)
+            // 面板已经被收起（失焦、Esc、点了某一条…）：会话就此结束。
+            if (!_uiState.value.windowVisible) {
+                holdActive = false
+                return
             }
 
-            PopupMode.CYCLE -> {
-                while (true) {
-                    delay(CYCLE_INTERVAL_MILLIS)
-                    // 松手（修饰键不再完整）：选中高亮项并收起，效果与鼠标点击这一刻的那一
-                    // 行相同。这里不能等主键的松手事件——macOS 根本不发那个事件。
-                    if (!modifiersHeld()) {
-                        hotkey.requestAccept()
-                        _uiState.update { it.copy(popupMode = PopupMode.TOGGLE) }
-                        return
-                    }
-                    if (mainKeyDown) hotkey.requestCycle()
-                }
+            val held = heldModifiers(mask)
+            // 收不到松开事件时只能当主键一直按着（退回「修饰键全松开即松手」）。
+            val mainDown = mainKeyDown || !mainKeyReleaseSupported
+            val state = when {
+                // 整组键都松开了：这才是真正的松手。
+                held == 0 && !mainDown -> ComboState.NONE
+                // 组合键完整按着：可以循环。
+                held == mask && mainDown -> ComboState.COMPLETE
+                // 松了一部分（只抬主键、或只松某个修饰键）：挂起，不选中也不关窗。
+                else -> ComboState.PARTIAL
+            }
+            if (state == ComboState.NONE) {
+                holdActive = false
+                // 整组键都松开了才收尾。选中条件：
+                // - 这一次按住进过循环（长按）；或者
+                // - 这一次按住里点按了两次及以上（用户在挑条目）。
+                // 只点按一次是「呼出面板」或「往下选一条」，松手不做任何事，面板留在原地。
+                val accept = holdCycled || holdPressCount >= 2
+                if (accept) hotkey.requestAccept()
+                setPopupMode(PopupMode.TOGGLE)
+                return
             }
 
-            PopupMode.TOGGLE -> return
+            if (state == ComboState.COMPLETE) {
+                if (previous != ComboState.COMPLETE) {
+                    // 松了一个键又按回来：这是一次新的「按住」，延迟从头计。
+                    holdStartedAt = System.currentTimeMillis()
+                    lastCycleAt = 0L
+                }
+                val now = System.currentTimeMillis()
+                if (now - holdStartedAt < CYCLE_START_DELAY_MILLIS) {
+                    setPopupMode(PopupMode.OPENING)
+                } else {
+                    setPopupMode(PopupMode.CYCLE)
+                    // 延迟刚结束时先推进一条，之后每 [CYCLE_INTERVAL_MILLIS] 一条。
+                    if (!holdCycled || now - lastCycleAt >= CYCLE_INTERVAL_MILLIS) {
+                        holdCycled = true
+                        lastCycleAt = now
+                        hotkey.requestCycle()
+                    }
+                }
+            } else {
+                // 只松了一部分：停在这里等剩下的键，不选中也不关窗。
+                setPopupMode(PopupMode.OPENING)
+            }
+            previous = state
         }
+    }
+
+    /** 呼出热键要求的修饰键掩码。 */
+    private fun requiredModifierMask(): Int =
+        // 读仓库里的偏好，而不是 `panel.hostUiState` 投影：投影要等 `App` 组合才更新，
+        // 启动瞬间还是默认值，用它算出来的掩码会和真正注册的热键对不上。
+        nsModifierMask(container.repository.settings.value.popupShortcut)
+
+    /**
+     * 当前正按着的、落在 [mask] 里的修饰键：轮询与事件监视器**取交集**（任一来源看到某个键
+     * 松了，就认为它松了）。
+     *
+     * - 轮询 `NSEvent.modifierFlags`（[com.qcmian.clipper.core.data.source.NativeDataSource.currentModifierFlags]）
+     *   是主来源，每个采样点都读一次当前状态；
+     * - [MacModifierMonitor] 的 `flagsChanged` 是事件来源：本应用是 key window 时它最灵敏。
+     *   轮询在热键按住期间未必读得到松手（当初加这个监视器就是为了它），所以松手这件事必须
+     *   由它兜住；反过来它的值可能是本次会话之前的旧值，因此会话开始时用
+     *   [MacModifierMonitor.assumeHeld] 就位成「按全」。
+     *
+     * 取交集而不是只看其中一条：任何一条来源看到松手都足以让循环停下来，而两条都看不到的
+     * 情况本来也无法判定。
+     */
+    private fun heldModifiers(mask: Int): Int =
+        native.currentModifierFlags() and mask and (MacModifierMonitor.flags.value and mask)
+
+    /** 只写「弹窗阶段」这一项；值没变时不产生新状态。 */
+    private fun setPopupMode(mode: PopupMode) {
+        _uiState.update { if (it.popupMode == mode) it else it.copy(popupMode = mode) }
     }
 
     // ---------------------------------------------------------------------------------
