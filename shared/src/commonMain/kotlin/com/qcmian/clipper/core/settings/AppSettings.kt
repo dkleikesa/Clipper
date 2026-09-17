@@ -96,8 +96,6 @@ data class AppSettings(
     val clipboardCheckIntervalMillis: Int = 500,
     /** 对应 `LaunchAtLogin`；把应用注册为开机自启项。 */
     val launchAtLogin: Boolean = false,
-    /** 对应 `Defaults[.suppressClearAlert]`：跳过「清除历史」的二次确认。 */
-    val suppressClearAlert: Boolean = false,
 
     // 快捷键
     /** 对应 `KeyboardShortcuts.Name.popup`，`⇧⌘C`。 */
@@ -142,8 +140,6 @@ data class AppSettings(
     // 忽略
     /** 暂停记录新的复制。 */
     val ignoreEvents: Boolean = false,
-    /** 暂停时，只跳过下一条复制。 */
-    val ignoreOnlyNextEvent: Boolean = false,
     val ignoredRegexp: List<String> = emptyList(),
     /** 复制内容会被跳过的应用 Bundle 标识符。 */
     val ignoredApps: List<String> = emptyList(),

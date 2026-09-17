@@ -23,6 +23,13 @@ interface ClipStorageDataSource {
      * 平台无法给出时返回 `null`。
      */
     fun storageSize(): String? = null
+
+    /**
+     * 关闭底层存储。最后一个连接关闭时，SQLite 会把 WAL 合并回主库并删除
+     * `-wal` / `-shm` 临时文件，下次启动不再需要恢复。仅进程退出前调用一次；
+     * 关闭后的读写会被安全忽略，因此退出路径后续的落盘不需要感知。
+     */
+    fun close() {}
 }
 
 expect fun createClipStorageDataSource(): ClipStorageDataSource

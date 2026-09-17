@@ -56,3 +56,19 @@ internal fun ClipItem.toEntity(): ClipItemEntity = ClipItemEntity(
     title = title,
     application = application?.let { encodeJson(it) },
 )
+
+/**
+ * [ClipItem] 到 [ClipItemLite] 的映射。与 [toEntity] 除 image 外逐列一致——diff 时两边
+ * 都从同一份领域模型导出，JSON 序列化对相同输入是确定性的，因此逐字段相等就等价于行未变化。
+ */
+internal fun ClipItem.toRowLite(): ClipItemLite = ClipItemLite(
+    id = id,
+    text = text,
+    files = encodeJson(files),
+    firstCopiedAt = firstCopiedAt,
+    lastCopiedAt = lastCopiedAt,
+    numberOfCopies = numberOfCopies,
+    pin = pin,
+    title = title,
+    application = application?.let { encodeJson(it) },
+)

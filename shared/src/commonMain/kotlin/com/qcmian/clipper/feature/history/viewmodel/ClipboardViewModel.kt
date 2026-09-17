@@ -219,14 +219,8 @@ class ClipboardViewModel(
         }
     }
 
-    /** 对应 `AppState.select` + `ConfirmationView`：遵循「不再提示」。 */
+    /** 对应 `AppState.select` + `ConfirmationView`：清除历史前总是先确认。 */
     private fun requestClear(all: Boolean, hidePanel: Boolean = true) {
-        if (_uiState.value.settings.suppressClearAlert) {
-            useCases.clearHistory(all)
-            // `History.clear` 在历史清空后关闭弹窗。
-            if (hidePanel) onRequestHideWindow()
-            return
-        }
         _uiState.update {
             it.copy(
                 confirmation = ClearConfirmation(

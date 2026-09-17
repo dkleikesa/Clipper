@@ -90,7 +90,7 @@ fun HistoryHeader(
 
 /** 记录暂停时显示的横幅，带「恢复」操作。 */
 @Composable
-fun PausedBanner(onlyNext: Boolean, onResume: () -> Unit) {
+fun PausedBanner(onResume: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
@@ -104,7 +104,7 @@ fun PausedBanner(onlyNext: Boolean, onResume: () -> Unit) {
         ClipperIcon(ClipperIconKind.PAUSE, size = 12.dp, tint = colors.primary)
         Spacer(Modifier.width(8.dp))
         Text(
-            text = if (onlyNext) "已暂停 — 下一次复制将被忽略" else "已暂停 — 不再记录新的复制内容",
+            text = "已暂停 — 不再记录新的复制内容",
             fontSize = 12.sp,
             color = colors.primary,
             modifier = Modifier.weight(1f),

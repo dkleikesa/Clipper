@@ -37,12 +37,7 @@ class CaptureClipboardUseCase(
 
         val settings = repository.settings.value
 
-        if (settings.ignoreEvents) {
-            if (settings.ignoreOnlyNextEvent) {
-                repository.setSettings(settings.copy(ignoreEvents = false, ignoreOnlyNextEvent = false))
-            }
-            return
-        }
+        if (settings.ignoreEvents) return
 
         // 对应 `Clipboard.shouldIgnore(_ types:)`：临时类型与用户列出的粘贴板类型
         // 永远不会进入历史。

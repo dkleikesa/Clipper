@@ -510,11 +510,10 @@ fun HistoryScreen(
 
                         if (settings.ignoreEvents) {
                             PausedBanner(
-                                onlyNext = settings.ignoreOnlyNextEvent,
                                 onResume = {
                                     onAction(
                                         ClipboardUiAction.UpdateSettings {
-                                            it.copy(ignoreEvents = false, ignoreOnlyNextEvent = false)
+                                            it.copy(ignoreEvents = false)
                                         },
                                     )
                                 },
@@ -697,10 +696,6 @@ fun HistoryScreen(
         ConfirmDialog(
             message = request.message,
             comment = request.comment,
-            suppress = settings.suppressClearAlert,
-            onSuppressChange = { value ->
-                onAction(ClipboardUiAction.UpdateSettings { it.copy(suppressClearAlert = value) })
-            },
             onConfirm = { onAction(ClipboardUiAction.ConfirmClear) },
             onDismiss = { onAction(ClipboardUiAction.DismissClear) },
         )
