@@ -1,5 +1,8 @@
 package com.qcmian.clipper.feature.history.ui
 
+import androidx.compose.ui.unit.Dp
+import com.qcmian.clipper.core.ui.Popup
+
 /**
  * 宿主为预览面板提供的空间约束——界面据此决定预览能不能与主列表并排。
  *
@@ -26,6 +29,15 @@ data class PreviewHostPolicy(
      * 固定尺寸窗口没有「加宽」这回事，保持 `false` 即可。
      */
     val windowReady: Boolean = false,
+    /**
+     * 当前停靠侧「锚点到屏幕边缘」还能给预览多少宽度（已扣掉分隔条与主列表）。
+     *
+     * 分隔条的拖动上限取它与「窗口内剩余空间」的**较小值**：窗口内的空间决定能不能在窗口内
+     * 重新分配，屏幕余量决定这个宽度会不会在落盘时被宿主夹回来。只看前者，贴边的窗口会允许拖出
+     * 一个屏幕放不下的宽度（松手被夹回、窗口反而缩一截）；只看后者，主列表还站在下限上时也一样
+     * 拖不动。
+     */
+    val maxPreviewWidth: Dp = Popup.maximumPreviewWidth,
 )
 
 /**

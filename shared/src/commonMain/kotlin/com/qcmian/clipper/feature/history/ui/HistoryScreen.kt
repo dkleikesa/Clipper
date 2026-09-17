@@ -101,15 +101,6 @@ private const val PreviewAnimationMillis = 180
 private val WidthTolerance = 2.dp
 
 /**
- * 拖动预览分隔条时，主列表允许被压到的宽度。
- *
- * 直接取 [Popup.minimumSplitContentWidth]（而不是窗口自身的下限 [Popup.minimumContentWidth]）：
- * 两者必须是同一个数。预览槽位（`Modifier.previewSlot`）按它夹宽度，分隔条的拖动上限也按它算，
- * 一旦不一致，拖动就会报出一个槽位画不出来的宽度——预览一帧不变，表现为「拖不动」。
- */
-private val DragTimeMinimumListWidth = Popup.minimumSplitContentWidth
-
-/**
  * 呼出面板后为搜索框争取焦点的最大重试帧数。
  *
  * 面板显示时界面会重新测量并重组，搜索框节点随之重建；一次请求很容易落在节点就绪之前而
@@ -344,14 +335,21 @@ fun HistoryScreen(
     LaunchedEffect(settings.previewWidth, state.previewOpen) { draggedPreviewWidth = null }
     val previewWidth = draggedPreviewWidth ?: settings.previewWidth
 
-    // 分隔条能拖到的上限：拖动期间窗口尺寸不变，可用空间就是窗口当前的宽度——预览最多占到
-    // 「窗口宽度 − 分隔条 − 主列表在拖动期间的下限」。
+    // 分隔条能拖到的上限 = min(窗口内剩余空间, 屏幕余量)：
     //
-    // 用实测的 [windowWidth] 而不是「内容区宽度 + 预览宽度」去算：两者稳态下相等，但窗口还没
-    // 跟上设置的几帧里只有实测值是对的。
-    val maxDragWidth = (
-        windowWidth - Popup.previewDividerWidth - DragTimeMinimumListWidth
-        ).coerceAtLeast(Popup.minimumPreviewWidth)
+    // - 窗口内剩余空间 = 窗口宽 − 分隔条 − 主列表的**划分下限**（[Popup.minimumSplitContentWidth]，
+    //   比窗口自身的下限小，因此默认窗口里也留得出余量）。窗口在拖动期间固定不变，预览变宽只能
+    //   挤窄主列表，最多挤到这里；
+    // - 屏幕余量由宿主给出（[PreviewHostPolicy.maxPreviewWidth]）：超过它，落盘时会被夹回来
+    //   （窗口跟着缩一截）。
+    //
+    // 只用前者会拖出屏幕放不下的宽度；只用后者，主列表还站在下限上时同样拖不动。
+    // 「窗口内剩余空间」用实测的 [windowWidth] 而不是「内容区宽度 + 预览宽度」：两者稳态下相等，
+    // 但窗口还没跟上设置的几帧里只有实测值是对的。
+    val maxDragWidth = minOf(
+        windowWidth - Popup.previewDividerWidth - Popup.minimumSplitContentWidth,
+        previewHost.maxPreviewWidth,
+    ).coerceAtLeast(Popup.minimumPreviewWidth)
 
     // 内容区（主列表）的宽度。取自设置，与主列表实测出来的宽度是两回事：后者在槽位钉住的
     // 几帧里是旧值，甚至是被上一帧挤出来的窄值。
@@ -378,6 +376,8 @@ fun HistoryScreen(
         host = previewHost,
         docked = docked,
     )
+
+
     // 预览槽位「已经让出来、但还没被卡片占住」的那几帧：
     //
     // - 打开时：窗口正在加宽，卡片还没进场；

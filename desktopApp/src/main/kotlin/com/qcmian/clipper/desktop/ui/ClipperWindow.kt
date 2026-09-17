@@ -192,6 +192,9 @@ fun ApplicationScope.ClipperWindow(
                 expandsWindow = true,
                 // 「加宽到位」由本侧直接给出，界面不用量窗口宽度（实测值慢一帧，收起时会闪）。
                 windowReady = uiState.previewWindowReady,
+                // 分隔条拖动上限之一：本侧算好的「这一侧屏幕还能给预览多少」。界面会再与
+                // 「窗口内剩余空间」取较小值（见 `HistoryScreen.maxDragWidth`）。
+                maxPreviewWidth = uiState.maxPreviewWidth,
             ),
             windowController = windowController,
             hotkeyController = hotkeyController,

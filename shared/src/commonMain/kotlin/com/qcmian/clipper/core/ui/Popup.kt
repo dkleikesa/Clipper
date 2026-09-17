@@ -17,7 +17,7 @@ object Popup {
     val itemHeight = 22.dp
 
     /** 主面板内容区的宽度（预览滑出面板不含在内）。 */
-    val contentWidth = 450.dp
+    val contentWidth = 400.dp
 
     /**
      * 内容区（滑动列表）允许的最小宽度，直接取**默认宽度**：手动调整只能变宽、不能变窄
