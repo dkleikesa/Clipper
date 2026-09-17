@@ -39,6 +39,7 @@ import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.core.platform.macos.GlobalShortcut
 import com.qcmian.clipper.core.platform.macos.MacAppearance
 import com.qcmian.clipper.core.platform.macos.MacGlobalHotKey
+import com.qcmian.clipper.core.platform.macos.MacKeyboard
 import com.qcmian.clipper.core.platform.macos.MacModifierMonitor
 import com.qcmian.clipper.core.platform.macos.MacOutsideClickMonitor
 import com.qcmian.clipper.core.platform.macos.MacStatusItem
@@ -388,7 +389,12 @@ class DesktopShellViewModel(
         panel.requestHide()
         panel.clearSearch()
         // 把焦点还给此前聚焦的应用：合成粘贴（⌘V）才会落到它上面。
-        if (restoreFocus && pid > 0) runCatching { MacWorkspace.activate(pid) }
+        if (restoreFocus && pid > 0) {
+            // `activate` 只是异步请求，⌘V 发出时目标应用未必已到前台；
+            // 把 pid 交给 [MacKeyboard]，让它用 `CGEventPostToPid` 直接投递，绕开时序竞态。
+            MacKeyboard.pasteTargetPid = pid
+            runCatching { MacWorkspace.activate(pid) }
+        }
     }
 
     fun onWindowGainedFocus() {

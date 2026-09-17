@@ -47,7 +47,12 @@ class DefaultClipboardRepository(
 
     private val _settingsLoaded = MutableStateFlow(false)
 
-    /** [load] 完成后为 `true`：此前的 [settings] 是默认值，还不是用户真正的偏好。 */
+    /**
+     * 偏好已从存储读出后为 `true`：此前的 [settings] 是默认值，还不是用户真正的偏好。
+     *
+     * 刻意不等历史加载完——历史里带图片（BLOB 反序列化），首次打开数据库还要几百毫秒，
+     * 而依赖它的只有「按真实偏好注册全局热键」这一类急事。
+     */
     override val settingsLoaded: StateFlow<Boolean> = _settingsLoaded.asStateFlow()
 
     private val _statusMessage = MutableStateFlow<String?>(null)
@@ -120,11 +125,14 @@ class DefaultClipboardRepository(
     private suspend fun load() {
         val settings = storage.loadSettings()
         _settings.value = settings
+        // 偏好先行：热键注册、界面主题这些只依赖偏好的事情不该等历史加载完——
+        // Room 首次打开数据库（含 WAL 恢复）实测要几百毫秒。
+        // [loaded] 仍然等历史就绪才置位，保证 [flush] 不会用空历史覆盖已存数据。
+        _settingsLoaded.value = true
         // 对应 `Storage.sanitizeTitles()`，外加对旧版图片标题的还原，见 [sanitisedTitle]。
         val restored = storage.loadItems().map { it.withSanitisedTitle() }
         _items.value = normalise(restored, settings)
         loaded = true
-        _settingsLoaded.value = true
     }
 
     /**
@@ -172,10 +180,6 @@ class DefaultClipboardRepository(
     }
 
     override fun writeClipboard(snapshot: ClipboardSnapshot): Boolean = clipboard.write(snapshot)
-
-    override fun clearSystemClipboard() {
-        clipboard.clear()
-    }
 
     override fun paste(): Boolean = clipboard.paste()
 

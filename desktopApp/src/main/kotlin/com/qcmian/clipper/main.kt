@@ -31,9 +31,14 @@ import kotlinx.coroutines.flow.first
 fun main() {
     hideFromDock()
 
+    // 依赖图在组合之外建好，并立刻开始加载数据：Room 首次打开数据库（含 WAL 恢复）实测要
+    // 几百毫秒，让它与 AWT / Skiko 初始化、首次组合**并行**跑完。放在组合里的话，数据加载
+    // 要等窗口内容组合完成才开始，全局热键（它要等真实偏好就绪才注册）就会晚半秒多——
+    // 启动后那一秒里按快捷键等于按了个寂寞。
+    val container = AppContainer()
+    container.repository.start()
+
     application {
-        // 应用级作用域：整个进程只有一张依赖图，绝不会因重组而重建。
-        val container = remember { AppContainer() }
         val windowController = remember { WindowController() }
         val hotkeyController = remember { HotkeyController() }
 

@@ -21,6 +21,8 @@ import com.qcmian.clipper.feature.history.ui.PreviewHostPolicy
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.awt.Dimension
 import java.awt.event.WindowEvent
 import java.awt.event.WindowFocusListener
@@ -138,8 +140,12 @@ fun ApplicationScope.ClipperWindow(
         // 对应 `FloatingPanel.resignKey()`：面板失去焦点即隐藏，但它的对话框弹出时不隐藏。
         DisposableEffect(window) {
             val listener = object : WindowFocusListener {
-                override fun windowGainedFocus(event: WindowEvent?) =
+                override fun windowGainedFocus(event: WindowEvent?) {
+                    // 系统激活可能晚于窗口显示到达（后台线程在等 macOS 完成激活）：
+                    // 成为 key window 的这一刻把键盘焦点补到内容组件上。
+                    focusKeyboardTarget(window)
                     viewModel.onWindowGainedFocus()
+                }
 
                 override fun windowLostFocus(event: WindowEvent?) =
                     viewModel.onWindowLostFocus()
@@ -166,7 +172,13 @@ fun ApplicationScope.ClipperWindow(
         // 应用也没被重新激活，看起来就是「点了托盘但窗口没出来」。
         LaunchedEffect(windowVisible, openRequests) {
             if (windowVisible) {
-                runCatching { MacWorkspace.activateSelf() }
+                // macOS 对**刚启动**的应用会延迟处理「激活自己」：`activateWithOptions:` 是
+                // 同步等系统完成的调用，实测应用启动后的头几秒里它会阻塞 1s 上下。它绝不能
+                // 跑在 EDT 上——面板虽然已经显示，但重组、绘制与输入都停在这一条调用里，
+                // 看起来就是「呼出后要过一秒才能操作」。放到后台线程：`NSRunningApplication`
+                // 线程安全，激活晚一点到达也没关系，窗口成为 key window 时下面的
+                // `windowGainedFocus` 会把键盘焦点补上。
+                launch(Dispatchers.IO) { runCatching { MacWorkspace.activateSelf() } }
                 window.toFront()
                 // 焦点必须落到窗口内的内容组件上，不能停在窗口框架上（见 [focusKeyboardTarget]）。
                 // 窗口刚显示时它还没成为 focused window，请求会被拒，因此跨几帧重试到成功为止。
