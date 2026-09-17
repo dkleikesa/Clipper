@@ -320,7 +320,6 @@ private fun PreferencesContent(
             )
             RecognitionSection(data, actions)
             IgnoreSection(data, actions)
-            AdvancedSection(data, actions)
             DataSection(data, actions)
             ResetSection(data, actions)
         }
@@ -825,27 +824,15 @@ private fun IgnoreSection(data: PreferencesUiData, actions: PreferencesActions) 
 }
 
 @Composable
-private fun AdvancedSection(data: PreferencesUiData, actions: PreferencesActions) {
+private fun DataSection(data: PreferencesUiData, actions: PreferencesActions) {
+    val colors = MaterialTheme.colorScheme
     val settings = data.settings
-    SectionCard("高级") {
+    SectionCard("数据") {
         SwitchRow(
             title = "退出时清空历史",
             description = "只清除未置顶的项目。",
             checked = settings.clearOnQuit,
         ) { value -> actions.onSettingsChange { it.copy(clearOnQuit = value) } }
-        SwitchRow(
-            title = "同时清空系统剪贴板",
-            description = "清除历史时一并清空系统剪贴板。",
-            checked = settings.clearSystemClipboard,
-        ) { value -> actions.onSettingsChange { it.copy(clearSystemClipboard = value) } }
-    }
-}
-
-@Composable
-private fun DataSection(data: PreferencesUiData, actions: PreferencesActions) {
-    val colors = MaterialTheme.colorScheme
-    val settings = data.settings
-    SectionCard("数据") {
         SwitchRow(
             title = "清除时不再确认",
             description = "清除历史时不再弹出确认框。",

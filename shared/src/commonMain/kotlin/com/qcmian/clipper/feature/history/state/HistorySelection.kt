@@ -27,38 +27,23 @@ object HistoryNavigation {
     fun footer(current: HistorySelection, index: Int, footerCount: Int): HistorySelection =
         current.copy(footerIndex = index.coerceIn(0, maxOf(0, footerCount - 1)))
 
-    /** `NavigationManager.highlightNext(allowCycle:)`。 */
+    /** 对应 `NavigationManager.highlightNext(allowCycle:)`：只在历史内移动（含置顶项），从不进入页脚。 */
     fun next(
         current: HistorySelection,
         lastIndex: Int,
-        footerCount: Int,
         allowCycle: Boolean,
     ): HistorySelection = when {
-        current.footerIndex >= 0 -> when {
-            current.footerIndex < footerCount - 1 -> footer(current, current.footerIndex + 1, footerCount)
-            // 在页脚内部循环。
-            footerCount > 0 -> footer(current, 0, footerCount)
-            else -> current
-        }
-
         current.historyIndex < lastIndex -> history(current.historyIndex + 1, lastIndex)
-        footerCount > 0 -> footer(current, 0, footerCount)
+        // 只在内容区循环：到底后回到第一条（含置顶）。
         allowCycle && lastIndex >= 0 -> history(0, lastIndex)
-        else -> current
+        else -> history(current.historyIndex, lastIndex)
     }
 
-    /** `NavigationManager.highlightPrevious`。 */
-    fun previous(current: HistorySelection, lastIndex: Int): HistorySelection = when {
-        current.footerIndex > 0 -> current.copy(footerIndex = current.footerIndex - 1)
-        current.footerIndex == 0 -> history(maxOf(0, lastIndex), lastIndex)
-        current.historyIndex > 0 -> current.copy(historyIndex = current.historyIndex - 1)
-        else -> current
-    }
+    /** `NavigationManager.highlightPrevious`：页脚被鼠标悬停高亮时，↑ 直接回到记住的列表位置。 */
+    fun previous(current: HistorySelection, lastIndex: Int): HistorySelection =
+        history(maxOf(0, current.historyIndex - 1), lastIndex)
 
-    /** `NavigationManager.highlightLast`：最后一条历史会交棒给页脚。 */
-    fun last(current: HistorySelection, lastIndex: Int, footerCount: Int): HistorySelection = when {
-        current.footerIndex >= 0 -> current.copy(footerIndex = maxOf(0, footerCount - 1))
-        lastIndex >= 0 && current.historyIndex == lastIndex && footerCount > 0 -> current.copy(footerIndex = 0)
-        else -> HistorySelection(historyIndex = maxOf(0, lastIndex), footerIndex = -1)
-    }
+    /** `NavigationManager.highlightLast`：停到最后一条历史，不再交棒给页脚。 */
+    fun last(current: HistorySelection, lastIndex: Int): HistorySelection =
+        history(maxOf(0, lastIndex), lastIndex)
 }

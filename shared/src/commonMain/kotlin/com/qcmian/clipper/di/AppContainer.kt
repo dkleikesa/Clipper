@@ -51,7 +51,7 @@ class AppContainer(
     val platform: ClipboardPlatform = defaultRepository
 
     private val availablePinsUseCase = AvailablePinsUseCase(repository)
-    private val clearHistoryUseCase = ClearHistoryUseCase(repository, platform)
+    private val clearHistoryUseCase = ClearHistoryUseCase(repository)
 
     val useCases = ClipboardUseCases(
         captureClipboard = CaptureClipboardUseCase(repository, platform),

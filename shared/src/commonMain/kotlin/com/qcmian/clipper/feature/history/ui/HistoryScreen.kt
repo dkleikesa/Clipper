@@ -253,9 +253,12 @@ fun HistoryScreen(
     LaunchedEffect(minimumHeight) { onMinimumHeightChange(minimumHeight) }
 
     // `NavigationManager.scroll(to:)` 只会滚动未置顶列表；置顶区块始终可见。
-    // 目标行已经完整可见时不再滚动：悬停也会更新选中项，若此时强行滚到视口顶部，
-    // 列表会在鼠标下反复跳动（悬停 → 选中变化 → 滚动 → 悬停另一行），形成循环。
-    LaunchedEffect(state.historySelection, unpinnedEntries.size) {
+    // 目标行已经完整可见时不再滚动。
+    //
+    // 只跟随 [ClipboardUiState.historyScrollToken]——它只在键盘导航、新查询结果、面板重新打开、
+    // 历史内容变化时递增。悬停也会更新选中项但不递增令牌：鼠标划过列表时行只高亮、列表不动，
+    // 否则会出现「悬停 → 选中变化 → 滚动 → 鼠标下换了行」的循环。
+    LaunchedEffect(state.historyScrollToken) {
         val target = unpinnedEntries.indexOfFirst { it.index == state.historySelection }
         if (target < 0) return@LaunchedEffect
         val info = listState.layoutInfo

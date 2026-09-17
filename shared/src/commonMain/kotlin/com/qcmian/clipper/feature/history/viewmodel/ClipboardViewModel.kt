@@ -266,6 +266,8 @@ class ClipboardViewModel(
                 historySelection = 0,
                 footerSelection = -1,
                 focusRequestToken = it.focusRequestToken + 1,
+                // 面板重新打开选中第一条：允许界面把它滚进可视区（回到列表顶部）。
+                historyScrollToken = it.historyScrollToken + 1,
             )
         }
     }
@@ -287,13 +289,20 @@ class ClipboardViewModel(
         val settings = repository.settings.value
         val results = search.resultsFor(_uiState.value.appliedQuery)
 
-        _uiState.update {
-            it.copy(
+        _uiState.update { latest ->
+            latest.copy(
                 settings = settings,
                 // 预览开关来自设置：它是持久化的用户选择，界面状态只是它的投影。
                 previewOpen = settings.previewOpen,
                 results = results,
-                historySelection = it.historySelection.coerceIn(0, maxOf(0, results.lastIndex)),
+                historySelection = latest.historySelection.coerceIn(0, maxOf(0, results.lastIndex)),
+                // 历史内容真的变了（新条目 / 删除等）才递增：让界面把选中项滚回可视区，
+                // 普通的设置刷新不应打扰用户当前的滚动位置。
+                historyScrollToken = if (results != latest.results) {
+                    latest.historyScrollToken + 1
+                } else {
+                    latest.historyScrollToken
+                },
                 storageSize = platform.storageSize,
                 historyBytes = repository.items.value
                     .filter { it.isUnpinned }

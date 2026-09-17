@@ -1,7 +1,6 @@
 package com.qcmian.clipper.core.domain.usecase
 
 import com.qcmian.clipper.core.domain.model.ClipItem
-import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 import com.qcmian.clipper.core.settings.AppSettings
 
@@ -23,19 +22,14 @@ class TogglePinUseCase(
     private fun randomAvailablePin(): String = availablePins().randomOrNull().orEmpty()
 }
 
-/**
- * 「清除」（仅未置顶）与「全部清除」。普通清除会保留置顶项，
- * 当偏好要求时还会清空系统剪贴板。
- */
+/** 「清除」（仅未置顶）与「全部清除」。普通清除会保留置顶项。 */
 class ClearHistoryUseCase(
     private val repository: ClipboardRepository,
-    private val platform: ClipboardPlatform,
 ) {
     operator fun invoke(all: Boolean) {
         val items = repository.items.value
         val remaining = if (all) emptyList() else items.filter { it.isPinned }
         repository.setItems(remaining)
-        if (repository.settings.value.clearSystemClipboard) platform.clearSystemClipboard()
     }
 }
 
