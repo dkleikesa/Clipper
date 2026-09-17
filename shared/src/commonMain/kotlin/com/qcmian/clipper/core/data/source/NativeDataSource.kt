@@ -2,6 +2,7 @@ package com.qcmian.clipper.core.data.source
 
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.SourceApplication
+import com.qcmian.clipper.core.settings.ShortcutSpec
 
 /**
  * 可选的原生能力。每一项都有安全的默认实现，因此没有等价能力的平台只需报告
@@ -20,6 +21,13 @@ interface NativeDataSource {
 
     /** [setLaunchAtLogin] 是否能做任何事。 */
     val supportsLaunchAtLogin: Boolean get() = false
+
+    /**
+     * 宿主是否能注册系统级热键（`⌘⇧C` 那类在别的应用里也生效的快捷键）。
+     *
+     * 不能的平台既不要去注册，也不该拦住用户录制——那只是这些快捷键没有系统级效果。
+     */
+    val supportsGlobalHotKeys: Boolean get() = false
 
     /** 弹窗可以锚定的屏幕数量；至少为 1。 */
     val screenCount: Int get() = 1
@@ -41,6 +49,14 @@ interface NativeDataSource {
      * `IgnoreApplicationsSettingsView` 用它来标注忽略列表的条目。
      */
     fun applicationName(bundleId: String): String? = null
+
+    /**
+     * 试注册一次 [shortcut]，判断它是否已被系统或其它应用占用。
+     *
+     * 这是唯一可靠的判断方式：平台没有「这个组合被谁注册了」的查询接口。注册随即注销，
+     * 不会真的留下这个热键。平台无法判断时返回 `true`——无从判断，也不该拦住用户。
+     */
+    fun isGlobalShortcutAvailable(shortcut: ShortcutSpec): Boolean = true
 
     /**
  * 打开平台的应用选择器并返回用户选择的应用。 在忽略列表旁展示的

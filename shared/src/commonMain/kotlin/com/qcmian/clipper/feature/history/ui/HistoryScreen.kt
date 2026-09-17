@@ -36,7 +36,9 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isAltPressed
@@ -48,9 +50,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.PinPosition
+import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.core.ui.visibleShortcut
@@ -129,7 +131,11 @@ fun HistoryScreen(
     onMinimumHeightChange: (Dp) -> Unit,
     applicationIcon: (String?) -> String?,
     applicationName: (String) -> String?,
-    availablePins: (ClipItem) -> List<String>,
+    /**
+     * 试注册一次全局快捷键，判断它是否已被系统或其它应用占用；设置页用它给录制结果把关。
+     * 宿主无法判断时传 `{ true }`（默认值）：无从判断不该拦住用户。
+     */
+    canUseGlobalShortcut: (ShortcutSpec) -> Boolean = { true },
     previewHost: PreviewHostPolicy = PreviewHostPolicy(),
     modifier: Modifier = Modifier,
 ) {
@@ -293,18 +299,37 @@ fun HistoryScreen(
         if (!fullyVisible) listState.animateScrollToItem(target)
     }
 
+    /**
+     * 平台会为带修饰键的按键**额外补送一个字符事件**（AWT 的 `KEY_TYPED`，在 Compose 里类型是
+     * [KeyEventType.Unknown]，字符就是 `utf16CodePoint`）：macOS 上 `⌃1` 送 `1`、`⌥1` 送 `¡`。
+     * 它不是用户想搜索的内容，必须在预览阶段吞掉，否则条目快捷键会一边生效一边把字符打进搜索框
+     * （`⌘` 组合不补送该事件，所以只有 `⌃` / `⌥` 变体会漏）。
+     *
+     * 只吞「刚刚被面板处理过的那一次按键」补送的字符：普通输入照常进搜索框；⌃K 那种有意不被
+     * 面板消费、留给搜索框的按键也照旧（见 `resolveKeyActions` 的 ⌃K 分支）。
+     */
+    var swallowTypedCharacter by remember { mutableStateOf(false) }
+
     val keyHandler: (KeyEvent) -> Boolean = { event ->
         flags.update(event)
-        val actions = resolveKeyActions(
-            event = event,
-            state = state,
-            flags = flags,
-            composing = composing,
-            shortcuts = shortcuts,
-            footerActions = footerEntries.map { it.action },
-        )
-        actions.forEach(onUiAction)
-        actions.isNotEmpty()
+        if (event.type == KeyEventType.Unknown) {
+            val swallow = swallowTypedCharacter
+            swallowTypedCharacter = false
+            swallow
+        } else {
+            val actions = resolveKeyActions(
+                event = event,
+                state = state,
+                flags = flags,
+                composing = composing,
+                shortcuts = shortcuts,
+                footerActions = footerEntries.map { it.action },
+            )
+            // 这次按键已被面板消费（无论是条目快捷键还是别的动作），它随后补送的字符不该再落进搜索框。
+            swallowTypedCharacter = actions.isNotEmpty()
+            actions.forEach(onUiAction)
+            actions.isNotEmpty()
+        }
     }
 
     /** 单条历史行，供固定的置顶区块与可滚动的未置顶列表共用。 */
@@ -528,7 +553,7 @@ fun HistoryScreen(
                             focusRequester = searchFocusRequester,
                             previewOpen = state.previewOpen,
                             previewOnLeft = previewHost.onLeft,
-                            previewTooltip = "显示 / 隐藏预览（${settings.togglePreviewShortcut.label}）",
+                            previewTooltip = "显示 / 隐藏预览（${settings.togglePreviewShortcut?.label ?: "未设置"}）",
                             onTogglePreview = { onUiAction(ClipboardUiAction.TogglePreview) },
                         )
 
@@ -697,8 +722,6 @@ fun HistoryScreen(
             ),
             actions = PreferencesActions(
                 onSettingsChange = { transform -> onUiAction(ClipboardUiAction.UpdateSettings(transform)) },
-                availablePins = availablePins,
-                onPinChange = { item, pin -> onUiAction(ClipboardUiAction.UpdatePin(item, pin)) },
                 onTitleChange = { item, title -> onUiAction(ClipboardUiAction.UpdateTitle(item, title)) },
                 onContentChange = { item, text -> onUiAction(ClipboardUiAction.UpdateContent(item, text)) },
                 onDeletePinned = { item -> onUiAction(ClipboardUiAction.DeleteItem(item)) },
@@ -711,6 +734,11 @@ fun HistoryScreen(
                     { onUiAction(ClipboardUiAction.PickIgnoredApplication) }
                 } else {
                     null
+                },
+                canUseGlobalShortcut = canUseGlobalShortcut,
+                // 录制期间让宿主停掉系统级热键，否则同一个组合会一边被录、一边触发原动作。
+                onShortcutRecordingChange = { active ->
+                    onUiAction(ClipboardUiAction.SetShortcutRecording(active))
                 },
             ),
         )

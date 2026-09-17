@@ -20,8 +20,6 @@ sealed interface ClipboardUiAction {
     // ------------------------------------------------------------------ 搜索
     data class UpdateQuery(val value: String) : ClipboardUiAction
     data object ClearSearch : ClipboardUiAction
-    data object DeleteSearchChar : ClipboardUiAction
-    data object DeleteSearchWord : ClipboardUiAction
     data object CopySearchQuery : ClipboardUiAction
 
     // ------------------------------------------------------------------ 导航
@@ -55,6 +53,8 @@ sealed interface ClipboardUiAction {
     data object TogglePinSelected : ClipboardUiAction
     data object DeleteSelected : ClipboardUiAction
     data object TogglePreview : ClipboardUiAction
+    /** 暂停 / 恢复记录（可录制的 `pause` 快捷键）。 */
+    data object ToggleRecordingPause : ClipboardUiAction
     data object CopyExtractedText : ClipboardUiAction
     data class SetPreviewWidth(val width: Int) : ClipboardUiAction
 
@@ -63,7 +63,6 @@ sealed interface ClipboardUiAction {
 
     // ------------------------------------------------------------------ 偏好设置
     data class UpdateSettings(val transform: (AppSettings) -> AppSettings) : ClipboardUiAction
-    data class UpdatePin(val item: ClipItem, val pin: String?) : ClipboardUiAction
     data class UpdateTitle(val item: ClipItem, val title: String) : ClipboardUiAction
     data class UpdateContent(val item: ClipItem, val text: String) : ClipboardUiAction
     data object PickIgnoredApplication : ClipboardUiAction
@@ -71,6 +70,14 @@ sealed interface ClipboardUiAction {
     // ------------------------------------------------------------------ 对话框
     data object ShowPreferences : ClipboardUiAction
     data object DismissPreferences : ClipboardUiAction
+
+    /**
+     * 偏好设置开始 / 结束录制快捷键。
+     *
+     * 宿主据此停掉系统级热键：录制期间按下的组合属于录制器，不该同时触发原动作
+     * （见 `ClipboardUiState.isRecordingShortcut`）。
+     */
+    data class SetShortcutRecording(val active: Boolean) : ClipboardUiAction
     data class RequestClear(val all: Boolean, val hidePanel: Boolean = true) : ClipboardUiAction
     data object ConfirmClear : ClipboardUiAction
     data object DismissClear : ClipboardUiAction

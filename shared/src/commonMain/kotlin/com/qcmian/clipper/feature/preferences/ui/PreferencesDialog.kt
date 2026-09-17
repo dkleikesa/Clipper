@@ -30,10 +30,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,10 +67,15 @@ import com.qcmian.clipper.core.settings.HighlightMatch
 import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.settings.PopupPosition
 import com.qcmian.clipper.core.settings.SearchMode
+import com.qcmian.clipper.core.settings.ShortcutSlot
 import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.ThemeMode
+import com.qcmian.clipper.core.settings.shortcut
+import com.qcmian.clipper.core.settings.withShortcut
 import com.qcmian.clipper.core.ui.ModifierFlags
+import com.qcmian.clipper.core.ui.ShortcutProblem
+import com.qcmian.clipper.core.ui.shortcutProblem
 import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.components.rememberApplicationIcon
 import com.qcmian.clipper.core.ui.components.rememberApplicationName
@@ -97,8 +104,6 @@ data class PreferencesUiData(
 /** 偏好设置对话框的全部上行动作。 */
 data class PreferencesActions(
     val onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
-    val availablePins: (ClipItem) -> List<String>,
-    val onPinChange: (ClipItem, String?) -> Unit,
     val onTitleChange: (ClipItem, String) -> Unit,
     val onContentChange: (ClipItem, String) -> Unit,
     val onDeletePinned: (ClipItem) -> Unit,
@@ -108,13 +113,22 @@ data class PreferencesActions(
     val applicationName: (String) -> String?,
     val applicationIcon: (String?) -> String?,
     val onPickApplication: (() -> Unit)?,
+    /**
+     * 试注册一次全局快捷键，判断它是否已被系统或其它应用占用（见
+     * `NativeDataSource.isGlobalShortcutAvailable`）。
+     *
+     * 录制系统级快捷键（[ShortcutSlot.global]）时调用；平台无法判断时必须返回 `true`
+     * ——无从判断不该拦住用户。
+     */
+    val canUseGlobalShortcut: (ShortcutSpec) -> Boolean = { true },
+    /**
+     * 录制开始 / 结束时上报，宿主据此停掉系统级热键。
+     *
+     * 面板内的快捷键不需要这个信号：对话框是场景里的一层，它拿到焦点后按键不会派发到面板；
+     * 只有 Carbon 注册的全局热键不看焦点，不叫停就会「一边录一边触发」。
+     */
+    val onShortcutRecordingChange: (Boolean) -> Unit = {},
 )
-
-/**
- * 正在录制快捷键的槽位。用枚举而非字符串，`when` 全覆盖、无兜底分支，
- * 不会因为拼错槽位名把快捷键静默写进别的设置。
- */
-internal enum class ShortcutSlot { POPUP, PIN, DELETE, TOGGLE_PREVIEW }
 
 /** 设置卡片的设计宽度。 */
 private val CardDesignWidth = 560.dp
@@ -185,6 +199,20 @@ private fun PreferencesContent(
     // `KeyboardShortcuts.Recorder`：某个槽位正在录制时，所有按键都在这里被截获，
     // 而不会落到下面的文本输入框。
     var recording by remember { mutableStateOf<ShortcutSlot?>(null) }
+
+    /**
+     * 上一次录制被拒绝的原因；录制成功、或开始新一次录制时清空。
+     *
+     * 只在这里显示，因此不必进 `ClipboardUiState`：它是设置页的一次交互状态，
+     * 关闭对话框就该忘掉。
+     */
+    var problem by remember { mutableStateOf<ShortcutProblem?>(null) }
+
+    // 把「正在录制」透给宿主：系统级热键由 Carbon 派发、不看焦点，不停掉它就会一边录制
+    // 一边触发原动作。对话框关掉（或录制被取消）时要收回这个状态，否则全局热键会一直哑着。
+    val reportRecording by rememberUpdatedState(actions.onShortcutRecordingChange)
+    LaunchedEffect(recording) { reportRecording(recording != null) }
+    DisposableEffect(Unit) { onDispose { reportRecording(false) } }
     // `PinsSettingsPane` 的表格选中：被选中的置顶行就是 Delete 键要删除的那一行。
     // 置顶项可能通过其它途径消失（列表里按 ⌥P、从列表删除……），
     // 因此只有当该条目仍处于置顶状态时才认可这次选中。
@@ -211,6 +239,7 @@ private fun PreferencesContent(
         } else if (event.key == Key.Escape) {
             // Escape 取消录制，而不是把它当作快捷键捕获。
             recording = null
+            problem = null
             true
         } else {
             val character = shortcutCharacterOf(event)
@@ -222,16 +251,29 @@ private fun PreferencesContent(
                     shift = event.isShiftPressed,
                     command = event.isMetaPressed,
                 )
-                actions.onSettingsChange { current ->
-                    when (slot) {
-                        ShortcutSlot.POPUP -> current.copy(popupShortcut = spec)
-                        ShortcutSlot.PIN -> current.copy(pinShortcut = spec)
-                        ShortcutSlot.DELETE -> current.copy(deleteShortcut = spec)
-                        ShortcutSlot.TOGGLE_PREVIEW -> current.copy(togglePreviewShortcut = spec)
+                // 先做纯本地检查（裸键 / 与其它槽位重复 / 面板内置按键），系统级快捷键再问一次
+                // 平台：这个组合有没有被别的应用占用。
+                val rejected = shortcutProblem(spec, slot, data.settings)
+                    ?: if (slot.global &&
+                        spec != data.settings.shortcut(slot) &&
+                        !actions.canUseGlobalShortcut(spec)
+                    ) {
+                        ShortcutProblem.OCCUPIED
+                    } else {
+                        null
                     }
+                if (rejected == null) {
+                    // 录到可用的组合：落盘并收工。
+                    problem = null
+                    recording = null
+                    actions.onSettingsChange { it.withShortcut(slot, spec) }
+                } else {
+                    // 不可用：**留在录制状态**等下一个组合，只把原因说出来。退出录制的话用户还得
+                    // 再点一次行重新进入——被占用本来就不该算「这一次录制结束了」。
+                    problem = rejected
                 }
             }
-            recording = null
+            // 没有可录制字符的按键（大写锁定、无映射的键……）：不进也不退，继续等。
             true
         }
     }
@@ -308,7 +350,12 @@ private fun PreferencesContent(
                 data = data,
                 actions = actions,
                 recording = recording,
-                onRecord = { slot -> recording = slot },
+                problem = problem,
+                onRecord = { slot ->
+                    // 开始录制就把上一次的失败提示收起来：那条组合已经不作数了。
+                    problem = null
+                    recording = slot
+                },
             )
             SearchSection(data, actions)
             AppearanceSection(data, actions)
@@ -477,62 +524,59 @@ private fun BehaviorSection(data: PreferencesUiData, actions: PreferencesActions
     }
 }
 
+/**
+ * 「哪些快捷键在系统范围内生效」那句提示。
+ *
+ * 从槽位表里推出来而不是手写：某个槽位换组时（比如暂停记录从全局改成面板内），
+ * 这行说明不会跟着过期。
+ */
+private fun globalScopeHint(): String {
+    val global = ShortcutSlot.entries.filter { it.global }.joinToString("、") { it.title }
+    return if (global.isEmpty()) {
+        "所有快捷键都只在面板里有焦点时生效。"
+    } else {
+        "${global}在系统范围内生效，其余快捷键只在面板里有焦点时生效。"
+    }
+}
+
 @Composable
 private fun ShortcutsSection(
     data: PreferencesUiData,
     actions: PreferencesActions,
     recording: ShortcutSlot?,
+    problem: ShortcutProblem?,
     onRecord: (ShortcutSlot) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val settings = data.settings
     SectionCard("快捷键") {
-        ShortcutRow(
-            title = "呼出面板",
-            spec = settings.popupShortcut,
-            recording = recording == ShortcutSlot.POPUP,
-            onRecord = { onRecord(ShortcutSlot.POPUP) },
-            onReset = {
-                actions.onSettingsChange { it.copy(popupShortcut = AppSettings().popupShortcut) }
-            },
-        )
-        ShortcutRow(
-            title = "置顶 / 取消置顶",
-            spec = settings.pinShortcut,
-            recording = recording == ShortcutSlot.PIN,
-            onRecord = { onRecord(ShortcutSlot.PIN) },
-            onReset = {
-                actions.onSettingsChange { it.copy(pinShortcut = AppSettings().pinShortcut) }
-            },
-        )
-        ShortcutRow(
-            title = "删除选中项",
-            spec = settings.deleteShortcut,
-            recording = recording == ShortcutSlot.DELETE,
-            onRecord = { onRecord(ShortcutSlot.DELETE) },
-            onReset = {
-                actions.onSettingsChange { it.copy(deleteShortcut = AppSettings().deleteShortcut) }
-            },
-        )
-        ShortcutRow(
-            title = "显示 / 隐藏预览",
-            spec = settings.togglePreviewShortcut,
-            recording = recording == ShortcutSlot.TOGGLE_PREVIEW,
-            onRecord = { onRecord(ShortcutSlot.TOGGLE_PREVIEW) },
-            onReset = {
-                actions.onSettingsChange {
-                    it.copy(togglePreviewShortcut = AppSettings().togglePreviewShortcut)
-                }
-            },
-        )
+        // 槽位自己的元信息（标题 / 是否系统级）在 `ShortcutSlot` 里，设置页只负责渲染，
+        // 因此新增一个可录制快捷键不需要在这里、以及在别处再各抄一份。
+        ShortcutSlot.entries.forEach { slot ->
+            ShortcutRow(
+                title = slot.title,
+                spec = settings.shortcut(slot),
+                recording = recording == slot,
+                onRecord = { onRecord(slot) },
+                onClear = { actions.onSettingsChange { it.withShortcut(slot, null) } },
+            )
+        }
         Text(
-            text = if (recording != null) {
-                "请按下新的快捷键…"
-            } else {
-                "点击快捷键即可重新录制；呼出面板的快捷键在系统范围内生效。"
+            text = when {
+                // 被拒绝时录制**没有**退出，就地告诉他原因、并继续等下一个组合。
+                problem != null -> "${problem.message}请换一个组合，或按 Esc 取消。"
+                recording != null -> "请按下新的快捷键…（至少要按一个修饰键）"
+                // 呼出键被清除之后没有全局热键了，得说清楚还能从哪打开面板。
+                settings.popupShortcut == null -> "呼出面板的快捷键已清除，可以从菜单栏图标打开面板。"
+                else -> "点击快捷键即可重新录制，✕ 清除绑定；" +
+                    globalScopeHint()
             },
             style = MaterialTheme.typography.labelSmall,
-            color = if (recording != null) colors.primary else MaterialTheme.hintColor,
+            color = when {
+                problem != null -> colors.error
+                recording != null -> colors.primary
+                else -> MaterialTheme.hintColor
+            },
             modifier = Modifier.padding(top = 4.dp),
         )
     }
@@ -681,17 +725,15 @@ private fun PinnedItemsSection(
             data.pinnedItems.forEach { item ->
                 PinRow(
                     item = item,
-                    availablePins = actions.availablePins(item),
                     isSelected = selectedPinId == item.id,
                     onSelect = { onSelectPin(item.id) },
-                    onPinChange = { pin -> actions.onPinChange(item, pin) },
                     onTitleChange = { title -> actions.onTitleChange(item, title) },
                     onContentChange = { text -> actions.onContentChange(item, text) },
                     onDelete = { actions.onDeletePinned(item) },
                 )
             }
             Text(
-                text = "键位可自定义，别名会替换列表里显示的标题；选中一行后按 Delete 可删除。",
+                text = "前九个置顶项按顺序占用 ⌘1…⌘9；别名会替换列表里显示的标题；选中一行后按 Delete 可删除。",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.hintColor,
                 modifier = Modifier.padding(top = 4.dp),
@@ -856,7 +898,13 @@ private fun ResetSection(data: PreferencesUiData, actions: PreferencesActions) {
     val isDefault = data.settings == AppSettings()
     SectionCard("重置") {
         TextButton(
-            onClick = { actions.onSettingsChange { AppSettings() } },
+            onClick = {
+                actions.onSettingsChange { AppSettings() }
+                // 全部还原会连窗口尺寸、外观、快捷键一起改回去，而对话框自己也在被改动的窗口里
+                // （桌面端的 `Dialog` 是窗口内的一层）：顺手关掉它，让用户直接看到还原后的面板，
+                // 而不是一张被窗口重新起算的尺寸挤得跳来跳去的卡片。
+                actions.onDismiss()
+            },
             enabled = !isDefault,
         ) {
             Text("恢复默认设置")
@@ -865,7 +913,7 @@ private fun ResetSection(data: PreferencesUiData, actions: PreferencesActions) {
             text = if (isDefault) {
                 "当前所有设置都已是默认值。"
             } else {
-                "把所有设置恢复为默认值；历史与置顶项目不受影响。"
+                "把所有设置恢复为默认值；历史与置顶项目不受影响，设置窗口会关闭。"
             },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.hintColor,

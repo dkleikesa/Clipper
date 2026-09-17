@@ -15,6 +15,13 @@ data class ClipItem(
     val firstCopiedAt: Long = 0L,
     val lastCopiedAt: Long = 0L,
     val numberOfCopies: Int = 1,
+    /**
+     * 已置顶标记：**非空即表示这一条被置顶**，值本身没有含义。
+     *
+     * 字段名与数据库列名（`pin`）沿用历史版本的叫法——那时这里存的是「置顶项字母键」
+     * （`b`、`p`…）。字母键废弃后它只剩「非空即置顶」的语义，于是写入固定值
+     * [PINNED_MARKER]；旧数据里的字母照旧被认作已置顶，因此不必改表结构。
+     */
     val pin: String? = null,
     val title: String = "",
     /**
@@ -75,6 +82,9 @@ data class ClipItem(
 
     companion object {
         const val MAX_TITLE_LENGTH = 1_000
+
+        /** 写入 [pin] 的固定值，只是「已置顶」的记号；见 [pin] 的说明。 */
+        const val PINNED_MARKER = "pinned"
     }
 }
 

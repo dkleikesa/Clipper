@@ -37,6 +37,12 @@ data class HostUiState(
      * 对应 `FloatingPanel.resignKey`，它在弹出警告框时不会关闭面板。
      */
     val isModalOpen: Boolean = false,
+
+    /**
+     * 偏好设置里正在录制快捷键。系统级热键不看焦点，录制期间必须由宿主自己停手
+     * （见 `ClipboardUiState.isRecordingShortcut`）。
+     */
+    val isRecordingShortcut: Boolean = false,
 )
 
 /**

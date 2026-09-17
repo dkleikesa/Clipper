@@ -10,6 +10,7 @@ import java.awt.Rectangle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.qcmian.clipper.core.settings.AppSettings
+import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.desktop.domain.CYCLE_INTERVAL_MILLIS
 import com.qcmian.clipper.desktop.domain.CYCLE_START_DELAY_MILLIS
@@ -116,6 +117,13 @@ data class DesktopShellUiState(
  * 马上又按回去），后者才是一次真正的松手，要选中高亮项并关窗。
  */
 private enum class ComboState { NONE, PARTIAL, COMPLETE }
+
+/**
+ * 注册到 Carbon 的热键标识（`EventHotKeyID.id`）：事件里带的就是它，系统据此把按键派发给
+ * 对应的注册。本应用只注册一条真实热键（呼出面板），其余可选键都在面板内匹配；
+ * 占用探测自己用保留 id（见 `MacGlobalHotKey.isAvailable`），所以这里从 1 开始。
+ */
+private const val HOT_KEY_POPUP = 1
 
 /**
  * 桌面外壳的 ViewModel：窗口的可见性、位置、尺寸，全局热键状态机与焦点恢复都集中在这里，
@@ -528,11 +536,11 @@ class DesktopShellViewModel(
         }
     }
 
-    /** 呼出热键要求的修饰键掩码。 */
+    /** 呼出热键要求的修饰键掩码；呼出快捷键被清除时没有热键，也就没有掩码。 */
     private fun requiredModifierMask(): Int =
         // 读仓库里的偏好，而不是 `panel.hostUiState` 投影：投影要等 `App` 组合才更新，
         // 启动瞬间还是默认值，用它算出来的掩码会和真正注册的热键对不上。
-        nsModifierMask(container.repository.settings.value.popupShortcut)
+        container.repository.settings.value.popupShortcut?.let { nsModifierMask(it) } ?: 0
 
     /**
      * 当前正按着的、落在 [mask] 里的修饰键：轮询与事件监视器**取交集**（任一来源看到某个键
@@ -597,23 +605,44 @@ class DesktopShellViewModel(
         // hostUiState 是 App 组合时才镜像的投影，启动瞬间仍是默认值（⇧⌘C），
         // 按它注册的热键不是用户真正录制的那个，启动头几秒会「按了没反应」。
         container.repository.settingsLoaded.first { it }
-        container.repository.settings
-            .map { it.popupShortcut }
-            .distinctUntilChanged()
+        combine(
+            container.repository.settings.map { it.popupShortcut }.distinctUntilChanged(),
+            // 录制快捷键期间把热键**注销**掉，而不是只在回调里忽略它：Carbon 注册的组合会被系统
+            // 从窗口事件里吞掉，留着它那一次按键就到不了录制器；注销之后它就只是一次普通按键——
+            // 既不触发原动作，也能被设置页里的录制器收下。
+            //
+            // 条件是「面板正显示着录制器」：面板被托盘收起时录制界面已经不在眼前（组合会留在
+            // 那份保留下来的组合里），继续压着全局热键只会让人以为热键坏了。
+            panel.hostUiState
+                .map { it.isRecordingShortcut && it.isWindowVisible }
+                .distinctUntilChanged(),
+        ) { spec, recording -> spec.takeUnless { recording } }
             .collectLatest { spec ->
-                val handle = GlobalShortcut.fromSpec(spec)?.let { shortcut ->
-                    MacGlobalHotKey.register(
-                        shortcut = shortcut,
-                        onTrigger = { onHotKeyPressed() },
-                        onRelease = { onHotKeyReleased() },
-                    )
-                }
+                applyGlobalHotKey(spec)
                 try {
                     awaitCancellation()
                 } finally {
-                    handle?.unregister()
+                    MacGlobalHotKey.unregister(HOT_KEY_POPUP)
                 }
             }
+    }
+
+    /**
+     * 注册呼出面板的系统级热键；`null`（设置页里清除了绑定）表示不注册。
+     *
+     * 只有它是系统级的，其余可录制快捷键都在面板内匹配（见 `ShortcutSlot.global`）——
+     * 所以这里也不需要「暂停键不进按住循环」那类特例。
+     */
+    private fun applyGlobalHotKey(spec: ShortcutSpec?) {
+        MacGlobalHotKey.unregister(HOT_KEY_POPUP)
+        if (!native.supportsGlobalHotKeys) return
+        val shortcut = spec?.let { GlobalShortcut.fromSpec(it) } ?: return
+        MacGlobalHotKey.register(
+            id = HOT_KEY_POPUP,
+            shortcut = shortcut,
+            onTrigger = { onHotKeyPressed() },
+            onRelease = { onHotKeyReleased() },
+        )
     }
 
     /**

@@ -80,16 +80,4 @@ internal class HistorySearchController(
         state.update { it.copy(query = "") }
         if (!wasEmpty) applyQuery("")
     }
-
-    /** 对应 `KeyChord.deleteOneCharFromSearch`（⌃H）。 */
-    fun deleteSearchChar() {
-        val query = state.value.query
-        if (query.isNotEmpty()) updateQuery(query.dropLast(1))
-    }
-
-    /** 对应 `KeyChord.deleteLastWordFromSearch`（⌃W）。 */
-    fun deleteSearchWord() {
-        val words = state.value.query.split(" ").filter { it.isNotEmpty() }.dropLast(1)
-        updateQuery(if (words.isEmpty()) "" else words.joinToString(" ") + " ")
-    }
 }

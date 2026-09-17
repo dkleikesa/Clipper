@@ -98,14 +98,15 @@ data class AppSettings(
     val launchAtLogin: Boolean = false,
 
     // 快捷键
-    /** 对应 `KeyboardShortcuts.Name.popup`，`⇧⌘C`。 */
-    val popupShortcut: ShortcutSpec = ShortcutSpec("C", command = true, shift = true),
-    /** 对应 `KeyboardShortcuts.Name.pin`，`⌥P`。 */
-    val pinShortcut: ShortcutSpec = ShortcutSpec("P", option = true),
-    /** 对应 `KeyboardShortcuts.Name.delete`，`⌥⌫`。 */
-    val deleteShortcut: ShortcutSpec = ShortcutSpec("\u232b", option = true),
-    /** 对应 `KeyboardShortcuts.Name.togglePreview`，`⌃Space`。 */
-    val togglePreviewShortcut: ShortcutSpec = ShortcutSpec(" ", control = true),
+    /**
+     * 每个槽位的取值见 [ShortcutSlot]；`null` 表示用户把它**清除**了（未绑定），
+     * 与「还没改过、用出厂默认值」不是一回事。
+     */
+    val popupShortcut: ShortcutSpec? = ShortcutSlot.POPUP.default,
+    val pauseShortcut: ShortcutSpec? = ShortcutSlot.PAUSE.default,
+    val pinShortcut: ShortcutSpec? = ShortcutSlot.PIN.default,
+    val deleteShortcut: ShortcutSpec? = ShortcutSlot.DELETE.default,
+    val togglePreviewShortcut: ShortcutSpec? = ShortcutSlot.TOGGLE_PREVIEW.default,
 
     // 搜索
     val searchMode: SearchMode = SearchMode.EXACT,

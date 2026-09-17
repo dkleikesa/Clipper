@@ -12,6 +12,7 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.utf16CodePoint
 import com.qcmian.clipper.core.settings.ShortcutSpec
 
 /**
@@ -170,13 +171,31 @@ fun keyForShortcutCharacter(character: String): Key? {
 }
 
 /**
+ * 条目快捷键（`⌘1`…`⌘9` / `⌘<字母>`）在某次按键上对应的字符。
+ *
+ * 以**物理键**为准，而不是平台送来的字符：同一个组合键在不同修饰键与输入法下送来的字符并不
+ * 相同（macOS 上 `⌥1` 是 `¡`、`⌃1` 在中文输入法下也未必是 `1`），而条目快捷键要求
+ * 「`⌘` / `⌥` / `⌃` / `⇧` 各变体命中同一个条目」。因此先按键位查表，只有查不到键位的
+ * （如小键盘数字）才回退到字符本身。
+ */
+fun shortcutCharacterFor(event: KeyEvent): String? =
+    shortcutCharacterOf(event)
+        ?: event.utf16CodePoint
+            .takeIf { it > 0 }
+            ?.toChar()
+            ?.let { normalizeShortcutCharacter(it.toString()) }
+
+/**
  * 匹配逻辑，用于用户可录制的快捷键
  * （`pin`、`delete`、`togglePreview`）。
+ *
+ * [spec] 为 `null`（该槽位在设置页里被清除）时恒为 `false`：没有绑定就没有触发。
  *
  * 在没有 ⌘ 键的平台上，`Ctrl` 兼作 `⌘`，因此 [ShortcutSpec.command] 也接受 Ctrl，
  * 除非该快捷键显式要求 [ShortcutSpec.control]。
  */
-fun matchesShortcut(event: KeyEvent, spec: ShortcutSpec): Boolean {
+fun matchesShortcut(event: KeyEvent, spec: ShortcutSpec?): Boolean {
+    if (spec == null) return false
     val expected = keyForShortcutCharacter(spec.character) ?: return false
     if (event.key != expected) return false
 

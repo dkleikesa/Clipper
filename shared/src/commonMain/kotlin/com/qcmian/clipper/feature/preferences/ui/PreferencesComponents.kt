@@ -22,8 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -143,16 +141,13 @@ internal fun IgnoredApplicationRow(
 @Composable
 internal fun PinRow(
     item: ClipItem,
-    availablePins: List<String>,
     isSelected: Boolean,
     onSelect: () -> Unit,
-    onPinChange: (String?) -> Unit,
     onTitleChange: (String) -> Unit,
     onContentChange: (String) -> Unit,
     onDelete: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    var expanded by remember { mutableStateOf(false) }
     // 别名是一个单行输入框，而图片条目的标题是识别原文、可能带换行：显示时压平成空格。
     var title by remember(item.id, item.title) { mutableStateOf(item.title.replace('\n', ' ')) }
     // `PinValueView`：只有纯文本条目才提供可编辑的内容字段。
@@ -175,37 +170,6 @@ internal fun PinRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // 快捷键选择器
-            Box {
-                Box(
-                    modifier = Modifier
-                        .width(46.dp)
-                        .height(30.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(colors.surfaceVariant.copy(alpha = 0.35f))
-                        .border(1.dp, colors.outline.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                        .clickable { expanded = true },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = (item.pin ?: "—").uppercase(),
-                        fontSize = 12.sp,
-                        color = colors.onSurface,
-                    )
-                }
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    (listOfNotNull(item.pin) + availablePins).forEach { pin ->
-                        DropdownMenuItem(
-                            text = { Text(pin.uppercase(), fontSize = 12.sp) },
-                            onClick = {
-                                expanded = false
-                                onPinChange(pin)
-                            },
-                        )
-                    }
-                }
-            }
-
             // 别名
             Box(
                 modifier = Modifier
@@ -278,14 +242,19 @@ internal fun PinRow(
     }
 }
 
-/** 行。 */
+/**
+ * 可录制快捷键的一行：标题、当前绑定（点一下重新录制）、清除按钮。
+ *
+ * 清除写的是「未绑定」（[spec] 为 `null`），而不是「恢复默认」：默认值只是出厂时的一次赋值，
+ * 用户按 ✕ 的意图是「这个功能不要快捷键」。想回到默认值有设置页底部的「恢复默认设置」。
+ */
 @Composable
 internal fun ShortcutRow(
     title: String,
-    spec: ShortcutSpec,
+    spec: ShortcutSpec?,
     recording: Boolean,
     onRecord: () -> Unit,
-    onReset: () -> Unit,
+    onClear: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
@@ -316,14 +285,18 @@ internal fun ShortcutRow(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = if (recording) "按下新快捷键…" else spec.label,
+                text = if (recording) "按下新快捷键…" else spec?.label ?: "未设置",
                 fontSize = 12.sp,
-                color = if (recording) colors.primary else colors.onSurface,
+                color = when {
+                    recording -> colors.primary
+                    spec == null -> MaterialTheme.hintColor
+                    else -> colors.onSurface
+                },
             )
         }
         Spacer(Modifier.width(8.dp))
-        HoverTooltip("恢复默认快捷键") {
-            IconButton(onClick = onReset, modifier = Modifier.size(28.dp)) {
+        HoverTooltip("清除快捷键") {
+            IconButton(onClick = onClear, enabled = spec != null, modifier = Modifier.size(28.dp)) {
                 ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
             }
         }

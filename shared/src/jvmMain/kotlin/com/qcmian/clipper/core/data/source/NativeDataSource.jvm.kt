@@ -2,8 +2,11 @@ package com.qcmian.clipper.core.data.source
 
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.SourceApplication
+import com.qcmian.clipper.core.settings.ShortcutSpec
+import com.qcmian.clipper.core.platform.macos.GlobalShortcut
 import com.qcmian.clipper.core.platform.macos.MacAppIcon
 import com.qcmian.clipper.core.platform.macos.MacApplicationPicker
+import com.qcmian.clipper.core.platform.macos.MacGlobalHotKey
 import com.qcmian.clipper.core.platform.macos.MacLaunchAtLogin
 import com.qcmian.clipper.core.platform.macos.MacTextRecognition
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
@@ -21,6 +24,7 @@ private class MacNativeDataSource : NativeDataSource {
     override val supportsApplicationInfo: Boolean get() = isMacOs
     override val supportsTextRecognition: Boolean get() = MacTextRecognition.available
     override val supportsLaunchAtLogin: Boolean get() = isMacOs && MacLaunchAtLogin.isSupported
+    override val supportsGlobalHotKeys: Boolean get() = isMacOs
 
     override val screenCount: Int
         get() = runCatching {
@@ -43,6 +47,13 @@ private class MacNativeDataSource : NativeDataSource {
 
     override fun pickApplication(): SourceApplication? =
         if (isMacOs) MacApplicationPicker.pick() else null
+
+    override fun isGlobalShortcutAvailable(shortcut: ShortcutSpec): Boolean {
+        if (!isMacOs) return true
+        // 键位表覆盖不到的组合（例如某些布局下的符号键）连注册都无从谈起，那就是不可用。
+        val global = GlobalShortcut.fromSpec(shortcut) ?: return false
+        return MacGlobalHotKey.isAvailable(global)
+    }
 
     override suspend fun recognizeText(image: ClipImage): String? {
         if (!MacTextRecognition.available) return null

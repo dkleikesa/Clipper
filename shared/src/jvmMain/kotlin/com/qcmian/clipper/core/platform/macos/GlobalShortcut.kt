@@ -58,8 +58,3 @@ data class GlobalShortcut(
         }
     }
 }
-
-/** [MacGlobalHotKey.register] 返回的句柄。 */
-interface GlobalHotKeyHandle {
-    fun unregister()
-}
