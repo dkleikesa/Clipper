@@ -7,7 +7,6 @@ import com.qcmian.clipper.core.data.source.createClipboardDataSource
 import com.qcmian.clipper.core.data.source.createNativeDataSource
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
-import com.qcmian.clipper.core.domain.usecase.AvailablePinsUseCase
 import com.qcmian.clipper.core.domain.usecase.CaptureClipboardUseCase
 import com.qcmian.clipper.core.domain.usecase.ClearHistoryUseCase
 import com.qcmian.clipper.core.domain.usecase.HandleQuitUseCase
@@ -50,16 +49,14 @@ class AppContainer(
     val repository: ClipboardRepository = defaultRepository
     val platform: ClipboardPlatform = defaultRepository
 
-    private val availablePinsUseCase = AvailablePinsUseCase(repository)
     private val clearHistoryUseCase = ClearHistoryUseCase(repository)
 
     val useCases = ClipboardUseCases(
         captureClipboard = CaptureClipboardUseCase(repository, platform),
         selectClip = SelectClipUseCase(repository, platform),
-        togglePin = TogglePinUseCase(repository, availablePinsUseCase),
+        togglePin = TogglePinUseCase(repository),
         clearHistory = clearHistoryUseCase,
         updateSettings = UpdateSettingsUseCase(repository),
-        availablePins = availablePinsUseCase,
         handleQuit = HandleQuitUseCase(repository, clearHistoryUseCase),
     )
 }

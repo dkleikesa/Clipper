@@ -129,6 +129,8 @@ fun App(
                 isStatusItemActive = statusItemActive,
                 isWindowVisible = panelVisible,
                 isModalOpen = state.isModalOpen,
+                // 录制快捷键期间宿主必须把手从系统级热键上拿开（见 `HostUiState`）。
+                isRecordingShortcut = state.isRecordingShortcut,
             ))
         }
 
@@ -139,7 +141,8 @@ fun App(
             onMinimumHeightChange = onMinimumHeightChange,
             applicationIcon = viewModel::applicationIcon,
             applicationName = viewModel::applicationName,
-            availablePins = viewModel::availablePins,
+            // 设置页录制系统级快捷键时用它判断组合有没有被别的应用占用（见 `MacGlobalHotKey`）。
+            canUseGlobalShortcut = container.native::isGlobalShortcutAvailable,
             previewHost = previewHost,
             modifier = Modifier.fillMaxSize(),
         )

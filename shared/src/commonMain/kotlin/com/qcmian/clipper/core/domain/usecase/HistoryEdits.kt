@@ -21,10 +21,6 @@ fun ClipboardRepository.replace(item: ClipItem, transform: (ClipItem) -> ClipIte
     setItems(items.toMutableList().also { it[index] = transform(it[index]) })
 }
 
-/** 对应 `PinsSettingsPane`：允许用户重新指定置顶项的快捷键。 */
-fun ClipboardRepository.updatePin(item: ClipItem, pin: String?) =
-    replace(item) { it.copy(pin = pin) }
-
 /** 对应 `PinsSettingsPane` 的别名列，它编辑的是 `HistoryItem.title`。 */
 fun ClipboardRepository.updateTitle(item: ClipItem, title: String) =
     replace(item) { it.copy(title = title) }

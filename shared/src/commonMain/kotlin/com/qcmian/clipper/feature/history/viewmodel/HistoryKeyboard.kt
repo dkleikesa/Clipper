@@ -9,12 +9,12 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.key.utf16CodePoint
 import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.domain.action.defaultAction
 import com.qcmian.clipper.core.ui.KeyShortcut
 import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.matchesShortcut
+import com.qcmian.clipper.core.ui.shortcutCharacterFor
 import com.qcmian.clipper.feature.history.state.FooterAction
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.state.ClipboardUiState
@@ -24,6 +24,9 @@ import com.qcmian.clipper.feature.history.state.ClipboardUiState
  * 把它放在 composable 之外，正是界面得以保持为 [ClipboardUiState] 纯渲染器的原因。
  *
  * 当事件未被处理、应当继续传播时（例如普通字符输入要进入搜索框）返回空列表。
+ *
+ * 注意这里只处理 `KeyDown`：平台还会为同一个按键补送一个字符事件（AWT 的 `KEY_TYPED`），
+ * 它由调用方在预览阶段吞掉——见 `HistoryScreen` 的 `keyHandler`。
  */
 fun resolveKeyActions(
     event: KeyEvent,
@@ -42,7 +45,6 @@ fun resolveKeyActions(
     val alt = event.isAltPressed
     val control = event.isCtrlPressed
     val shift = event.isShiftPressed
-    val firstItemHighlighted = state.footerSelection < 0 && state.historySelection == 0
 
     return when {
         // moveToLast：⌃⌥N
@@ -51,16 +53,11 @@ fun resolveKeyActions(
         // moveToFirst：⌃⌥P
         control && alt && event.key == Key.P -> listOf(ClipboardUiAction.MoveToFirst)
 
-        // moveToNext：↓ / ⇧↓ / ⌃N / ⌃⇧N / ⌃J
-        (event.key == Key.DirectionDown && !alt && !meta) ||
-            (control && (event.key == Key.N || event.key == Key.J)) -> listOf(ClipboardUiAction.MoveNext())
+        // moveToNext：↓ / ⇧↓
+        event.key == Key.DirectionDown && !alt && !meta -> listOf(ClipboardUiAction.MoveNext())
 
-        // moveToPrevious：↑ / ⇧↑ / ⌃P / ⌃⇧P
-        (event.key == Key.DirectionUp && !alt && !meta) ||
-            (control && event.key == Key.P) -> listOf(ClipboardUiAction.MovePrevious)
-
-        // moveToPrevious：⌃K，但仅当第一个条目未被高亮时；否则该键会落下去输入到搜索框（#1055）。
-        control && event.key == Key.K && !firstItemHighlighted -> listOf(ClipboardUiAction.MovePrevious)
+        // moveToPrevious：↑ / ⇧↑
+        event.key == Key.DirectionUp && !alt && !meta -> listOf(ClipboardUiAction.MovePrevious)
 
         // moveToLast：⌘↓ / ⌥↓ / PageDown
         (event.key == Key.DirectionDown && (meta || alt)) || event.key == Key.PageDown ->
@@ -91,33 +88,21 @@ fun resolveKeyActions(
         // togglePreview：可录制的 `togglePreview`，默认 `⌃Space`
         matchesShortcut(event, settings.togglePreviewShortcut) -> listOf(ClipboardUiAction.TogglePreview)
 
+        // pause：可录制的 `pause`，默认 `⌘P`。放在条目快捷键之前，免得同一个组合先被当成
+        // 「快速选择某一条」（`⌘1`…`⌘9` 的任意修饰键变体都走最后那一支）。
+        matchesShortcut(event, settings.pauseShortcut) -> listOf(ClipboardUiAction.ToggleRecordingPause)
+
         // openPreferences：⌘,
         event.key == Key.Comma && meta -> listOf(ClipboardUiAction.ShowPreferences)
-
-        // clearSearch：⌃U
-        control && event.key == Key.U -> listOf(ClipboardUiAction.ClearSearch)
-
-        // deleteOneCharFromSearch：⌃H
-        control && event.key == Key.H -> listOf(ClipboardUiAction.DeleteSearchChar)
-
-        // deleteLastWordFromSearch：⌃W
-        control && event.key == Key.W -> listOf(ClipboardUiAction.DeleteSearchWord)
-
-        // clearHistory：⌥⌘⌫（只删除未置顶的条目）
-        (event.key == Key.Delete || event.key == Key.Backspace) && alt && meta ->
-            listOf(ClipboardUiAction.RequestClear(all = false))
 
         // deleteCurrentItem：可录制的 `delete`，默认 `⌥⌫`
         matchesShortcut(event, settings.deleteShortcut) -> listOf(ClipboardUiAction.DeleteSelected)
 
         else -> {
-            // `History.pressedShortcutItem` + `HistoryItemAction`：条目快捷键只按按键匹配，
-            // 由修饰键决定复制 / 粘贴 / 不带格式粘贴，因此 ⌥1、⌘⇧1 与 ⌥⇧1 也都可用。
-            val character = event.utf16CodePoint
-                .takeIf { it > 0 }
-                ?.toChar()
-                ?.uppercaseChar()
-                ?.toString()
+            // `History.pressedShortcutItem` + `HistoryItemAction`：条目快捷键只按物理键匹配，
+            // 由修饰键决定复制 / 粘贴 / 不带格式粘贴，因此 ⌥1、⌃1、⌘⇧1 与 ⌥⇧1 也都可用
+            // （按字符匹配会漏掉那些「字符随修饰键变化」的组合，见 `shortcutCharacterFor`）。
+            val character = shortcutCharacterFor(event)
             val action = if (character == null) {
                 ClipAction.UNKNOWN
             } else {

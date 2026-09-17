@@ -1,6 +1,5 @@
 package com.qcmian.clipper.di
 
-import com.qcmian.clipper.core.domain.usecase.AvailablePinsUseCase
 import com.qcmian.clipper.core.domain.usecase.CaptureClipboardUseCase
 import com.qcmian.clipper.core.domain.usecase.ClearHistoryUseCase
 import com.qcmian.clipper.core.domain.usecase.HandleQuitUseCase
@@ -22,6 +21,5 @@ data class ClipboardUseCases(
     val togglePin: TogglePinUseCase,
     val clearHistory: ClearHistoryUseCase,
     val updateSettings: UpdateSettingsUseCase,
-    val availablePins: AvailablePinsUseCase,
     val handleQuit: HandleQuitUseCase,
 )

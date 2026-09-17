@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.di.ClipboardUseCases
-import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 import com.qcmian.clipper.core.domain.action.ClipAction
@@ -14,7 +13,6 @@ import com.qcmian.clipper.core.domain.usecase.copyExtractedText
 import com.qcmian.clipper.core.domain.usecase.copySearchQuery
 import com.qcmian.clipper.core.domain.usecase.deleteClip
 import com.qcmian.clipper.core.domain.usecase.updateContent
-import com.qcmian.clipper.core.domain.usecase.updatePin
 import com.qcmian.clipper.core.domain.usecase.updateTitle
 import com.qcmian.clipper.feature.history.state.FooterAction
 import com.qcmian.clipper.feature.history.state.ClearConfirmation
@@ -112,8 +110,6 @@ class ClipboardViewModel(
         when (action) {
             is ClipboardUiAction.UpdateQuery -> search.updateQuery(action.value)
             ClipboardUiAction.ClearSearch -> search.clearSearch()
-            ClipboardUiAction.DeleteSearchChar -> search.deleteSearchChar()
-            ClipboardUiAction.DeleteSearchWord -> search.deleteSearchWord()
             ClipboardUiAction.CopySearchQuery -> {
                 if (platform.copySearchQuery(_uiState.value.query)) search.clearSearch()
             }
@@ -147,6 +143,7 @@ class ClipboardViewModel(
 
             ClipboardUiAction.DeleteSelected -> _uiState.value.selectedItem?.let { repository.deleteClip(it) }
             ClipboardUiAction.TogglePreview -> togglePreview()
+            ClipboardUiAction.ToggleRecordingPause -> toggleRecordingPause()
             ClipboardUiAction.CopyExtractedText -> _uiState.value.selectedItem?.let { item ->
                 if (platform.copyExtractedText(item)) search.clearSearch()
             }
@@ -157,7 +154,6 @@ class ClipboardViewModel(
             is ClipboardUiAction.DeleteItem -> repository.deleteClip(action.item)
 
             is ClipboardUiAction.UpdateSettings -> useCases.updateSettings(action.transform)
-            is ClipboardUiAction.UpdatePin -> repository.updatePin(action.item, action.pin)
             is ClipboardUiAction.UpdateTitle -> repository.updateTitle(action.item, action.title)
             is ClipboardUiAction.UpdateContent -> repository.updateContent(action.item, action.text)
             ClipboardUiAction.PickIgnoredApplication -> pickIgnoredApplication()
@@ -167,6 +163,10 @@ class ClipboardViewModel(
 
             ClipboardUiAction.DismissPreferences ->
                 _uiState.update { it.copy(dialog = null) }
+
+            // 录制状态要透给宿主：系统级热键在此期间必须停手（见 `ClipboardUiState`）。
+            is ClipboardUiAction.SetShortcutRecording ->
+                _uiState.update { it.copy(isRecordingShortcut = action.active) }
 
             is ClipboardUiAction.RequestClear -> requestClear(action.all, action.hidePanel)
             ClipboardUiAction.ConfirmClear -> confirmClear()
@@ -180,9 +180,6 @@ class ClipboardViewModel(
             ClipboardUiAction.Hidden -> Unit
         }
     }
-
-    /** 对应 `PinsSettingsPane` 的快捷键列。 */
-    fun availablePins(item: ClipItem): List<String> = useCases.availablePins(item)
 
     /** 条目来源应用的图标 base64 PNG。 */
     fun applicationIcon(bundleId: String?): String? = platform.applicationIcon(bundleId)
@@ -317,6 +314,15 @@ class ClipboardViewModel(
      */
     private fun togglePreview() =
         useCases.updateSettings { it.copy(previewOpen = !it.previewOpen) }
+
+    /**
+     * 暂停 / 恢复记录（可录制的 `pause` 快捷键，默认 `⌘P`）。
+     *
+     * 与设置页里的开关、暂停横幅上的「恢复」写的是同一份偏好，因此托盘图标置灰、横幅显隐
+     * 都会跟着变——这里刻意不做第二套状态。
+     */
+    private fun toggleRecordingPause() =
+        useCases.updateSettings { it.copy(ignoreEvents = !it.ignoreEvents) }
 
     /**
      * 拖动分隔条松手：把预览宽度落盘。

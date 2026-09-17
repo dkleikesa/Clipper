@@ -53,6 +53,15 @@ data class ClipboardUiState(
     val showQuit: Boolean = false,
     val dialog: ClipboardDialog? = null,
     val confirmation: ClearConfirmation? = null,
+    /**
+     * 偏好设置里正在录制某个快捷键。
+     *
+     * 宿主必须知道这件事：系统级热键（呼出面板）由 Carbon 派发，**不看焦点**，录制期间照旧会
+     * 触发原动作——表现为「一边录快捷键、一边把面板切走 / 选中某一条」。界面内那几类快捷键
+     * 不受影响：对话框是场景里的一层，它拿到焦点后按键根本不会派发到面板（见
+     * `CanvasLayersComposeScene.processKeyEvent`）。
+     */
+    val isRecordingShortcut: Boolean = false,
     /** 每当搜索框需要重新获得焦点时自增。 */
     val focusRequestToken: Int = 0,
 ) {
