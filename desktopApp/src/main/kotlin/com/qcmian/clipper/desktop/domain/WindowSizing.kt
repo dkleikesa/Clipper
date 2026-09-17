@@ -101,19 +101,29 @@ internal fun contentHeightOf(
 /**
  * 窗口允许的最小尺寸，交给 AWT 的 `window.minimumSize`。
  *
- * 宽度只取内容区的下限，**不含预览滑出面板**：那个宽度随预览开关变化，而原生下限是「上一次
- * 设过的值」——关预览时窗口要收窄到内容宽度，却会被并排时设下的下限卡住，`setBounds` 被系统
- * 夹回旧值，窗口再也收不回来；更糟的是 `lastAppliedBounds` 记的是我们**请求**的尺寸，后续
- * 每次算出同一个更窄的尺寸都会被判成「已经应用过」而跳过，于是永久卡住。
+ * 宽度 = 内容区下限 + 预览开着时的滑出面板下限。**必须把预览那段算进去**：预览开着时窗口里要
+ * 并排放下主列表与预览，下限若只算内容区，用户就能把窗口压到「两个面板的下限之和」以下——那时
+ * 分隔条一点可分配的宽度都没有，只能一动不动（看起来就是「分隔条坏了」）。多留出的这一段正好
+ * 是划分的下限（[Popup.minimumSplitContentWidth]）与窗口下限（[Popup.minimumContentWidth]）
+ * 之差，窗口压到最小时分隔条也仍有可拖的余量。
+ *
+ * 预览关着时必须**只取内容区下限**，不能按「开过预览的最小值」卡住：原生下限是「上一次设过的
+ * 值」，关预览时窗口要收窄到内容宽度，却会被并排时设下的下限卡住，`setBounds` 被系统夹回旧值，
+ * 窗口再也收不回来；更糟的是 `lastAppliedBounds` 记的是我们**请求**的尺寸，后续每次算出同一个
+ * 更窄的尺寸都会被判成「已经应用过」而跳过，于是永久卡住。
  *
  * 拖拽时的保护交给 `observeUserResize`：右 / 下两侧框架本来就不读这个下限，左 / 上两侧读到
- * 的也只是内容宽度；无论哪一侧，落盘时都会把自定义宽度收敛回下限。
+ * 的也只是这个宽度；无论哪一侧，落盘时都会把自定义宽度收敛回划分下限。
  *
  * 高度下限直接取 [minimumHeight]——它已经把置顶区与头部 / 页脚算进去了，置顶项再多也不会挤掉
  * 滑动区那几行。
  */
-internal fun minimumWindowSizeOf(minimumHeight: Dp): DpSize =
-    DpSize(Popup.minimumContentWidth, minimumHeight)
+internal fun minimumWindowSizeOf(minimumHeight: Dp, previewOpen: Boolean = false): DpSize =
+    DpSize(
+        width = Popup.minimumContentWidth +
+            if (previewOpen) Popup.minimumSlideoutWidth else 0.dp,
+        height = minimumHeight,
+    )
 
 /**
  * 预览滑出面板占用的总宽度：面板本身加上与主列表之间的分隔条。

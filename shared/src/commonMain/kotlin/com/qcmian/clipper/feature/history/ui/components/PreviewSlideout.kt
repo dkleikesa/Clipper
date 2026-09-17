@@ -143,8 +143,12 @@ private fun PreviewDivider(
     val density = LocalDensity.current
     // 下限兜住 `coerceIn` 的前提（[maxWidth] 理论上不会小于最小宽度，这里只是不让它成为一颗
     // 雷：`coerceIn(200, 小于 200)` 会直接抛异常）。
-    val upperBound = minOf(Popup.maximumPreviewWidth, maxWidth).value.toInt()
-        .coerceAtLeast(Popup.minimumPreviewWidth.value.toInt())
+    val upperBound = minOf(
+        Popup.maximumPreviewWidth,
+        // 屏幕余量比当前预览还小时**不**夹回来：夹了会让第一次拖动「跳」一下，而那种状态本来
+        // 就只能往窄拖（窗口已经顶到屏幕边缘，再宽也放不下）。
+        maxOf(maxWidth, currentWidth.dp),
+    ).value.toInt().coerceAtLeast(Popup.minimumPreviewWidth.value.toInt())
     // 分隔条是全高的，上下都贴着窗口边缘：气泡锚在上方只会画到窗口外，因此改成锚向预览面板
     // 那一侧，落点正好是窗口的水平 / 垂直中间。
     HoverTooltip(

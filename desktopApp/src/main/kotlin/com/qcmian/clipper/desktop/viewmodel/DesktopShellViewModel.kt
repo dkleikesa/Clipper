@@ -89,6 +89,14 @@ data class DesktopShellUiState(
     val previewOnLeft: Boolean = false,
 
     /**
+     * 当前停靠侧「锚点到屏幕边缘」还能给预览多少宽度（已扣掉分隔条与主列表）。
+     *
+     * 只作为分隔条的拖动上限报给界面（见 [PreviewHostPolicy.maxPreviewWidth]）：贴边的窗口若
+     * 允许拖出屏幕放不下的宽度，落盘时会被夹回来、窗口跟着缩一截。
+     */
+    val maxPreviewWidth: Dp = Popup.maximumPreviewWidth,
+
+    /**
      * 窗口已经为预览让出位置（加宽 / 收回的那次几何**已经应用**），界面据此让预览卡片进场。
      *
      * 必须是宿主算出来的信号，不能让界面拿量到的窗口宽度去猜——实测值慢窗口一帧，收起预览时
@@ -601,19 +609,23 @@ class DesktopShellViewModel(
     }
 
     /**
-     * 窗口允许的最小尺寸（内容区下限），交给 AWT 的 `window.minimumSize`。
+     * 窗口允许的最小尺寸（内容区下限 + 预览开着时的滑出面板），交给 AWT 的 `window.minimumSize`。
      *
      * 用户拖拽窗口边缘时由框架读它拦下收缩（`UndecoratedWindowResizer` 对左 / 上两侧做了
-     * `coerceAtLeast(window.minimumSize)`），所以下限要在拖拽开始之前就已经设好。宽度是常量、
-     * 高度用界面报上来的 [DesktopShellUiState.minimumHeight]，两者都**不含**预览滑出面板——
-     * 见 [minimumWindowSizeOf]。值没变时不产生原生调用。
+     * `coerceAtLeast(window.minimumSize)`），所以下限要在拖拽开始之前就已经设好。宽度由
+     * [minimumWindowSizeOf] 给出（预览开着时含滑出面板），高度用界面报上来的
+     * [DesktopShellUiState.minimumHeight]。值没变时不产生原生调用。
      *
      * 下限**变小**时额外补一次几何：之前可能有一次尺寸请求被旧下限夹住（系统接受的是夹过之后
      * 的值，而 [lastAppliedBounds] 记的是请求值，于是再也去重不掉），清掉记录再请求一次，
      * 窗口才收得回来。
      */
     private suspend fun observeMinimumWindowSize() {
-        uiState.map { minimumWindowSizeOf(it.minimumHeight) }
+        combine(
+            uiState,
+            // 预览开关决定下限要不要含滑出面板（见 [minimumWindowSizeOf]）。
+            container.repository.settings.map { it.previewOpen }.distinctUntilChanged(),
+        ) { state, previewOpen -> minimumWindowSizeOf(state.minimumHeight, previewOpen) }
             .distinctUntilChanged()
             .collect { size ->
                 val previous = lastAppliedMinimumSize
@@ -752,6 +764,11 @@ class DesktopShellViewModel(
         } else {
             null
         }
+        // 界面拿它当分隔条的拖动上限（与「窗口内剩余空间」取较小值）：必须与这里真正会接受的
+        // 宽度同源，否则拖动会报出一个收不下的值，松手又被夹回来——看起来就是「拖了没用」。
+        val maxPreviewWidth =
+            ((if (previewOnLeft) roomLeft else roomRight) - Popup.previewDividerWidth)
+                .coerceAtLeast(Popup.minimumPreviewWidth)
         // 屏幕放不下时，把设置里的预览宽度也收敛掉——只夹窗口是不够的：界面里的面板会照设置值
         // 继续变宽，多出来的部分只能挤主列表；而设置值一路涨到拖动上限之后，用户往回拖一大段都
         // 不见效（一段死区）。夹到同一个值，分隔条就会在屏幕边缘自然停住，与窗口被屏幕夹住是
@@ -786,10 +803,17 @@ class DesktopShellViewModel(
                 target.width.value.roundToInt() + RESIZE_TOLERANCE_DP.toInt()
             )
         _uiState.update {
-            if (it.previewOnLeft == previewOnLeft && it.previewWindowReady == windowReady) {
+            if (it.previewOnLeft == previewOnLeft &&
+                it.previewWindowReady == windowReady &&
+                it.maxPreviewWidth == maxPreviewWidth
+            ) {
                 it
             } else {
-                it.copy(previewOnLeft = previewOnLeft, previewWindowReady = windowReady)
+                it.copy(
+                    previewOnLeft = previewOnLeft,
+                    previewWindowReady = windowReady,
+                    maxPreviewWidth = maxPreviewWidth,
+                )
             }
         }
 

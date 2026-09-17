@@ -318,16 +318,13 @@ class ClipboardViewModel(
     /**
      * 拖动分隔条松手：把预览宽度落盘。
      *
-     * 界面在拖动期间只改自己那份临时宽度（见 `HistoryScreen.draggedPreviewWidth`），因此窗口
-     * 一帧都不动；这里落盘时必须**连同主列表的新宽度一起**写——预览多占的那一段正是主列表
-     * 让出来的。分开写会出两种毛病：
+     * 窗口宽度在拖动期间固定不变（见 `HistoryScreen.draggedPreviewWidth`），因此落盘时必须**连同
+     * 主列表的新宽度一起**写——预览多占的那一段正是主列表让出来的。两者之和不变，宿主算出来的
+     * 窗口几何与拖动前完全相同，`applyWindowBounds` 直接去重掉这次「变化」，原生窗口一动不动。
      *
-     * - 只写 `AppSettings.previewWidth`：宿主按「主列表 + 预览」重算窗口宽度，窗口跟着变宽，
-     *   等于把「拖分隔条」做成了「拖窗口」；
-     * - 分两次写：中间那一帧的窗口宽度是「旧主列表 + 新预览」，窗口会跳一下。
-     *
-     * 两者之和不变，宿主算出来的窗口几何与拖动前完全相同，`applyWindowBounds` 因此直接去重掉
-     * 这次「变化」，原生窗口一动不动。
+     * 主列表的下限取**划分下限**（[Popup.minimumSplitContentWidth]，比窗口自身的下限小）：默认
+     * 窗口里主列表正好站在窗口下限上，若划分也按它卡住，预览就再也宽不了（拖动上限等于当前宽度）。
+     * 窗口自身的下限只约束「拖窗口边缘」，两者在 `WindowSizing.minimumWindowSizeOf` 里区分。
      */
     private fun setPreviewWidth(width: Int) {
         useCases.updateSettings { current ->
@@ -335,15 +332,13 @@ class ClipboardViewModel(
                 Popup.minimumPreviewWidth.value.toInt(),
                 Popup.maximumPreviewWidth.value.toInt(),
             )
-            val listBefore = Popup.contentWidthOf(current.customWindowWidth)
-            val listAfter = listBefore.value.roundToInt() + current.previewWidth - preview
+            val listBefore = Popup.contentWidthOf(current.customWindowWidth).value.roundToInt()
+            val listAfter = listBefore + current.previewWidth - preview
             current.copy(
                 previewWidth = preview,
                 // 主列表宽度没变时保持原值：`null` 表示「自动宽度」，别被一次没改变布局的
-                // 拖动写成常量。下限用「划分里的下限」而不是窗口自身的下限：预览多占的宽度正是
-                // 主列表让出来的，夹到窗口下限会让这一段宽度既没给预览、也没留在列表上——窗口
-                // 反而被撑宽（与 `Popup.minimumSplitContentWidth` 的说明同源）。
-                customWindowWidth = if (listAfter == listBefore.value.roundToInt()) {
+                // 拖动写成常量。
+                customWindowWidth = if (listAfter == listBefore) {
                     current.customWindowWidth
                 } else {
                     listAfter.coerceAtLeast(Popup.minimumSplitContentWidth.value.toInt())
