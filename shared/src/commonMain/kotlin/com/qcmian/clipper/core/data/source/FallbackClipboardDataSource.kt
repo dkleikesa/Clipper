@@ -15,10 +15,6 @@ internal class FallbackClipboardDataSource : ClipboardDataSource {
         return true
     }
 
-    override fun clear() {
-        current = null
-    }
-
     override fun start(onChange: (ClipboardSnapshot) -> Unit) {
         listener = onChange
     }

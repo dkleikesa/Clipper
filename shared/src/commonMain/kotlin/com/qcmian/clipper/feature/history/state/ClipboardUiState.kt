@@ -32,6 +32,13 @@ data class ClipboardUiState(
     val historySelection: Int = 0,
     /** 由历史列表持有高亮时为 `-1`。 */
     val footerSelection: Int = -1,
+    /**
+     * 每当选中项因「非悬停」原因变化（键盘导航、新查询结果、面板重新打开）时自增。
+     *
+     * 界面的「把选中行滚进可视区」效果只跟这个令牌走：悬停同样会更新 [historySelection]，
+     * 但不该带着列表滚动，因此悬停路径不递增它。
+     */
+    val historyScrollToken: Int = 0,
     val previewOpen: Boolean = false,
     val statusMessage: String? = null,
     val storageSize: String? = null,

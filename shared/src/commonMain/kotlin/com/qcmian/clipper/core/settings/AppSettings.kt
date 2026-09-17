@@ -91,7 +91,6 @@ data class AppSettings(
     val pasteByDefault: Boolean = false,
     val removeFormattingByDefault: Boolean = false,
     val clearOnQuit: Boolean = false,
-    val clearSystemClipboard: Boolean = false,
     val searchThrottleMillis: Int = 200,
     /** 对应 `Defaults[.clipboardCheckInterval]`，单位毫秒。 */
     val clipboardCheckIntervalMillis: Int = 500,

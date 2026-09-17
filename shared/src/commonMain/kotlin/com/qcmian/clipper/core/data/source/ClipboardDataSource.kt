@@ -16,9 +16,6 @@ interface ClipboardDataSource {
      */
     fun write(snapshot: ClipboardSnapshot): Boolean
 
-    /** 清空系统剪贴板。 */
-    fun clear()
-
     /** 开始监听剪贴板，对每一次外部复制调用 [onChange]。 */
     fun start(onChange: (ClipboardSnapshot) -> Unit)
 

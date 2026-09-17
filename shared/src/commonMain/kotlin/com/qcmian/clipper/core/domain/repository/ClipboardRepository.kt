@@ -81,9 +81,6 @@ interface ClipboardPlatform {
     /** 把 [snapshot] 放入系统剪贴板。平台不支持时返回 `false`。 */
     fun writeClipboard(snapshot: ClipboardSnapshot): Boolean
 
-    /** 清空系统剪贴板。 */
-    fun clearSystemClipboard()
-
     /** 尽力向此前聚焦的应用「按一次粘贴」。 */
     fun paste(): Boolean
 

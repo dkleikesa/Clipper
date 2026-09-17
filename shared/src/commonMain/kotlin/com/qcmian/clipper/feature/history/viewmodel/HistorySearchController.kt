@@ -68,6 +68,8 @@ internal class HistorySearchController(
                 results = results,
                 footerSelection = -1,
                 historySelection = if (value.isEmpty()) firstUnpinned else 0,
+                // 新查询重置了选中项：允许界面把它滚进可视区。
+                historyScrollToken = it.historyScrollToken + 1,
             )
         }
     }

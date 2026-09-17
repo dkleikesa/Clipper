@@ -7,8 +7,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
- * 掌管历史列表与页脚的键盘 / 鼠标导航，包括「键盘导航」与「悬停」之间的交接
- *。
+ * 掌管历史列表与页脚的键盘 / 鼠标导航。
+ *
+ * 键盘导航只在内容区（历史 + 置顶）内移动，页脚永远不会被键盘选中；页脚高亮只来自鼠标悬停。
+ * 鼠标悬停总是直接接管高亮——它不需要「等下一次移动」的中转，因此键盘把高亮留在了哪里都不影响
+ * 悬停恢复工作。
  *
  * 它直接读写 [ClipboardViewModel] 持有的同一份 [ClipboardUiState]，不碰预览面板——
  * 预览开关是持久化的用户选择，鼠标划过页脚不该改变它（见 `AppSettings.previewOpen`）。
@@ -17,15 +20,12 @@ internal class HistoryNavigationController(
     private val state: MutableStateFlow<ClipboardUiState>,
     private val footerCount: () -> Int,
 ) {
-    /** 对应 `NavigationManager.isKeyboardNavigating` 中待处理的悬停。 */
-    private var pendingHoverSelection = -1
-
     /**
      * 最近一次导航输入是否来自键盘。
      *
-     * 它只在本类内部参与判断（鼠标移动后置 `false`，悬停于是重新接管选择），界面从不渲染，
-     * 因此留在这里而不是 [ClipboardUiState]。查询结果更新、面板重新打开时由外部调用
-     * [resetKeyboardNavigation] 复位。
+     * 键盘移动置 `true`，任何鼠标输入（移动、悬停）置 `false`。它只在本类内部参与判断，
+     * 界面从不渲染，因此留在这里而不是 [ClipboardUiState]。
+     * 查询结果更新、面板重新打开时由外部调用 [resetKeyboardNavigation] 复位。
      */
     private var keyboardNavigating = true
 
@@ -34,36 +34,22 @@ internal class HistoryNavigationController(
         keyboardNavigating = true
     }
 
+    /** 对应 `MouseMovedViewModifier`：鼠标移动会结束键盘导航，悬停从此直接接管选择。 */
     fun onPointerMoved() {
-        if (!keyboardNavigating) return
-        val pending = pendingHoverSelection
-        pendingHoverSelection = -1
-        state.update { latest ->
-            val shouldApply = pending >= 0 && latest.footerSelection < 0
-            latest.copy(
-                historySelection = if (shouldApply) {
-                    pending.coerceIn(0, maxOf(0, latest.results.lastIndex))
-                } else {
-                    latest.historySelection
-                },
-            )
-        }
+        keyboardNavigating = false
     }
 
-    /** 对应 `HoverSelectionModifier`。 */
+    /** 鼠标悬停行：直接接管高亮（清掉可能残留的页脚选中），列表随鼠标走。 */
     fun hoverHistory(index: Int) {
+        keyboardNavigating = false
         val current = state.value
-        if (!keyboardNavigating) {
-            if (current.footerSelection >= 0 || current.historySelection != index) {
-                state.update {
-                    it.copy(
-                        historySelection = index.coerceIn(0, maxOf(0, it.results.lastIndex)),
-                        footerSelection = -1,
-                    )
-                }
+        if (current.footerSelection >= 0 || current.historySelection != index) {
+            state.update {
+                it.copy(
+                    historySelection = index.coerceIn(0, maxOf(0, it.results.lastIndex)),
+                    footerSelection = -1,
+                )
             }
-        } else {
-            pendingHoverSelection = index
         }
     }
 
@@ -85,13 +71,15 @@ internal class HistoryNavigationController(
             it.copy(
                 historySelection = target.historyIndex,
                 footerSelection = target.footerIndex,
+                // 键盘驱动的选中变化：允许界面把新选中的行滚进可视区。
+                historyScrollToken = it.historyScrollToken + 1,
             )
         }
     }
 
-    /** 对应 `NavigationManager.highlightNext(allowCycle:)`。 */
+    /** 对应 `NavigationManager.highlightNext(allowCycle)`：只在历史内移动 / 循环，不进页脚。 */
     fun moveNext(allowCycle: Boolean) {
-        applyMove(HistoryNavigation.next(currentSelection(), state.value.results.lastIndex, footerCount(), allowCycle))
+        applyMove(HistoryNavigation.next(currentSelection(), state.value.results.lastIndex, allowCycle))
     }
 
     /** 对应 `NavigationManager.highlightPrevious`。 */
@@ -99,9 +87,9 @@ internal class HistoryNavigationController(
         applyMove(HistoryNavigation.previous(currentSelection(), state.value.results.lastIndex))
     }
 
-    /** 对应 `NavigationManager.highlightLast`：最后一条历史会交棒给页脚。 */
+    /** 对应 `NavigationManager.highlightLast`：停到最后一条历史。 */
     fun moveToLast() {
-        applyMove(HistoryNavigation.last(currentSelection(), state.value.results.lastIndex, footerCount()))
+        applyMove(HistoryNavigation.last(currentSelection(), state.value.results.lastIndex))
     }
 
     private fun selectFooter(index: Int) {
