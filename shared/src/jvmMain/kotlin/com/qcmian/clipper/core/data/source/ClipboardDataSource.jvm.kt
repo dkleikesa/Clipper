@@ -22,6 +22,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
+import com.qcmian.clipper.core.platform.macos.MacKeyboard
 import com.qcmian.clipper.core.platform.macos.MacPasteboard
 
 /**
@@ -73,11 +74,6 @@ private class JvmClipboardDataSource : ClipboardDataSource {
         }.isSuccess
     }
 
-    override fun clear() {
-        runCatching { clipboard.setContents(null, null) }
-        lastFingerprint = null
-    }
-
     override fun start(onChange: (ClipboardSnapshot) -> Unit) {
         listener = onChange
         lastFingerprint = fingerprint(readSnapshot())
@@ -110,15 +106,28 @@ private class JvmClipboardDataSource : ClipboardDataSource {
         listener = null
     }
 
-    override fun paste(): Boolean = runCatching {
-        val robot = Robot()
-        val modifier = if (isMacOs()) KeyEvent.VK_META else KeyEvent.VK_CONTROL
-        robot.keyPress(modifier)
-        robot.keyPress(KeyEvent.VK_V)
-        robot.keyRelease(KeyEvent.VK_V)
-        robot.keyRelease(modifier)
-        true
-    }.getOrDefault(false)
+    /**
+     * 尽力向此前聚焦的应用按一次「粘贴」。
+     *
+     * macOS 上优先走 [MacKeyboard]：⌘ 直接写在 `V` 的按下 / 抬起事件上，
+     * 不依赖「⌘ 是不是已经作为一个独立事件生效」（[Robot] 只能靠后者，偶尔会漏掉修饰键，
+     * 于是目标应用收到一个裸的 `v`）。
+     *
+     * 其余平台，以及框架 / 符号不可用时，退回 [Robot]：按下 Ctrl（macOS 上是 ⌘）与 `V`，
+     * 再逆序放开。
+     */
+    override fun paste(): Boolean {
+        if (isMacOs() && MacKeyboard.available) return MacKeyboard.sendCommandKey()
+        return runCatching {
+            val robot = Robot()
+            val modifier = if (isMacOs()) KeyEvent.VK_META else KeyEvent.VK_CONTROL
+            robot.keyPress(modifier)
+            robot.keyPress(KeyEvent.VK_V)
+            robot.keyRelease(KeyEvent.VK_V)
+            robot.keyRelease(modifier)
+            true
+        }.getOrDefault(false)
+    }
 
     private fun readSnapshot(): ClipboardSnapshot {
         val flavors = runCatching { clipboard.availableDataFlavors.toList() }.getOrDefault(emptyList())
