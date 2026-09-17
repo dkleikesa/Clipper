@@ -172,6 +172,30 @@ fun HistoryScreen(
         }
     }
 
+    // 对应 Maccy `KeyHandlingView` 常驻第一响应者的体验：搜索框是面板的常驻输入点，光标
+    // 应当一直可见、随时可输入。但点击面板内的任何按钮（预览开关、行内操作、页脚……）都会
+    // 把焦点从搜索框抢走，光标消失，用户得再点一次输入框。因此每次「有实质的」交互之后把
+    // 焦点请回来；设置 / 清除确认弹窗打开期间除外——那时焦点属于弹窗，关闭后自动恢复。
+    var refocusToken by remember { mutableStateOf(0) }
+    val onUiAction: (ClipboardUiAction) -> Unit = { action ->
+        when (action) {
+            // 高频且与焦点无关的动作不触发重聚焦，避免悬停 / 输入时逐帧重挂副作用。
+            is ClipboardUiAction.HoverHistory,
+            is ClipboardUiAction.HoverFooter,
+            is ClipboardUiAction.PointerMoved,
+            is ClipboardUiAction.Hidden -> Unit
+            else -> refocusToken++
+        }
+        onAction(action)
+    }
+    LaunchedEffect(refocusToken, state.isModalOpen) {
+        if (state.isModalOpen) return@LaunchedEffect
+        repeat(FOCUS_REQUEST_ATTEMPTS) {
+            withFrameNanos { }
+            runCatching { searchFocusRequester.requestFocus() }
+        }
+    }
+
     val density = LocalDensity.current
 
     // 量出的各区块高度。它们从 0 开始，与 `Popup.height` 一致：
@@ -279,7 +303,7 @@ fun HistoryScreen(
             shortcuts = shortcuts,
             footerActions = footerEntries.map { it.action },
         )
-        actions.forEach(onAction)
+        actions.forEach(onUiAction)
         actions.isNotEmpty()
     }
 
@@ -300,7 +324,7 @@ fun HistoryScreen(
                 null
             },
             onClick = {
-                onAction(
+                onUiAction(
                     ClipboardUiAction.Activate(
                         index = indexed.index,
                         shift = pointerShift,
@@ -309,7 +333,7 @@ fun HistoryScreen(
                     ),
                 )
             },
-            onHover = { onAction(ClipboardUiAction.HoverHistory(indexed.index)) },
+            onHover = { onUiAction(ClipboardUiAction.HoverHistory(indexed.index)) },
         )
     }
 
@@ -430,7 +454,7 @@ fun HistoryScreen(
                             when (event.type) {
                                 // `MouseMovedViewModifier`：鼠标移动会结束键盘导航，
                                 // 于是悬停重新开始选择。
-                                PointerEventType.Move -> onAction(ClipboardUiAction.PointerMoved)
+                                PointerEventType.Move -> onUiAction(ClipboardUiAction.PointerMoved)
                                 PointerEventType.Press -> {
                                     pointerShift = event.keyboardModifiers.isShiftPressed
                                     pointerAlt = event.keyboardModifiers.isAltPressed
@@ -456,14 +480,14 @@ fun HistoryScreen(
                         previewWidth = previewWidth,
                         maxDragWidth = maxDragWidth,
                         onLeft = true,
-                        onTogglePin = { onAction(ClipboardUiAction.TogglePinSelected) },
-                        onDelete = { onAction(ClipboardUiAction.DeleteSelected) },
-                        onCopyExtractedText = { onAction(ClipboardUiAction.CopyExtractedText) },
+                        onTogglePin = { onUiAction(ClipboardUiAction.TogglePinSelected) },
+                        onDelete = { onUiAction(ClipboardUiAction.DeleteSelected) },
+                        onCopyExtractedText = { onUiAction(ClipboardUiAction.CopyExtractedText) },
                         // 拖动中只改界面上的宽度（窗口不动），松手才连同新的主列表宽度写回设置。
                         onWidthChange = { value -> draggedPreviewWidth = value },
                         onWidthChangeFinished = {
                             draggedPreviewWidth?.let {
-                                onAction(ClipboardUiAction.SetPreviewWidth(it))
+                                onUiAction(ClipboardUiAction.SetPreviewWidth(it))
                             }
                         },
                     )
@@ -499,19 +523,19 @@ fun HistoryScreen(
                         HistoryHeader(
                             visible = state.searchVisible,
                             query = state.query,
-                            onQueryChange = { value -> onAction(ClipboardUiAction.UpdateQuery(value)) },
+                            onQueryChange = { value -> onUiAction(ClipboardUiAction.UpdateQuery(value)) },
                             onCompositionChange = { composing = it },
                             focusRequester = searchFocusRequester,
                             previewOpen = state.previewOpen,
                             previewOnLeft = previewHost.onLeft,
                             previewTooltip = "显示 / 隐藏预览（${settings.togglePreviewShortcut.label}）",
-                            onTogglePreview = { onAction(ClipboardUiAction.TogglePreview) },
+                            onTogglePreview = { onUiAction(ClipboardUiAction.TogglePreview) },
                         )
 
                         if (settings.ignoreEvents) {
                             PausedBanner(
                                 onResume = {
-                                    onAction(
+                                    onUiAction(
                                         ClipboardUiAction.UpdateSettings {
                                             it.copy(ignoreEvents = false)
                                         },
@@ -604,9 +628,9 @@ fun HistoryScreen(
                                 PreviewPane(
                                     item = state.selectedItem,
                                     appIconBase64 = previewAppIcon,
-                                    onTogglePin = { onAction(ClipboardUiAction.TogglePinSelected) },
-                                    onDelete = { onAction(ClipboardUiAction.DeleteSelected) },
-                                    onCopyExtractedText = { onAction(ClipboardUiAction.CopyExtractedText) },
+                                    onTogglePin = { onUiAction(ClipboardUiAction.TogglePinSelected) },
+                                    onDelete = { onUiAction(ClipboardUiAction.DeleteSelected) },
+                                    onCopyExtractedText = { onUiAction(ClipboardUiAction.CopyExtractedText) },
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
@@ -616,10 +640,10 @@ fun HistoryScreen(
                     FooterRows(
                         selectedIndex = state.footerSelection,
                         showQuit = state.showQuit,
-                        onAction = { action -> onAction(ClipboardUiAction.RunFooter(action)) },
+                        onAction = { action -> onUiAction(ClipboardUiAction.RunFooter(action)) },
                         // `FooterItemView.onHover` 原本会在悬停页脚时收起预览；预览开关现在是持久化的
                         // 用户选择（见 `AppSettings.previewOpen`），只由按钮 / 快捷键切换，这里不再动它。
-                        onHover = { index -> onAction(ClipboardUiAction.HoverFooter(index)) },
+                        onHover = { index -> onUiAction(ClipboardUiAction.HoverFooter(index)) },
                         // 对应 `FooterView.readHeight(appState, into: \.popup.footerHeight)`。
                         modifier = Modifier.onSizeChanged {
                             footerHeight = with(density) { it.height.toDp() }
@@ -637,14 +661,14 @@ fun HistoryScreen(
                         previewWidth = previewWidth,
                         maxDragWidth = maxDragWidth,
                         onLeft = false,
-                        onTogglePin = { onAction(ClipboardUiAction.TogglePinSelected) },
-                        onDelete = { onAction(ClipboardUiAction.DeleteSelected) },
-                        onCopyExtractedText = { onAction(ClipboardUiAction.CopyExtractedText) },
+                        onTogglePin = { onUiAction(ClipboardUiAction.TogglePinSelected) },
+                        onDelete = { onUiAction(ClipboardUiAction.DeleteSelected) },
+                        onCopyExtractedText = { onUiAction(ClipboardUiAction.CopyExtractedText) },
                         // 见上面 `DOCK_LEFT` 的说明：拖动中不落盘，松手才一次写回。
                         onWidthChange = { value -> draggedPreviewWidth = value },
                         onWidthChangeFinished = {
                             draggedPreviewWidth?.let {
-                                onAction(ClipboardUiAction.SetPreviewWidth(it))
+                                onUiAction(ClipboardUiAction.SetPreviewWidth(it))
                             }
                         },
                     )
@@ -672,19 +696,19 @@ fun HistoryScreen(
                 supportsTextRecognition = state.supportsTextRecognition,
             ),
             actions = PreferencesActions(
-                onSettingsChange = { transform -> onAction(ClipboardUiAction.UpdateSettings(transform)) },
+                onSettingsChange = { transform -> onUiAction(ClipboardUiAction.UpdateSettings(transform)) },
                 availablePins = availablePins,
-                onPinChange = { item, pin -> onAction(ClipboardUiAction.UpdatePin(item, pin)) },
-                onTitleChange = { item, title -> onAction(ClipboardUiAction.UpdateTitle(item, title)) },
-                onContentChange = { item, text -> onAction(ClipboardUiAction.UpdateContent(item, text)) },
-                onDeletePinned = { item -> onAction(ClipboardUiAction.DeleteItem(item)) },
-                onClearUnpinned = { onAction(ClipboardUiAction.RequestClear(all = false, hidePanel = false)) },
-                onClearAll = { onAction(ClipboardUiAction.RequestClear(all = true, hidePanel = false)) },
-                onDismiss = { onAction(ClipboardUiAction.DismissPreferences) },
+                onPinChange = { item, pin -> onUiAction(ClipboardUiAction.UpdatePin(item, pin)) },
+                onTitleChange = { item, title -> onUiAction(ClipboardUiAction.UpdateTitle(item, title)) },
+                onContentChange = { item, text -> onUiAction(ClipboardUiAction.UpdateContent(item, text)) },
+                onDeletePinned = { item -> onUiAction(ClipboardUiAction.DeleteItem(item)) },
+                onClearUnpinned = { onUiAction(ClipboardUiAction.RequestClear(all = false, hidePanel = false)) },
+                onClearAll = { onUiAction(ClipboardUiAction.RequestClear(all = true, hidePanel = false)) },
+                onDismiss = { onUiAction(ClipboardUiAction.DismissPreferences) },
                 applicationName = applicationName,
                 applicationIcon = applicationIcon,
                 onPickApplication = if (state.supportsApplicationInfo) {
-                    { onAction(ClipboardUiAction.PickIgnoredApplication) }
+                    { onUiAction(ClipboardUiAction.PickIgnoredApplication) }
                 } else {
                     null
                 },
@@ -696,8 +720,8 @@ fun HistoryScreen(
         ConfirmDialog(
             message = request.message,
             comment = request.comment,
-            onConfirm = { onAction(ClipboardUiAction.ConfirmClear) },
-            onDismiss = { onAction(ClipboardUiAction.DismissClear) },
+            onConfirm = { onUiAction(ClipboardUiAction.ConfirmClear) },
+            onDismiss = { onUiAction(ClipboardUiAction.DismissClear) },
         )
     }
 }

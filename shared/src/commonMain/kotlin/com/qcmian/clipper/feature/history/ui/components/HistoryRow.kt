@@ -13,10 +13,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Dp
+import kotlin.math.min
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
@@ -130,10 +134,34 @@ fun HistoryRow(
 
 @Composable
 private fun ColorSwatch(color: Color) {
+    // 半透明颜色直接画在行背景上几乎看不出透明度，
+    // 因此先铺一层经典的白灰棋盘格，再把颜色（可能带 alpha）叠上去。
+    val checkerLight = Color.White
+    val checkerDark = Color(0xFFCCCCCC)
     Box(
         Modifier
             .size(12.dp)
             .clip(RoundedCornerShape(2.dp))
+            .drawBehind {
+                val step = 3.dp.toPx()
+                var y = 0f
+                var row = 0
+                while (y < size.height) {
+                    var x = 0f
+                    var column = 0
+                    while (x < size.width) {
+                        drawRect(
+                            color = if ((row + column) % 2 == 0) checkerLight else checkerDark,
+                            topLeft = Offset(x, y),
+                            size = Size(min(step, size.width - x), min(step, size.height - y)),
+                        )
+                        x += step
+                        column++
+                    }
+                    y += step
+                    row++
+                }
+            }
             .background(color),
     )
 }
