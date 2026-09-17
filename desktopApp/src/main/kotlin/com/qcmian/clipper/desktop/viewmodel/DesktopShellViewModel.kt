@@ -429,10 +429,12 @@ class DesktopShellViewModel(
         _uiState.update { it.copy(minimumHeight = height) }
     }
 
-    /** 退出：应用「退出时清空历史」偏好并等待落盘，然后请求宿主结束进程。 */
+    /** 退出：应用「退出时清空历史」偏好，落盘并关闭数据库，然后请求宿主结束进程。 */
     fun quit() {
         panel.quit()
-        runBlocking { container.repository.flushNow() }
+        // [close] 内含落盘：写完最后状态后关闭最后一个连接，SQLite 会把 WAL 合并回
+        // 主库并删除 -wal / -shm，下次启动不再需要恢复，也不会留下膨胀的日志文件。
+        runBlocking { container.repository.close() }
         panel.requestExit()
     }
 

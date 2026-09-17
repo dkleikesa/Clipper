@@ -46,6 +46,13 @@ interface ClipboardRepository {
      */
     suspend fun flushNow()
 
+    /**
+     * 落盘当前状态并关闭底层存储。SQLite 会在最后一个连接关闭时把 WAL 合并回主库，
+     * 并删除 `-wal` / `-shm` 临时文件。进程退出路径应优先用本方法而非 [flushNow]；
+     * 关闭后的读写会被安全忽略，宿主后续的 [flush] 不需要感知。
+     */
+    suspend fun close()
+
     /** 替换整份历史；列表在持久化前会重新排序并按上限裁剪。 */
     fun setItems(items: List<ClipItem>)
 

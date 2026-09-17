@@ -121,6 +121,11 @@ class DefaultClipboardRepository(
         storage.saveSettings(_settings.value)
     }
 
+    override suspend fun close() {
+        flushNow()
+        storage.close()
+    }
+
     /** 加载已持久化的历史与偏好。运行在 [scope] 上，绝不在调用方线程上执行。 */
     private suspend fun load() {
         val settings = storage.loadSettings()

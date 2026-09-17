@@ -726,14 +726,7 @@ private fun IgnoreSection(data: PreferencesUiData, actions: PreferencesActions) 
         SwitchRow(
             title = "暂停记录新的复制",
             checked = settings.ignoreEvents,
-        ) { value ->
-            actions.onSettingsChange { it.copy(ignoreEvents = value, ignoreOnlyNextEvent = false) }
-        }
-        SwitchRow(
-            title = "仅忽略下一次复制",
-            checked = settings.ignoreOnlyNextEvent,
-            enabled = settings.ignoreEvents,
-        ) { value -> actions.onSettingsChange { it.copy(ignoreOnlyNextEvent = value) } }
+        ) { value -> actions.onSettingsChange { it.copy(ignoreEvents = value) } }
 
         DelimitedListField(
             values = settings.ignoredRegexp,
@@ -833,11 +826,6 @@ private fun DataSection(data: PreferencesUiData, actions: PreferencesActions) {
             description = "只清除未置顶的项目。",
             checked = settings.clearOnQuit,
         ) { value -> actions.onSettingsChange { it.copy(clearOnQuit = value) } }
-        SwitchRow(
-            title = "清除时不再确认",
-            description = "清除历史时不再弹出确认框。",
-            checked = settings.suppressClearAlert,
-        ) { value -> actions.onSettingsChange { it.copy(suppressClearAlert = value) } }
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(top = 4.dp),

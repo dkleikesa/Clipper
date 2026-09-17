@@ -55,6 +55,7 @@ private class JvmClipboardDataSource : ClipboardDataSource {
     private var lastFingerprint: String? = null
 
     /** macOS 上 `NSPasteboard.changeCount` 的上次读数；`-1` 表示未知（退化为全量读取）。 */
+    @Volatile
     private var lastChangeCount = -1L
 
     override var pollIntervalMillis: Long = ClipboardDataSource.DEFAULT_POLL_INTERVAL_MILLIS
@@ -67,10 +68,13 @@ private class JvmClipboardDataSource : ClipboardDataSource {
 
         if (text == null && image == null && files.isEmpty()) return false
 
-        // 这里刻意*不*刷新指纹：轮询循环会观察到这次写入，仓库随后把选中的条目排到最前面，
-        // 行为与系统剪贴板的观察者预期一致。
+        // 这里要刷新两道基线，把自我写入的回声压掉：「复制次数」只统计用户在
+        // 其它应用里的真实复制，本应用的选中 / 复制不算（轮询不再观察到这次写入）。
         return runCatching {
             clipboard.setContents(ClipTransferable(text, image, files), null)
+        }.onSuccess {
+            if (isMacOs()) lastChangeCount = MacPasteboard.changeCount()
+            lastFingerprint = fingerprint(snapshot)
         }.isSuccess
     }
 
@@ -81,14 +85,21 @@ private class JvmClipboardDataSource : ClipboardDataSource {
         pollJob = scope.launch {
             while (isActive) {
                 delay(pollIntervalMillis)
-                // macOS 上先读 `changeCount`（一个 int）做快速比对，内容只有在
-                // 变化时才值得读；读不到（返回 -1）就退化为每次全量读取。
+                // macOS 上先读 `changeCount`（一个 int）做快速比对：变化即一次复制，
+                // 内容相同也算——重复制交给捕获层合并并累加次数（对齐 Maccy）。
+                // 自己写入的回声已在 [write] 里刷新 lastChangeCount 压掉。
                 if (isMacOs()) {
                     val changeCount = MacPasteboard.changeCount()
                     if (changeCount >= 0) {
                         if (changeCount == lastChangeCount) continue
                         lastChangeCount = changeCount
+                        val snapshot = readSnapshot()
+                        if (snapshot.isEmpty) continue
+                        lastFingerprint = fingerprint(snapshot)
+                        listener?.invoke(snapshot)
+                        continue
                     }
+                    // changeCount 读不到（返回 -1）时退化为内容指纹比对。
                 }
                 val snapshot = readSnapshot()
                 if (snapshot.isEmpty) continue
