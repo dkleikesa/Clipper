@@ -87,6 +87,8 @@ class ClipboardViewModel(
     init {
         viewModelScope.launch { repository.items.collect { refresh() } }
         viewModelScope.launch { repository.settings.collect { refresh() } }
+        // 存储占用变了（空闲页回收 / 压紧完成）：重读一次，设置页里的「存储文件」才会跟着掉。
+        viewModelScope.launch { repository.storageRevision.collect { refresh() } }
         viewModelScope.launch {
             repository.statusMessage.collect { message ->
                 _uiState.update { it.copy(statusMessage = message) }
@@ -285,6 +287,8 @@ class ClipboardViewModel(
     private fun refresh() {
         val settings = repository.settings.value
         val results = search.resultsFor(_uiState.value.appliedQuery)
+        // 设置页的「当前条数」只数未置顶条目：与「历史上限」是同一个口径。
+        val unpinnedCount = repository.items.value.count { it.isUnpinned }
 
         _uiState.update { latest ->
             latest.copy(
@@ -300,10 +304,8 @@ class ClipboardViewModel(
                 } else {
                     latest.historyScrollToken
                 },
-                storageSize = platform.storageSize,
-                historyBytes = repository.items.value
-                    .filter { it.isUnpinned }
-                    .sumOf { it.approximateSizeBytes },
+                storageBytes = platform.storageBytes,
+                historyCount = unpinnedCount,
                 screenCount = platform.screenCount,
                 supportsLaunchAtLogin = platform.supportsLaunchAtLogin,
                 supportsTextRecognition = platform.supportsTextRecognition,

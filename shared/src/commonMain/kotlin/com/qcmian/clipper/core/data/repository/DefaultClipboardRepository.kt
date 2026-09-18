@@ -23,7 +23,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * [ClipboardRepository] 的默认实现：以 [StateFlow] 在内存中持有历史，带防抖地镜像到平台存储，
@@ -58,6 +60,9 @@ class DefaultClipboardRepository(
     private val _statusMessage = MutableStateFlow<String?>(null)
     override val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
 
+    private val _storageRevision = MutableStateFlow(0)
+    override val storageRevision: StateFlow<Int> = _storageRevision.asStateFlow()
+
     private val _snapshots = MutableSharedFlow<ClipboardSnapshot>(extraBufferCapacity = 32)
     override val snapshots: Flow<ClipboardSnapshot> = _snapshots.asSharedFlow()
 
@@ -71,7 +76,13 @@ class DefaultClipboardRepository(
     private var itemsPersistJob: Job? = null
     private var settingsPersistJob: Job? = null
 
-    override val storageSize: String? get() = storage.storageSize()
+    /** 正在跑的存储维护（回收 / 压紧）；同一时刻只允许一个。 */
+    private var maintenanceJob: Job? = null
+
+    /** 累计「丢掉的内容」的近似字节，只用来决定何时去查一次空闲页（见 [reclaimStorageIfNeeded]）。 */
+    private var droppedBytes = 0L
+
+    override val storageBytes: Long? get() = storage.storageBytes()
     override val screenCount: Int get() = native.screenCount
     override val supportsLaunchAtLogin: Boolean get() = native.supportsLaunchAtLogin
     override val supportsApplicationInfo: Boolean get() = native.supportsApplicationInfo
@@ -123,6 +134,21 @@ class DefaultClipboardRepository(
 
     override suspend fun close() {
         flushNow()
+        // 退出前压紧一次。放到后台跑并只等 [QUIT_COMPACT_TIMEOUT_MILLIS]：库大时用户按了退出
+        // 不该等一次整库重写；等不到就放弃，下次启动的补检（见 [load]）会兜住那次空洞。
+        val compact = scope.launch {
+            try {
+                storage.compact()
+            } catch (cancellation: CancellationException) {
+                // 被上面的超时取消：以取消状态结束，退出流程不再等它。
+                throw cancellation
+            } catch (_: Exception) {
+                // 压紧失败（磁盘满、库已被关闭）不该拖住退出。
+            }
+        }
+        if (withTimeoutOrNull(QUIT_COMPACT_TIMEOUT_MILLIS) { compact.join() } == null) {
+            compact.cancel()
+        }
         storage.close()
     }
 
@@ -138,6 +164,8 @@ class DefaultClipboardRepository(
         val restored = storage.loadItems().map { it.withSanitisedTitle() }
         _items.value = normalise(restored, settings)
         loaded = true
+        // 冷启动补一次回收：覆盖「上次会话删了但没回收」「退出时压紧超时被放弃」留下的空洞。
+        reclaimStorageIfNeeded()
     }
 
     /**
@@ -163,6 +191,20 @@ class DefaultClipboardRepository(
     override fun setItems(items: List<ClipItem>) {
         val normalised = normalise(items, _settings.value)
         if (normalised == _items.value) return
+
+        // 记账只决定「什么时候去查一次空闲页」，不参与回收多少的判断：单条删除与裁剪丢弃都会
+        // 走到这里，热路径上只多一次整数加法（真正的判据是文件里的空闲页数）。
+        if (normalised.size < _items.value.size) {
+            val keptIds = normalised.mapTo(HashSet(normalised.size * 2)) { it.id }
+            droppedBytes += _items.value
+                .filterNot { it.id in keptIds }
+                .sumOf { it.approximateSizeBytes }
+            if (droppedBytes >= MIN_RECLAIM_BYTES) {
+                droppedBytes = 0
+                reclaimStorageIfNeeded()
+            }
+        }
+
         _items.value = normalised
         persistItems()
     }
@@ -182,6 +224,41 @@ class DefaultClipboardRepository(
 
     override fun setStatusMessage(message: String?) {
         _statusMessage.value = message
+    }
+
+    // ---------------------------------------------------------------------------------
+    // 存储维护（空闲页回收 / 压紧）
+    // ---------------------------------------------------------------------------------
+
+    override fun compactStorage() {
+        runMaintenance { storage.compact() }
+    }
+
+    override fun reclaimStorageIfNeeded() {
+        runMaintenance { storage.reclaimFreePages(MIN_RECLAIM_BYTES) }
+    }
+
+    /**
+     * 存储维护的唯一入口：先落盘再动手，且同一时刻只跑一个。
+     *
+     * 先 [flushNow] 是必须的：刚删掉的内容可能还在防抖队列里，此时压紧会被随后的写入又撑大，
+     * 白压一次。维护期间到来的重复请求直接丢弃——压缩结果与调用次数无关。
+     *
+     * 完成后递增 [storageRevision]：「存储文件大小」每次现读，界面靠这个信号重读一次。
+     */
+    private fun runMaintenance(block: suspend () -> Unit) {
+        if (maintenanceJob?.isActive == true) return
+        maintenanceJob = scope.launch {
+            try {
+                flushNow()
+                block()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // 维护失败（磁盘满、库已被关闭……）不该影响任何业务状态，等下一个时机再试。
+            }
+            _storageRevision.update { it + 1 }
+        }
     }
 
     override fun writeClipboard(snapshot: ClipboardSnapshot): Boolean = clipboard.write(snapshot)
@@ -212,28 +289,23 @@ class DefaultClipboardRepository(
     // ---------------------------------------------------------------------------------
 
     /**
-     * 按当前偏好排序历史，并把未置顶条目的总体积裁剪到配置的上限。
+     * 按当前偏好排序历史，并把未置顶条目裁剪到配置的条数上限。
      *
-     * 从排序结果的开头累计体积（即保留最靠前的条目），一旦超出上限，后续条目全部丢弃；
-     * 置顶项不占额度也不会被丢弃。始终至少保留一条未置顶记录，避免刚复制的大内容被立刻清掉。
+     * 从排序结果的开头数条数（即保留最靠前的条目），超出的全部丢弃；置顶项不占额度也不会被
+     * 丢弃。[AppSettings.historyMaxCount] 至少为 1，因此刚复制的内容不会被立刻清掉。
      */
     private fun normalise(items: List<ClipItem>, settings: AppSettings): List<ClipItem> {
         val sorted = ClipSorter.sort(items, settings.sortBy, settings.pinTo)
-        val maxBytes = settings.historyMaxSizeBytes
-        if (maxBytes <= 0L) return sorted
+        val maxCount = settings.historyMaxCount
+        // 非正数视为「不裁剪」：设置页只允许正整数，这里防的是外部写入的异常值。
+        if (maxCount <= 0) return sorted
 
-        var used = 0L
         var kept = 0
         val overflow = mutableSetOf<String>()
         for (item in sorted) {
             if (item.isPinned) continue
-            val size = item.approximateSizeBytes
-            if (kept > 0 && used + size > maxBytes) {
-                overflow += item.id
-            } else {
-                used += size
-                kept++
-            }
+            kept++
+            if (kept > maxCount) overflow += item.id
         }
         if (overflow.isEmpty()) return sorted
         return sorted.filterNot { it.id in overflow }
@@ -265,5 +337,16 @@ class DefaultClipboardRepository(
 
     private companion object {
         const val PERSIST_DEBOUNCE_MILLIS = 300L
+
+        /**
+         * 累计丢掉这么多内容，才值得去查一次文件里的空闲页并回收。
+         *
+         * 这个阈值同时用于两处：这里是触发查询的记账阈值，数据层那边是「空闲页少于它就
+         * 不值得为它搬一次页」的回收阈值——两者一致，语义就是「删够 1 MB 才回收 1 MB」。
+         */
+        const val MIN_RECLAIM_BYTES = 1L * 1024L * 1024L
+
+        /** 退出时最多等压紧多久；等不到就放弃，交给下次启动的补检。 */
+        const val QUIT_COMPACT_TIMEOUT_MILLIS = 1_500L
     }
 }

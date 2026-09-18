@@ -61,6 +61,30 @@ interface ClipboardRepository {
 
     /** 显示（或清除）临时状态消息。 */
     fun setStatusMessage(message: String?)
+
+    /**
+     * 存储占用可能已经变化（回收 / 压紧完成）时自增。
+     *
+     * 「存储文件大小」是每次现读的，因此界面需要这样一个信号才会重新读一次——否则 `VACUUM`
+     * 之后设置页里的数字会停在旧值上。
+     */
+    val storageRevision: StateFlow<Int>
+
+    /**
+     * 彻底压紧数据库文件（SQLite `VACUUM`）：空闲页与页内碎片一起回收。
+     *
+     * 非阻塞：真正的工作在 IO 上跑，同一时刻只会有一个，重复调用会被合并。用在「用户刚清掉
+     * 一批数据」与「进程即将退出」这两个时机。
+     */
+    fun compactStorage()
+
+    /**
+     * 空闲页够多时才真正回收（`PRAGMA incremental_vacuum`）。
+     *
+     * 非阻塞，且内部自带阈值判断，因此可以在每次有记录被丢弃后调用：热路径上只多一次整数加法，
+     * 真正的查询与搬页发生在累计删除量够大时。
+     */
+    fun reclaimStorageIfNeeded()
 }
 
 /**
@@ -70,8 +94,8 @@ interface ClipboardRepository {
  * 更新偏好——不必依赖一个二十个成员的接口。
  */
 interface ClipboardPlatform {
-    /** 已持久化历史的近似大小，平台无法给出时为 `null`。 */
-    val storageSize: String?
+    /** 已持久化历史占用的字节数（数据库文件大小）；平台无法测量时为 `null`。 */
+    val storageBytes: Long?
 
     /** 「弹窗屏幕」偏好可以指向的屏幕数量。 */
     val screenCount: Int

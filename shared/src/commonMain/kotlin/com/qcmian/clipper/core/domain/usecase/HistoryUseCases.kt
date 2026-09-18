@@ -27,5 +27,8 @@ class ClearHistoryUseCase(
         val items = repository.items.value
         val remaining = if (all) emptyList() else items.filter { it.isPinned }
         repository.setItems(remaining)
+        // 清空是用户明确「要释放磁盘」的动作：顺手把文件压紧。此时有效数据最少，
+        // 也是 VACUUM 最快的一次（见 `ClipboardRepository.compactStorage`）。
+        repository.compactStorage()
     }
 }

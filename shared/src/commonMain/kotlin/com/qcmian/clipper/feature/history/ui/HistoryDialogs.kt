@@ -31,8 +31,8 @@ internal fun HistoryDialogs(
         PreferencesDialog(
             data = PreferencesUiData(
                 settings = settings,
-                storageSize = state.storageSize,
-                historyBytes = state.historyBytes,
+                storageBytes = state.storageBytes,
+                historyCount = state.historyCount,
                 screenCount = state.screenCount,
                 supportsLaunchAtLogin = state.supportsLaunchAtLogin,
                 supportsTextRecognition = state.supportsTextRecognition,
