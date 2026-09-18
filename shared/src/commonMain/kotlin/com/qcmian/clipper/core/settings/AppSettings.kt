@@ -78,10 +78,12 @@ data class ShortcutSpec(
 data class AppSettings(
     // 存储
     /**
-     * 未置顶历史内容的总大小上限（字节）。超过后按当前排序丢弃最旧的记录；
-     * 置顶项不受此限制，也从不因超限被丢弃。
+     * 未置顶历史内容的条数上限。超过后按当前排序丢弃最旧的记录；置顶项不受此限制，
+     * 也从不因超限被丢弃。
+     *
+     * 条数**不设上限**：设置页只校验「正整数」，不设最大值——用户想留多少条就填多少条。
      */
-    val historyMaxSizeBytes: Long = DEFAULT_HISTORY_MAX_SIZE_BYTES,
+    val historyMaxCount: Int = DEFAULT_HISTORY_MAX_COUNT,
     val saveText: Boolean = true,
     val saveImages: Boolean = true,
     val saveFiles: Boolean = true,
@@ -147,11 +149,8 @@ data class AppSettings(
     val recognizeText: Boolean = true,
 ) {
     companion object {
-        /** 字节与 MB 的换算，供设置界面与体积计算共用。 */
-        const val BYTES_PER_MEGABYTE = 1024L * 1024L
-
-        /** [historyMaxSizeBytes] 的默认值：50 MB。 */
-        const val DEFAULT_HISTORY_MAX_SIZE_BYTES = 50L * BYTES_PER_MEGABYTE
+        /** [historyMaxCount] 的默认值。 */
+        const val DEFAULT_HISTORY_MAX_COUNT = 200
 
         /**
          * [previewWidth] 的默认值。

@@ -5,7 +5,6 @@ import androidx.room3.RoomDatabase
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.qcmian.clipper.core.data.local.ClipperDatabase
 import com.qcmian.clipper.core.data.local.RoomClipStorageDataSource
-import com.qcmian.clipper.core.util.formatBytes
 import java.io.File
 
 private const val DATABASE_NAME = "clipper.db"
@@ -31,7 +30,6 @@ private fun createDatabase(): ClipperDatabase {
 
 actual fun createClipStorageDataSource(): ClipStorageDataSource =
     RoomClipStorageDataSource(createDatabase()) {
-        val bytes = databaseFile().length()
-        // 存储实际为空时返回空字符串。
-        if (bytes > 1) formatBytes(bytes) else ""
+        // 存储实际为空时（只有一个空页头）当作「没有大小」。
+        databaseFile().length().takeIf { it > 1 }
     }

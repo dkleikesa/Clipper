@@ -40,7 +40,7 @@ class UpdateSettingsUseCase(private val repository: ClipboardRepository) {
             }
         }
 
-        val layoutChanged = updated.historyMaxSizeBytes != previous.historyMaxSizeBytes ||
+        val layoutChanged = updated.historyMaxCount != previous.historyMaxCount ||
             updated.sortBy != previous.sortBy ||
             updated.pinTo != previous.pinTo
 

@@ -35,7 +35,9 @@ data class ClipItem(
 
     /**
      * 该条目占用的近似字节数：图片是精确值，文本与文件路径按 UTF-8 计。
-     * 用于按体积裁剪历史；首次读取后缓存，避免每次重新排序都重新编码。
+     *
+     * 仓库用它累计「这段时间删掉了多少内容」，以决定什么时候值得去回收数据库的空闲页
+     * （见 `DefaultClipboardRepository` 的 `MIN_RECLAIM_BYTES`）；首次读取后缓存，避免反复编码。
      */
     val approximateSizeBytes: Long by lazy {
         (text?.utf8SizeBytes() ?: 0L) +

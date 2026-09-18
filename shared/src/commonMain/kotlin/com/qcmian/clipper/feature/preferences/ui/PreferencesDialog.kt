@@ -75,9 +75,10 @@ import kotlin.math.roundToInt
  */
 data class PreferencesUiData(
     val settings: AppSettings,
-    val storageSize: String?,
-    /** 未置顶条目当前的近似占用，用于和「历史上限」对照显示。 */
-    val historyBytes: Long,
+    /** 数据库文件占用的字节数；平台测不到时为 `null`（此时只显示条数）。 */
+    val storageBytes: Long?,
+    /** 未置顶条目的条数，用于和「历史上限」对照显示。 */
+    val historyCount: Int,
     val screenCount: Int,
     val supportsLaunchAtLogin: Boolean,
     val supportsTextRecognition: Boolean,
@@ -134,7 +135,7 @@ private val CardMaxHeight = 680.dp
 private val CardMargin = 12.dp
 
 /**
- * 偏好设置窗口（存储 / 行为 / 快捷键 / 搜索 / 外观 / 置顶 / 识别 / 忽略 / 高级 / 数据 / 重置），
+ * 偏好设置窗口（存储与数据 / 行为 / 快捷键 / 搜索 / 外观 / AI服务 / 重置），
  * 这里压缩成一个可滚动的对话框。
  *
  * 视觉：对话框底色用 `background`，每个分区是一张 `surface` 卡片（[SectionCard]），
@@ -257,8 +258,6 @@ private fun PreferencesContent(
             SearchSection(data, actions)
             AppearanceSection(data, actions)
             RecognitionSection(data, actions)
-            IgnoreSection(data, actions)
-            DataSection(data, actions)
             ResetSection(data, actions)
         }
     }
@@ -268,85 +267,96 @@ private fun PreferencesContent(
 // 分区
 // ---------------------------------------------------------------------------------
 
-/** 存储分区里的开关表；顺序即显示顺序。 */
+/** 存储与数据分区里的开关表；顺序即显示顺序。 */
 private val StorageSwitches = listOf(
     BooleanSetting("保存文本", { it.saveText }, { value -> copy(saveText = value) }),
     BooleanSetting("保存图片", { it.saveImages }, { value -> copy(saveImages = value) }),
     BooleanSetting("保存文件", { it.saveFiles }, { value -> copy(saveFiles = value) }),
 )
 
+/** 原「数据」分区的开关表；该分区已整体并入「存储与数据」。 */
+private val DataSwitches = listOf(
+    BooleanSetting(
+        "退出时清空历史",
+        { it.clearOnQuit },
+        { value -> copy(clearOnQuit = value) },
+        description = "只清除未置顶的项目。",
+    ),
+)
+
 @Composable
 private fun StorageSection(data: PreferencesUiData, actions: PreferencesActions) {
+    val colors = MaterialTheme.colorScheme
     val settings = data.settings
-    SectionCard("存储") {
+    SectionCard("存储与数据") {
         SwitchSettings(settings, StorageSwitches, actions.onSettingsChange)
         HistoryLimitField(
-            maxSizeBytes = settings.historyMaxSizeBytes,
-            usageBytes = data.historyBytes,
-            storageSize = data.storageSize,
-            onSizeChange = { bytes ->
-                actions.onSettingsChange { it.copy(historyMaxSizeBytes = bytes) }
+            maxCount = settings.historyMaxCount,
+            usageCount = data.historyCount,
+            databaseBytes = data.storageBytes,
+            onCountChange = { count ->
+                actions.onSettingsChange { it.copy(historyMaxCount = count) }
             },
         )
-        SegmentedBlock(
-            title = "排序方式",
-            values = SortBy.entries,
-            selected = settings.sortBy,
-            label = { it.label },
-            onSelect = { value -> actions.onSettingsChange { it.copy(sortBy = value) } },
-        )
+        // 原「数据」分区的开关与清除入口：改的都是存储里的内容，与上面同属一类。
+        SwitchSettings(settings, DataSwitches, actions.onSettingsChange)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 4.dp),
+        ) {
+            // 清除是破坏性操作，按钮文字用 error 色与普通操作区分。
+            TextButton(onClick = actions.onClearUnpinned) {
+                Text("清除未置顶", color = colors.error)
+            }
+            TextButton(onClick = actions.onClearAll) {
+                Text("全部清除", color = colors.error)
+            }
+        }
     }
 }
 
 /**
- * 历史上限输入框允许的最大 MB 数（1 TB）。再大既没有意义，也会让 [AppSettings.BYTES_PER_MEGABYTE]
- * 的相乘溢出成负数——而负数上限在仓库里等于「不裁剪」，反而把限制取消掉。
- */
-private const val MAX_HISTORY_MEGABYTES = 1_048_576L
-
-/**
- * 历史上限输入框：用户按 MB 填写目标尺寸，超过后由仓库按当前排序丢弃最旧的未置顶记录。
+ * 历史上限输入框：用户按条数填写目标，超过后由仓库按当前排序丢弃最旧的未置顶记录。
  *
- * 草稿以文本形式保存，这样用户清空重输时的中间状态（空串、半截数字）不会被弹回；
- * 只有解析出 1…[MAX_HISTORY_MEGABYTES] 的整数时才写回偏好。设置被外部修改时
- * （如重置默认值）草稿会跟随刷新。
+ * 条数**不设上限**：只校验「正整数」，没有最大值。`toIntOrNull()` 顺带挡掉超出 `Int` 范围的
+ * 输入（返回 `null` 即丢弃），因此不需要额外的溢出保护。草稿以文本形式保存，这样用户清空
+ * 重输时的中间状态（空串、半截数字）不会被弹回；设置被外部修改时（如重置默认值）草稿跟随刷新。
+ *
+ * 输入框下方始终显示当前条数与数据库文件大小：前者是上限的直接对象，后者是用户真正关心的磁盘
+ * 占用（含置顶项与索引，删除后由空闲页回收 / 压紧负责让它跟着降）。
  */
 @Composable
 private fun HistoryLimitField(
-    maxSizeBytes: Long,
-    usageBytes: Long,
-    storageSize: String?,
-    onSizeChange: (Long) -> Unit,
+    maxCount: Int,
+    usageCount: Int,
+    databaseBytes: Long?,
+    onCountChange: (Int) -> Unit,
 ) {
-    var draft by remember { mutableStateOf(megabytesTextOf(maxSizeBytes)) }
-    var committed by remember { mutableStateOf(maxSizeBytes) }
+    var draft by remember { mutableStateOf(maxCount.toString()) }
+    var committed by remember { mutableStateOf(maxCount) }
 
-    LaunchedEffect(maxSizeBytes) {
-        if (maxSizeBytes != committed) {
-            draft = megabytesTextOf(maxSizeBytes)
-            committed = maxSizeBytes
+    LaunchedEffect(maxCount) {
+        if (maxCount != committed) {
+            draft = maxCount.toString()
+            committed = maxCount
         }
     }
 
-    val databaseText = storageSize?.takeIf { it.isNotEmpty() }?.let { " · 存储文件 $it" }.orEmpty()
+    val databaseText = databaseBytes?.let { " · 数据库 ${formatSize(it)}" }.orEmpty()
     OutlinedTextField(
         value = draft,
         onValueChange = { text ->
             if (text.any { !it.isDigit() }) return@OutlinedTextField
             draft = text
-            val megabytes = text.toLongOrNull() ?: return@OutlinedTextField
-            // 超出上限的输入直接丢弃（连同草稿），避免相乘溢出把限制变成负数。
-            if (megabytes !in 1..MAX_HISTORY_MEGABYTES) return@OutlinedTextField
-            val bytes = megabytes * AppSettings.BYTES_PER_MEGABYTE
-            if (bytes == committed) return@OutlinedTextField
-            committed = bytes
-            onSizeChange(bytes)
+            val count = text.toIntOrNull() ?: return@OutlinedTextField
+            if (count < 1 || count == committed) return@OutlinedTextField
+            committed = count
+            onCountChange(count)
         },
-        label = { Text("历史上限（MB）") },
+        label = { Text("历史上限（条）") },
         supportingText = {
             Text(
-                "当前占用 ${formatMegabytes(usageBytes)}$databaseText；" +
-                    "超出后按排序丢弃最旧的未置顶记录，置顶项不计入。",
+                "当前 $usageCount 条$databaseText；超出后按排序丢弃最旧的未置顶记录，置顶项不占额度。",
                 color = MaterialTheme.hintColor,
             )
         },
@@ -355,15 +365,28 @@ private fun HistoryLimitField(
     )
 }
 
-/** 以 MB 为单位的整数文本；不足 1 MB 时按 1 MB 显示，避免输入框出现空串。 */
-private fun megabytesTextOf(bytes: Long): String =
-    (bytes / AppSettings.BYTES_PER_MEGABYTE).coerceAtLeast(1L).toString()
-
-/** 把字节数格式化为 `3.2 MB` 这样的文本。 */
-private fun formatMegabytes(bytes: Long): String {
-    val tenths = bytes * 10 / AppSettings.BYTES_PER_MEGABYTE
-    return if (tenths % 10L == 0L) "${tenths / 10} MB" else "${tenths / 10}.${tenths % 10} MB"
+/**
+ * 把字节数格式化为带一位小数的可读文本：`512 B` / `912.3 KB` / `4.1 MB` / `1.2 GB`。
+ *
+ * 分级是必要的：库刚建好时只有几十 KB，只按 MB 显示会变成 `0 MB`。整数毫不出小数部分时省掉
+ * `.0`（写 `1 MB` 而不是 `1.0 MB`）。
+ */
+private fun formatSize(bytes: Long): String = when {
+    bytes < KILOBYTE -> "$bytes B"
+    bytes < MEGABYTE -> scaledBy(bytes, KILOBYTE, "KB")
+    bytes < GIGABYTE -> scaledBy(bytes, MEGABYTE, "MB")
+    else -> scaledBy(bytes, GIGABYTE, "GB")
 }
+
+/** [bytes] 按 [unit] 换算成一位小数。 */
+private fun scaledBy(bytes: Long, unit: Long, suffix: String): String {
+    val tenths = bytes * 10 / unit
+    return if (tenths % 10L == 0L) "${tenths / 10} $suffix" else "${tenths / 10}.${tenths % 10} $suffix"
+}
+
+private const val KILOBYTE = 1024L
+private const val MEGABYTE = KILOBYTE * 1024L
+private const val GIGABYTE = MEGABYTE * 1024L
 
 /**
  * 行为分区里的开关表。
@@ -389,6 +412,12 @@ private fun behaviorSwitches(data: PreferencesUiData) = listOf(
         { value -> copy(launchAtLogin = value) },
         description = "登录后自动运行 Clipper。",
         visible = data.supportsLaunchAtLogin,
+    ),
+    // 原先独占「忽略」分区的开关：它改的是「接下来还记不记录」，属于记录行为。
+    BooleanSetting(
+        "暂停记录新的复制",
+        { it.ignoreEvents },
+        { value -> copy(ignoreEvents = value) },
     ),
 )
 
@@ -596,6 +625,14 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
             label = { it.label },
             onSelect = { value -> actions.onSettingsChange { it.copy(pinTo = value) } },
         )
+        // 原「存储」分区的排序方式：它决定列表怎么排，属于显示偏好。
+        SegmentedBlock(
+            title = "排序方式",
+            values = SortBy.entries,
+            selected = settings.sortBy,
+            label = { it.label },
+            onSelect = { value -> actions.onSettingsChange { it.copy(sortBy = value) } },
+        )
         SwitchSettings(settings, AppearanceSwitches, actions.onSettingsChange)
         SliderRow(
             title = "图片最大高度",
@@ -610,7 +647,7 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
     }
 }
 
-/** 识别分区里的开关表；平台不支持时置灰并改说原因（而不是把这一项藏掉）。 */
+/** AI服务分区里的开关表；平台不支持时置灰并改说原因（而不是把这一项藏掉）。 */
 private fun recognitionSwitches(data: PreferencesUiData) = listOf(
     BooleanSetting(
         "识别图片中的文字",
@@ -628,54 +665,8 @@ private fun recognitionSwitches(data: PreferencesUiData) = listOf(
 @Composable
 private fun RecognitionSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
-    SectionCard("识别") {
+    SectionCard("AI服务") {
         SwitchSettings(settings, recognitionSwitches(data), actions.onSettingsChange)
-    }
-}
-
-/** 「暂停记录新的复制」：忽略分区里唯一的设置项。 */
-private val PauseRecordingSwitch = BooleanSetting(
-    "暂停记录新的复制",
-    { it.ignoreEvents },
-    { value -> copy(ignoreEvents = value) },
-)
-
-@Composable
-private fun IgnoreSection(data: PreferencesUiData, actions: PreferencesActions) {
-    val settings = data.settings
-    SectionCard("忽略") {
-        SwitchSettings(settings, listOf(PauseRecordingSwitch), actions.onSettingsChange)
-    }
-}
-
-/** 数据分区里的开关表。 */
-private val DataSwitches = listOf(
-    BooleanSetting(
-        "退出时清空历史",
-        { it.clearOnQuit },
-        { value -> copy(clearOnQuit = value) },
-        description = "只清除未置顶的项目。",
-    ),
-)
-
-@Composable
-private fun DataSection(data: PreferencesUiData, actions: PreferencesActions) {
-    val colors = MaterialTheme.colorScheme
-    val settings = data.settings
-    SectionCard("数据") {
-        SwitchSettings(settings, DataSwitches, actions.onSettingsChange)
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(top = 4.dp),
-        ) {
-            // 清除是破坏性操作，按钮文字用 error 色与普通操作区分。
-            TextButton(onClick = actions.onClearUnpinned) {
-                Text("清除未置顶", color = colors.error)
-            }
-            TextButton(onClick = actions.onClearAll) {
-                Text("全部清除", color = colors.error)
-            }
-        }
     }
 }
 

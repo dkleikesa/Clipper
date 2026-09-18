@@ -42,9 +42,10 @@ data class ClipboardUiState(
     val historyScrollToken: Int = 0,
     val previewOpen: Boolean = false,
     val statusMessage: String? = null,
-    val storageSize: String? = null,
-    /** 未置顶条目占用的近似字节数，与「历史上限」比较的是同一个口径。 */
-    val historyBytes: Long = 0L,
+    /** 数据库文件占用的字节数；设置页用它显示「数据库 x MB」，平台测不到时为 `null`。 */
+    val storageBytes: Long? = null,
+    /** 未置顶条目的条数，与「历史上限」是同一个口径。 */
+    val historyCount: Int = 0,
     val screenCount: Int = 1,
     val supportsLaunchAtLogin: Boolean = false,
     /** 宿主是否能做图片文字识别；为假时偏好设置里的识别开关会被禁用。 */
