@@ -68,13 +68,10 @@ private class JvmClipboardDataSource : ClipboardDataSource {
 
         if (text == null && image == null && files.isEmpty()) return false
 
-        // 这里要刷新两道基线，把自我写入的回声压掉：「复制次数」只统计用户在
-        // 其它应用里的真实复制，本应用的选中 / 复制不算（轮询不再观察到这次写入）。
+        // 这里刻意*不*刷新指纹：轮询循环会观察到这次写入，仓库随后把选中的条目合并一次
+        // （次数 +1、`lastCopiedAt` 前移）并排到最前面，行为与系统剪贴板的观察者预期一致。
         return runCatching {
             clipboard.setContents(ClipTransferable(text, image, files), null)
-        }.onSuccess {
-            if (isMacOs()) lastChangeCount = MacPasteboard.changeCount()
-            lastFingerprint = fingerprint(snapshot)
         }.isSuccess
     }
 
@@ -87,7 +84,7 @@ private class JvmClipboardDataSource : ClipboardDataSource {
                 delay(pollIntervalMillis)
                 // macOS 上先读 `changeCount`（一个 int）做快速比对：变化即一次复制，
                 // 内容相同也算——重复制交给捕获层合并并累加次数（对齐 Maccy）。
-                // 自己写入的回声已在 [write] 里刷新 lastChangeCount 压掉。
+                // 本应用自己写入的选中走的也是这条路：仓库随后把它合并一次、排到最前。
                 if (isMacOs()) {
                     val changeCount = MacPasteboard.changeCount()
                     if (changeCount >= 0) {
