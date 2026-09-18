@@ -3,6 +3,7 @@ package com.qcmian.clipper.feature.history.state
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.settings.AppSettings
+import com.qcmian.clipper.core.settings.ShortcutSlot
 
 /**
  * 页脚中提供的动作。
@@ -72,12 +73,19 @@ sealed interface ClipboardUiAction {
     data object DismissPreferences : ClipboardUiAction
 
     /**
-     * 偏好设置开始 / 结束录制快捷键。
+     * 偏好设置开始录制某个槽位的快捷键。
      *
      * 宿主据此停掉系统级热键：录制期间按下的组合属于录制器，不该同时触发原动作
-     * （见 `ClipboardUiState.isRecordingShortcut`）。
+     * （见 `ClipboardUiState.shortcutRecording`）。
      */
-    data class SetShortcutRecording(val active: Boolean) : ClipboardUiAction
+    data class StartShortcutRecording(val slot: ShortcutSlot) : ClipboardUiAction
+
+    /**
+     * 结束录制（按下 Esc、录制成功由录制器自己收尾，这一条用于对话框离开屏幕）。
+     *
+     * 不收回它系统级热键会一直哑着。
+     */
+    data object CancelShortcutRecording : ClipboardUiAction
     data class RequestClear(val all: Boolean, val hidePanel: Boolean = true) : ClipboardUiAction
     data object ConfirmClear : ClipboardUiAction
     data object DismissClear : ClipboardUiAction

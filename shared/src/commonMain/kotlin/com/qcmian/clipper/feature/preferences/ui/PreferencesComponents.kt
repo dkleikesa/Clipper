@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
@@ -347,6 +348,52 @@ internal fun SwitchRow(
                 modifier = Modifier.scale(0.7f),
             )
         }
+    }
+}
+
+/**
+ * 一条布尔偏好：标题、读值、写回。
+ *
+ * 设置页里的开关占了绝大多数，逐项手写 `SwitchRow(...) { onSettingsChange { it.copy(...) } }`
+ * 会把同一段样板抄二十来遍，字段名还要在「读」与「写」两处各出现一次。把这两件事收进一个值，
+ * 分区里就只剩一张表（见 [SwitchSettings]），新增开关只多一行声明。
+ *
+ * 前三个参数刻意保持 `(标题, 读, 写)` 的顺序：最常见的那几项一行就写得下。
+ *
+ * @param read 取当前值。表只是声明，值必须现取——偏好随时可能被外部改掉（如「恢复默认设置」）。
+ * @param write 写入新值；写成 [AppSettings] 的扩展，调用点因此只写 `copy(field = value)`。
+ * @param description 标题下的灰色小字说明。
+ * @param enabled 平台不支持时置灰（仍占一行，可解释「为什么用不了」）。
+ * @param visible 整行都不出现（如宿主不支持开机自启时，那一项干脆不显示）。
+ */
+internal class BooleanSetting(
+    val title: String,
+    val read: (AppSettings) -> Boolean,
+    val write: AppSettings.(Boolean) -> AppSettings,
+    val description: String? = null,
+    val enabled: Boolean = true,
+    val visible: Boolean = true,
+)
+
+/**
+ * 按表渲染一组布尔开关，顺序即表中的顺序。
+ *
+ * 表是「有哪些开关、各自读写哪个字段」的唯一声明处，渲染与改动路径都只有这一条。
+ */
+@Composable
+internal fun SwitchSettings(
+    settings: AppSettings,
+    items: List<BooleanSetting>,
+    onChange: ((AppSettings) -> AppSettings) -> Unit,
+) {
+    items.forEach { setting ->
+        if (!setting.visible) return@forEach
+        SwitchRow(
+            title = setting.title,
+            checked = setting.read(settings),
+            description = setting.description,
+            enabled = setting.enabled,
+        ) { value -> onChange { setting.write(it, value) } }
     }
 }
 

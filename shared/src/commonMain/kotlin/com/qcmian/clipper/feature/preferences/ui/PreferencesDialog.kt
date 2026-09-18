@@ -45,10 +45,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isAltPressed
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.isMetaPressed
-import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -68,21 +64,17 @@ import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.settings.PopupPosition
 import com.qcmian.clipper.core.settings.SearchMode
 import com.qcmian.clipper.core.settings.ShortcutSlot
-import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.ThemeMode
 import com.qcmian.clipper.core.settings.shortcut
 import com.qcmian.clipper.core.settings.withShortcut
-import com.qcmian.clipper.core.ui.ModifierFlags
-import com.qcmian.clipper.core.ui.ShortcutProblem
-import com.qcmian.clipper.core.ui.shortcutProblem
 import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.components.rememberApplicationIcon
 import com.qcmian.clipper.core.ui.components.rememberApplicationName
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
-import com.qcmian.clipper.core.ui.shortcutCharacterOf
 import com.qcmian.clipper.core.ui.theme.hintColor
+import com.qcmian.clipper.feature.preferences.state.ShortcutRecording
 import kotlin.math.roundToInt
 
 /**
@@ -99,6 +91,13 @@ data class PreferencesUiData(
     val supportsLaunchAtLogin: Boolean,
     val supportsApplicationInfo: Boolean,
     val supportsTextRecognition: Boolean,
+    /**
+     * 正在录制的快捷键。
+     *
+     * 状态机不在界面里（见 `ShortcutRecorder`）：对话框只渲染它、把按键转发回去，
+     * 关闭对话框时也不该把它忘掉——宿主正靠它让出系统级热键。
+     */
+    val shortcutRecording: ShortcutRecording = ShortcutRecording(),
 )
 
 /** 偏好设置对话框的全部上行动作。 */
@@ -113,21 +112,22 @@ data class PreferencesActions(
     val applicationName: (String) -> String?,
     val applicationIcon: (String?) -> String?,
     val onPickApplication: (() -> Unit)?,
+    /** 开始录制某个槽位的快捷键。 */
+    val onStartShortcutRecording: (ShortcutSlot) -> Unit,
     /**
-     * 试注册一次全局快捷键，判断它是否已被系统或其它应用占用（见
-     * `NativeDataSource.isGlobalShortcutAvailable`）。
+     * 结束录制（对话框离开屏幕时调用）。
      *
-     * 录制系统级快捷键（[ShortcutSlot.global]）时调用；平台无法判断时必须返回 `true`
-     * ——无从判断不该拦住用户。
+     * 录制期间宿主的系统级热键是停着的，不收回它就会一直哑着。用户按 Esc 取消走的不是这里
+     * ——那次按键先被录制器接住。
      */
-    val canUseGlobalShortcut: (ShortcutSpec) -> Boolean = { true },
+    val onCancelShortcutRecording: () -> Unit,
     /**
-     * 录制开始 / 结束时上报，宿主据此停掉系统级热键。
+     * 录制期间按下的按键；返回 `true` 表示已被录制器消费。
      *
-     * 面板内的快捷键不需要这个信号：对话框是场景里的一层，它拿到焦点后按键不会派发到面板；
-     * 只有 Carbon 注册的全局热键不看焦点，不叫停就会「一边录一边触发」。
+     * 它直接就是 `ClipboardViewModel.captureShortcutKey`，而不是走一次单向动作：录制器要读
+     * **最新**状态、返回值也要同帧拿到，否则按键会晚一帧才被拦住。
      */
-    val onShortcutRecordingChange: (Boolean) -> Unit = {},
+    val onShortcutKeyEvent: (KeyEvent) -> Boolean = { false },
 )
 
 /** 设置卡片的设计宽度。 */
@@ -196,87 +196,32 @@ private fun PreferencesContent(
 ) {
     val colors = MaterialTheme.colorScheme
 
-    // `KeyboardShortcuts.Recorder`：某个槽位正在录制时，所有按键都在这里被截获，
-    // 而不会落到下面的文本输入框。
-    var recording by remember { mutableStateOf<ShortcutSlot?>(null) }
+    // 录制状态机在 `ShortcutRecorder` 里（viewmodel 层），这里只读它：哪个槽位在录、
+    // 上一次为什么被拒。
+    val recording = data.shortcutRecording
 
-    /**
-     * 上一次录制被拒绝的原因；录制成功、或开始新一次录制时清空。
-     *
-     * 只在这里显示，因此不必进 `ClipboardUiState`：它是设置页的一次交互状态，
-     * 关闭对话框就该忘掉。
-     */
-    var problem by remember { mutableStateOf<ShortcutProblem?>(null) }
-
-    // 把「正在录制」透给宿主：系统级热键由 Carbon 派发、不看焦点，不停掉它就会一边录制
-    // 一边触发原动作。对话框关掉（或录制被取消）时要收回这个状态，否则全局热键会一直哑着。
-    val reportRecording by rememberUpdatedState(actions.onShortcutRecordingChange)
-    LaunchedEffect(recording) { reportRecording(recording != null) }
-    DisposableEffect(Unit) { onDispose { reportRecording(false) } }
     // `PinsSettingsPane` 的表格选中：被选中的置顶行就是 Delete 键要删除的那一行。
     // 置顶项可能通过其它途径消失（列表里按 ⌥P、从列表删除……），
     // 因此只有当该条目仍处于置顶状态时才认可这次选中。
     var selectedPin by remember { mutableStateOf<String?>(null) }
     val effectiveSelectedPin = selectedPin?.takeIf { id -> data.pinnedItems.any { it.id == id } }
     val rootFocus = remember { FocusRequester() }
-    LaunchedEffect(recording) {
-        if (recording != null) runCatching { rootFocus.requestFocus() }
-    }
 
     // 对话框一打开就让根 Column 取得焦点：按键处理器只在对话框持有焦点时才会收到按键。
-    LaunchedEffect(Unit) {
+    // 开始录制时再要一次：用户点的那一行会先把焦点带走，不抢回来录制就收不到按键。
+    LaunchedEffect(recording.slot) {
         runCatching { rootFocus.requestFocus() }
     }
 
-    val modifierKeys = remember { ModifierFlags() }
-    val captureKey: (KeyEvent) -> Boolean = { event ->
-        val slot = recording
-        if (slot == null) {
-            false
-        } else if (event.type != KeyEventType.KeyDown || modifierKeys.isModifierKey(event)) {
-            // 吞掉只按修饰键的事件，让录制器继续等待。
-            true
-        } else if (event.key == Key.Escape) {
-            // Escape 取消录制，而不是把它当作快捷键捕获。
-            recording = null
-            problem = null
-            true
-        } else {
-            val character = shortcutCharacterOf(event)
-            if (character != null) {
-                val spec = ShortcutSpec(
-                    character = character,
-                    control = event.isCtrlPressed,
-                    option = event.isAltPressed,
-                    shift = event.isShiftPressed,
-                    command = event.isMetaPressed,
-                )
-                // 先做纯本地检查（裸键 / 与其它槽位重复 / 面板内置按键），系统级快捷键再问一次
-                // 平台：这个组合有没有被别的应用占用。
-                val rejected = shortcutProblem(spec, slot, data.settings)
-                    ?: if (slot.global &&
-                        spec != data.settings.shortcut(slot) &&
-                        !actions.canUseGlobalShortcut(spec)
-                    ) {
-                        ShortcutProblem.OCCUPIED
-                    } else {
-                        null
-                    }
-                if (rejected == null) {
-                    // 录到可用的组合：落盘并收工。
-                    problem = null
-                    recording = null
-                    actions.onSettingsChange { it.withShortcut(slot, spec) }
-                } else {
-                    // 不可用：**留在录制状态**等下一个组合，只把原因说出来。退出录制的话用户还得
-                    // 再点一次行重新进入——被占用本来就不该算「这一次录制结束了」。
-                    problem = rejected
-                }
-            }
-            // 没有可录制字符的按键（大写锁定、无映射的键……）：不进也不退，继续等。
-            true
-        }
-    }
+    // 对话框离开屏幕时收回录制态：录制期间宿主的系统级热键是停着的，不收回它会一直哑着。
+    // 用 `rememberUpdatedState` 取最新回调：`DisposableEffect(Unit)` 只在退出时执行一次，
+    // 直接捕获 `actions` 会留下最初那一份引用。
+    val cancelRecording by rememberUpdatedState(actions.onCancelShortcutRecording)
+    DisposableEffect(Unit) { onDispose { cancelRecording() } }
+
+    // `KeyboardShortcuts.Recorder`：某个槽位正在录制时，所有按键都在这一步被截获，而不会落到
+    // 下面的文本输入框。转发给录制器由它判断——没在录制时它返回 `false`，按键照常往下走。
+    val captureKey: (KeyEvent) -> Boolean = actions.onShortcutKeyEvent
 
     // 对应 `PinsSettingsPane.onDeleteCommand`。与上面的录制器不同，它运行在冒泡阶段，
     // 因此处于焦点的别名 / 内容输入框会先消费 Backspace/Delete，编辑文本时绝不会误删该行。
@@ -346,17 +291,7 @@ private fun PreferencesContent(
         ) {
             StorageSection(data, actions)
             BehaviorSection(data, actions)
-            ShortcutsSection(
-                data = data,
-                actions = actions,
-                recording = recording,
-                problem = problem,
-                onRecord = { slot ->
-                    // 开始录制就把上一次的失败提示收起来：那条组合已经不作数了。
-                    problem = null
-                    recording = slot
-                },
-            )
+            ShortcutsSection(data, actions)
             SearchSection(data, actions)
             AppearanceSection(data, actions)
             PinnedItemsSection(
@@ -377,23 +312,18 @@ private fun PreferencesContent(
 // 分区
 // ---------------------------------------------------------------------------------
 
+/** 存储分区里的开关表；顺序即显示顺序。 */
+private val StorageSwitches = listOf(
+    BooleanSetting("保存文本", { it.saveText }, { value -> copy(saveText = value) }),
+    BooleanSetting("保存图片", { it.saveImages }, { value -> copy(saveImages = value) }),
+    BooleanSetting("保存文件", { it.saveFiles }, { value -> copy(saveFiles = value) }),
+)
+
 @Composable
 private fun StorageSection(data: PreferencesUiData, actions: PreferencesActions) {
-    val colors = MaterialTheme.colorScheme
     val settings = data.settings
     SectionCard("存储") {
-        SwitchRow(
-            title = "保存文本",
-            checked = settings.saveText,
-        ) { value -> actions.onSettingsChange { it.copy(saveText = value) } }
-        SwitchRow(
-            title = "保存图片",
-            checked = settings.saveImages,
-        ) { value -> actions.onSettingsChange { it.copy(saveImages = value) } }
-        SwitchRow(
-            title = "保存文件",
-            checked = settings.saveFiles,
-        ) { value -> actions.onSettingsChange { it.copy(saveFiles = value) } }
+        SwitchSettings(settings, StorageSwitches, actions.onSettingsChange)
         HistoryLimitField(
             maxSizeBytes = settings.historyMaxSizeBytes,
             usageBytes = data.historyBytes,
@@ -479,20 +409,38 @@ private fun formatMegabytes(bytes: Long): String {
     return if (tenths % 10L == 0L) "${tenths / 10} MB" else "${tenths / 10}.${tenths % 10} MB"
 }
 
+/**
+ * 行为分区里的开关表。
+ *
+ * 「开机时启动」由宿主能力决定去留，因此表要现算（[BooleanSetting.visible] 为假时整行不显示）。
+ */
+private fun behaviorSwitches(data: PreferencesUiData) = listOf(
+    BooleanSetting(
+        "自动粘贴",
+        { it.pasteByDefault },
+        { value -> copy(pasteByDefault = value) },
+        description = "选中项目后直接粘贴到上一个应用。",
+    ),
+    BooleanSetting(
+        "粘贴时去除格式",
+        { it.removeFormattingByDefault },
+        { value -> copy(removeFormattingByDefault = value) },
+        description = "只保留纯文本。",
+    ),
+    BooleanSetting(
+        "开机时启动",
+        { it.launchAtLogin },
+        { value -> copy(launchAtLogin = value) },
+        description = "登录后自动运行 Clipper。",
+        visible = data.supportsLaunchAtLogin,
+    ),
+)
+
 @Composable
 private fun BehaviorSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
     SectionCard("行为") {
-        SwitchRow(
-            title = "自动粘贴",
-            description = "选中项目后直接粘贴到上一个应用。",
-            checked = settings.pasteByDefault,
-        ) { value -> actions.onSettingsChange { it.copy(pasteByDefault = value) } }
-        SwitchRow(
-            title = "粘贴时去除格式",
-            description = "只保留纯文本。",
-            checked = settings.removeFormattingByDefault,
-        ) { value -> actions.onSettingsChange { it.copy(removeFormattingByDefault = value) } }
+        SwitchSettings(settings, behaviorSwitches(data), actions.onSettingsChange)
         // 对应 `GeneralSettingsPane` 的「修饰键」说明，它展示当前偏好下
         // 每种动作对应的按键组合。
         Text(
@@ -514,13 +462,6 @@ private fun BehaviorSection(data: PreferencesUiData, actions: PreferencesActions
                 }
             },
         )
-        if (data.supportsLaunchAtLogin) {
-            SwitchRow(
-                title = "开机时启动",
-                description = "登录后自动运行 Clipper。",
-                checked = settings.launchAtLogin,
-            ) { value -> actions.onSettingsChange { it.copy(launchAtLogin = value) } }
-        }
     }
 }
 
@@ -540,15 +481,12 @@ private fun globalScopeHint(): String {
 }
 
 @Composable
-private fun ShortcutsSection(
-    data: PreferencesUiData,
-    actions: PreferencesActions,
-    recording: ShortcutSlot?,
-    problem: ShortcutProblem?,
-    onRecord: (ShortcutSlot) -> Unit,
-) {
+private fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActions) {
     val colors = MaterialTheme.colorScheme
     val settings = data.settings
+    val recording = data.shortcutRecording
+    // 上一次录制被拒绝的原因：录制没有因此退出，就地说明原因、继续等下一个组合。
+    val problem = recording.problem
     SectionCard("快捷键") {
         // 槽位自己的元信息（标题 / 是否系统级）在 `ShortcutSlot` 里，设置页只负责渲染，
         // 因此新增一个可录制快捷键不需要在这里、以及在别处再各抄一份。
@@ -556,8 +494,8 @@ private fun ShortcutsSection(
             ShortcutRow(
                 title = slot.title,
                 spec = settings.shortcut(slot),
-                recording = recording == slot,
-                onRecord = { onRecord(slot) },
+                recording = recording.slot == slot,
+                onRecord = { actions.onStartShortcutRecording(slot) },
                 onClear = { actions.onSettingsChange { it.withShortcut(slot, null) } },
             )
         }
@@ -565,7 +503,7 @@ private fun ShortcutsSection(
             text = when {
                 // 被拒绝时录制**没有**退出，就地告诉他原因、并继续等下一个组合。
                 problem != null -> "${problem.message}请换一个组合，或按 Esc 取消。"
-                recording != null -> "请按下新的快捷键…（至少要按一个修饰键）"
+                recording.isActive -> "请按下新的快捷键…（至少要按一个修饰键）"
                 // 呼出键被清除之后没有全局热键了，得说清楚还能从哪打开面板。
                 settings.popupShortcut == null -> "呼出面板的快捷键已清除，可以从菜单栏图标打开面板。"
                 else -> "点击快捷键即可重新录制，✕ 清除绑定；" +
@@ -574,7 +512,7 @@ private fun ShortcutsSection(
             style = MaterialTheme.typography.labelSmall,
             color = when {
                 problem != null -> colors.error
-                recording != null -> colors.primary
+                recording.isActive -> colors.primary
                 else -> MaterialTheme.hintColor
             },
             modifier = Modifier.padding(top = 4.dp),
@@ -582,14 +520,16 @@ private fun ShortcutsSection(
     }
 }
 
+/** 搜索分区里的开关表。 */
+private val SearchSwitches = listOf(
+    BooleanSetting("显示搜索框", { it.showSearch }, { value -> copy(showSearch = value) }),
+)
+
 @Composable
 private fun SearchSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
     SectionCard("搜索") {
-        SwitchRow(
-            title = "显示搜索框",
-            checked = settings.showSearch,
-        ) { value -> actions.onSettingsChange { it.copy(showSearch = value) } }
+        SwitchSettings(settings, SearchSwitches, actions.onSettingsChange)
         SegmentedBlock(
             title = "搜索模式",
             values = SearchMode.entries,
@@ -607,9 +547,36 @@ private fun SearchSection(data: PreferencesUiData, actions: PreferencesActions) 
     }
 }
 
+/** 外观分区里的开关表。 */
+private val AppearanceSwitches = listOf(
+    BooleanSetting(
+        "显示菜单栏图标",
+        { it.showInStatusBar },
+        { value -> copy(showInStatusBar = value) },
+        description = "关闭后 Clipper 只在快捷键下工作。",
+    ),
+    BooleanSetting(
+        "显示十六进制色块",
+        { it.showHexColorSwatch },
+        { value -> copy(showHexColorSwatch = value) },
+        description = "为 #0A84FF 这类颜色显示色块。",
+    ),
+    BooleanSetting(
+        "显示来源应用图标",
+        { it.showApplicationIcons },
+        { value -> copy(showApplicationIcons = value) },
+        description = "在列表行与预览里显示复制来源应用的图标。",
+    ),
+    BooleanSetting(
+        "显示特殊符号",
+        { it.showSpecialSymbols },
+        { value -> copy(showSpecialSymbols = value) },
+        description = "把换行显示为 ⏎、制表符显示为 ⇥、首尾空格显示为 ·。",
+    ),
+)
+
 @Composable
 private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActions) {
-    val colors = MaterialTheme.colorScheme
     val settings = data.settings
     SectionCard("外观") {
         // 拖动过窗口边缘、或拖过预览分隔条之后出现：点一下放弃自定义尺寸与预览宽度，恢复
@@ -666,11 +633,6 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
                 onSelect = { value -> actions.onSettingsChange { it.copy(popupScreen = value) } },
             )
         }
-        SwitchRow(
-            title = "显示菜单栏图标",
-            description = "关闭后 Clipper 只在快捷键下工作。",
-            checked = settings.showInStatusBar,
-        ) { value -> actions.onSettingsChange { it.copy(showInStatusBar = value) } }
         SegmentedBlock(
             title = "置顶位置",
             values = PinPosition.entries,
@@ -678,21 +640,7 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
             label = { it.label },
             onSelect = { value -> actions.onSettingsChange { it.copy(pinTo = value) } },
         )
-        SwitchRow(
-            title = "显示十六进制色块",
-            description = "为 #0A84FF 这类颜色显示色块。",
-            checked = settings.showHexColorSwatch,
-        ) { value -> actions.onSettingsChange { it.copy(showHexColorSwatch = value) } }
-        SwitchRow(
-            title = "显示来源应用图标",
-            description = "在列表行与预览里显示复制来源应用的图标。",
-            checked = settings.showApplicationIcons,
-        ) { value -> actions.onSettingsChange { it.copy(showApplicationIcons = value) } }
-        SwitchRow(
-            title = "显示特殊符号",
-            description = "把换行显示为 ⏎、制表符显示为 ⇥，首尾空格显示为 ·。",
-            checked = settings.showSpecialSymbols,
-        ) { value -> actions.onSettingsChange { it.copy(showSpecialSymbols = value) } }
+        SwitchSettings(settings, AppearanceSwitches, actions.onSettingsChange)
         SliderRow(
             title = "图片最大高度",
             valueLabel = "${settings.imageMaxHeight} pt",
@@ -742,33 +690,50 @@ private fun PinnedItemsSection(
     }
 }
 
+/** 识别分区里的开关表；平台不支持时置灰并改说原因（而不是把这一项藏掉）。 */
+private fun recognitionSwitches(data: PreferencesUiData) = listOf(
+    BooleanSetting(
+        "识别图片中的文字",
+        { it.recognizeText },
+        { value -> copy(recognizeText = value) },
+        description = if (data.supportsTextRecognition) {
+            "使用 Vision / ML Kit 识别图片文字，并作为纯图片条目的标题。"
+        } else {
+            "当前平台不支持图片文字识别。"
+        },
+        enabled = data.supportsTextRecognition,
+    ),
+)
+
 @Composable
 private fun RecognitionSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
-    val supported = data.supportsTextRecognition
     SectionCard("识别") {
-        SwitchRow(
-            title = "识别图片中的文字",
-            description = if (supported) {
-                "使用 Vision / ML Kit 识别图片文字，并作为纯图片条目的标题。"
-            } else {
-                "当前平台不支持图片文字识别。"
-            },
-            checked = settings.recognizeText,
-            enabled = supported,
-        ) { value -> actions.onSettingsChange { it.copy(recognizeText = value) } }
+        SwitchSettings(settings, recognitionSwitches(data), actions.onSettingsChange)
     }
 }
+
+/** 「暂停记录新的复制」：忽略分区里唯一与下面的列表无关的开关。 */
+private val PauseRecordingSwitch = BooleanSetting(
+    "暂停记录新的复制",
+    { it.ignoreEvents },
+    { value -> copy(ignoreEvents = value) },
+)
+
+/** 「仅记录上面列出的应用」：它必须紧跟应用列表，因此这里单独一张表。 */
+private fun onlyListedSwitch(data: PreferencesUiData) = BooleanSetting(
+    "仅记录上面列出的应用",
+    { it.ignoreAllAppsExceptListed },
+    { value -> copy(ignoreAllAppsExceptListed = value) },
+    enabled = data.supportsApplicationInfo,
+)
 
 @Composable
 private fun IgnoreSection(data: PreferencesUiData, actions: PreferencesActions) {
     val colors = MaterialTheme.colorScheme
     val settings = data.settings
     SectionCard("忽略") {
-        SwitchRow(
-            title = "暂停记录新的复制",
-            checked = settings.ignoreEvents,
-        ) { value -> actions.onSettingsChange { it.copy(ignoreEvents = value) } }
+        SwitchSettings(settings, listOf(PauseRecordingSwitch), actions.onSettingsChange)
 
         DelimitedListField(
             values = settings.ignoredRegexp,
@@ -831,11 +796,7 @@ private fun IgnoreSection(data: PreferencesUiData, actions: PreferencesActions) 
                 modifier = Modifier.padding(top = 6.dp),
             )
         }
-        SwitchRow(
-            title = "仅记录上面列出的应用",
-            enabled = data.supportsApplicationInfo,
-            checked = settings.ignoreAllAppsExceptListed,
-        ) { value -> actions.onSettingsChange { it.copy(ignoreAllAppsExceptListed = value) } }
+        SwitchSettings(settings, listOf(onlyListedSwitch(data)), actions.onSettingsChange)
 
         DelimitedListField(
             values = settings.ignoredPasteboardTypes,
@@ -858,16 +819,22 @@ private fun IgnoreSection(data: PreferencesUiData, actions: PreferencesActions) 
     }
 }
 
+/** 数据分区里的开关表。 */
+private val DataSwitches = listOf(
+    BooleanSetting(
+        "退出时清空历史",
+        { it.clearOnQuit },
+        { value -> copy(clearOnQuit = value) },
+        description = "只清除未置顶的项目。",
+    ),
+)
+
 @Composable
 private fun DataSection(data: PreferencesUiData, actions: PreferencesActions) {
     val colors = MaterialTheme.colorScheme
     val settings = data.settings
     SectionCard("数据") {
-        SwitchRow(
-            title = "退出时清空历史",
-            description = "只清除未置顶的项目。",
-            checked = settings.clearOnQuit,
-        ) { value -> actions.onSettingsChange { it.copy(clearOnQuit = value) } }
+        SwitchSettings(settings, DataSwitches, actions.onSettingsChange)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(top = 4.dp),

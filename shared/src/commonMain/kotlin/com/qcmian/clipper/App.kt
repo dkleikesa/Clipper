@@ -76,6 +76,8 @@ fun App(
             platform = container.platform,
             useCases = container.useCases,
             showQuit = onQuit != null,
+            // 设置页录制系统级快捷键时用它判断组合有没有被别的应用占用（见 `MacGlobalHotKey`）。
+            canUseGlobalShortcut = container.native::isGlobalShortcutAvailable,
         )
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -141,8 +143,8 @@ fun App(
             onMinimumHeightChange = onMinimumHeightChange,
             applicationIcon = viewModel::applicationIcon,
             applicationName = viewModel::applicationName,
-            // 设置页录制系统级快捷键时用它判断组合有没有被别的应用占用（见 `MacGlobalHotKey`）。
-            canUseGlobalShortcut = container.native::isGlobalShortcutAvailable,
+            // 设置页录制的按键由 ViewModel 的状态机处理（见 `ShortcutRecorder`）。
+            captureShortcutKey = viewModel::captureShortcutKey,
             previewHost = previewHost,
             modifier = Modifier.fillMaxSize(),
         )
