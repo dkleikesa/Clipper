@@ -14,8 +14,6 @@ import com.qcmian.clipper.core.domain.usecase.SelectResult
 import com.qcmian.clipper.core.domain.usecase.copyExtractedText
 import com.qcmian.clipper.core.domain.usecase.copySearchQuery
 import com.qcmian.clipper.core.domain.usecase.deleteClip
-import com.qcmian.clipper.core.domain.usecase.updateContent
-import com.qcmian.clipper.core.domain.usecase.updateTitle
 import com.qcmian.clipper.feature.history.state.FooterAction
 import com.qcmian.clipper.feature.history.state.ClearConfirmation
 import com.qcmian.clipper.feature.history.state.ClipboardDialog
@@ -165,12 +163,8 @@ class ClipboardViewModel(
             is ClipboardUiAction.SetPreviewWidth -> setPreviewWidth(action.width)
 
             is ClipboardUiAction.TogglePin -> useCases.togglePin(action.item)
-            is ClipboardUiAction.DeleteItem -> repository.deleteClip(action.item)
 
             is ClipboardUiAction.UpdateSettings -> useCases.updateSettings(action.transform)
-            is ClipboardUiAction.UpdateTitle -> repository.updateTitle(action.item, action.title)
-            is ClipboardUiAction.UpdateContent -> repository.updateContent(action.item, action.text)
-            ClipboardUiAction.PickIgnoredApplication -> pickIgnoredApplication()
 
             ClipboardUiAction.ShowPreferences ->
                 _uiState.update { it.copy(dialog = ClipboardDialog.PREFERENCES) }
@@ -197,9 +191,6 @@ class ClipboardViewModel(
 
     /** 条目来源应用的图标 base64 PNG。 */
     fun applicationIcon(bundleId: String?): String? = platform.applicationIcon(bundleId)
-
-    /** `NSWorkspace.applicationName(at:)`：把 bundle id 变成显示名。 */
-    fun applicationName(bundleId: String): String? = platform.applicationName(bundleId)
 
     /**
      * 设置页录制快捷键期间的一次按键；返回 `true` 表示这次按键已被录制器消费。
@@ -259,15 +250,6 @@ class ClipboardViewModel(
         _uiState.update { it.copy(confirmation = null) }
     }
 
-    private fun pickIgnoredApplication() {
-        val application = platform.pickApplication() ?: return
-        val key = application.bundleId ?: application.name
-        if (key.isBlank()) return
-        useCases.updateSettings { current ->
-            if (key in current.ignoredApps) current else current.copy(ignoredApps = current.ignoredApps + key)
-        }
-    }
-
     // ---------------------------------------------------------------------------------
     // 宿主事件
     // ---------------------------------------------------------------------------------
@@ -324,7 +306,6 @@ class ClipboardViewModel(
                     .sumOf { it.approximateSizeBytes },
                 screenCount = platform.screenCount,
                 supportsLaunchAtLogin = platform.supportsLaunchAtLogin,
-                supportsApplicationInfo = platform.supportsApplicationInfo,
                 supportsTextRecognition = platform.supportsTextRecognition,
             )
         }

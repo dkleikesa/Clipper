@@ -5,7 +5,6 @@ import com.qcmian.clipper.core.domain.model.SourceApplication
 import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.platform.macos.GlobalShortcut
 import com.qcmian.clipper.core.platform.macos.MacAppIcon
-import com.qcmian.clipper.core.platform.macos.MacApplicationPicker
 import com.qcmian.clipper.core.platform.macos.MacGlobalHotKey
 import com.qcmian.clipper.core.platform.macos.MacLaunchAtLogin
 import com.qcmian.clipper.core.platform.macos.MacTextRecognition
@@ -41,12 +40,6 @@ private class MacNativeDataSource : NativeDataSource {
         if (!isMacOs || bundleId == null) return null
         return iconCache.getOrPut(bundleId) { MacAppIcon.iconBase64(bundleId) }
     }
-
-    override fun applicationName(bundleId: String): String? =
-        if (isMacOs) MacWorkspace.applicationName(bundleId) else null
-
-    override fun pickApplication(): SourceApplication? =
-        if (isMacOs) MacApplicationPicker.pick() else null
 
     override fun isGlobalShortcutAvailable(shortcut: ShortcutSpec): Boolean {
         if (!isMacOs) return true

@@ -21,18 +21,6 @@ fun ClipboardRepository.replace(item: ClipItem, transform: (ClipItem) -> ClipIte
     setItems(items.toMutableList().also { it[index] = transform(it[index]) })
 }
 
-/** 对应 `PinsSettingsPane` 的别名列，它编辑的是 `HistoryItem.title`。 */
-fun ClipboardRepository.updateTitle(item: ClipItem, title: String) =
-    replace(item) { it.copy(title = title) }
-
-/** 对应 `PinValueView.updateItemContent()`：替换纯文本表示。 */
-fun ClipboardRepository.updateContent(item: ClipItem, text: String) {
-    // 只有纯文本条目才提供可编辑的内容字段。
-    val hasPlainText = item.text != null && item.image == null && item.files.isEmpty()
-    if (!hasPlainText) return
-    replace(item) { it.copy(text = text) }
-}
-
 /** 删除单条记录。 */
 fun ClipboardRepository.deleteClip(item: ClipItem) {
     val items = items.value

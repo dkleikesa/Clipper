@@ -43,19 +43,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.KeyEvent
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.domain.action.modifierFlagsOf
 import com.qcmian.clipper.core.settings.AppSettings
@@ -69,8 +63,6 @@ import com.qcmian.clipper.core.settings.ThemeMode
 import com.qcmian.clipper.core.settings.shortcut
 import com.qcmian.clipper.core.settings.withShortcut
 import com.qcmian.clipper.core.ui.components.HoverTooltip
-import com.qcmian.clipper.core.ui.components.rememberApplicationIcon
-import com.qcmian.clipper.core.ui.components.rememberApplicationName
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
@@ -83,13 +75,11 @@ import kotlin.math.roundToInt
  */
 data class PreferencesUiData(
     val settings: AppSettings,
-    val pinnedItems: List<ClipItem>,
     val storageSize: String?,
     /** 未置顶条目当前的近似占用，用于和「历史上限」对照显示。 */
     val historyBytes: Long,
     val screenCount: Int,
     val supportsLaunchAtLogin: Boolean,
-    val supportsApplicationInfo: Boolean,
     val supportsTextRecognition: Boolean,
     /**
      * 正在录制的快捷键。
@@ -103,15 +93,9 @@ data class PreferencesUiData(
 /** 偏好设置对话框的全部上行动作。 */
 data class PreferencesActions(
     val onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
-    val onTitleChange: (ClipItem, String) -> Unit,
-    val onContentChange: (ClipItem, String) -> Unit,
-    val onDeletePinned: (ClipItem) -> Unit,
     val onClearUnpinned: () -> Unit,
     val onClearAll: () -> Unit,
     val onDismiss: () -> Unit,
-    val applicationName: (String) -> String?,
-    val applicationIcon: (String?) -> String?,
-    val onPickApplication: (() -> Unit)?,
     /** 开始录制某个槽位的快捷键。 */
     val onStartShortcutRecording: (ShortcutSlot) -> Unit,
     /**
@@ -200,11 +184,6 @@ private fun PreferencesContent(
     // 上一次为什么被拒。
     val recording = data.shortcutRecording
 
-    // `PinsSettingsPane` 的表格选中：被选中的置顶行就是 Delete 键要删除的那一行。
-    // 置顶项可能通过其它途径消失（列表里按 ⌥P、从列表删除……），
-    // 因此只有当该条目仍处于置顶状态时才认可这次选中。
-    var selectedPin by remember { mutableStateOf<String?>(null) }
-    val effectiveSelectedPin = selectedPin?.takeIf { id -> data.pinnedItems.any { it.id == id } }
     val rootFocus = remember { FocusRequester() }
 
     // 对话框一打开就让根 Column 取得焦点：按键处理器只在对话框持有焦点时才会收到按键。
@@ -223,27 +202,10 @@ private fun PreferencesContent(
     // 下面的文本输入框。转发给录制器由它判断——没在录制时它返回 `false`，按键照常往下走。
     val captureKey: (KeyEvent) -> Boolean = actions.onShortcutKeyEvent
 
-    // 对应 `PinsSettingsPane.onDeleteCommand`。与上面的录制器不同，它运行在冒泡阶段，
-    // 因此处于焦点的别名 / 内容输入框会先消费 Backspace/Delete，编辑文本时绝不会误删该行。
-    val deleteSelectedPin: (KeyEvent) -> Boolean = { event ->
-        val id = effectiveSelectedPin
-        if (id != null &&
-            event.type == KeyEventType.KeyDown &&
-            (event.key == Key.Delete || event.key == Key.Backspace)
-        ) {
-            data.pinnedItems.firstOrNull { it.id == id }?.let(actions.onDeletePinned)
-            selectedPin = null
-            true
-        } else {
-            false
-        }
-    }
-
     Column(
         Modifier
             .fillMaxWidth()
             .onPreviewKeyEvent(captureKey)
-            .onKeyEvent(deleteSelectedPin)
             .focusRequester(rootFocus)
             .focusable(),
     ) {
@@ -294,12 +256,6 @@ private fun PreferencesContent(
             ShortcutsSection(data, actions)
             SearchSection(data, actions)
             AppearanceSection(data, actions)
-            PinnedItemsSection(
-                data = data,
-                actions = actions,
-                selectedPinId = effectiveSelectedPin,
-                onSelectPin = { id -> selectedPin = id },
-            )
             RecognitionSection(data, actions)
             IgnoreSection(data, actions)
             DataSection(data, actions)
@@ -654,42 +610,6 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
     }
 }
 
-@Composable
-private fun PinnedItemsSection(
-    data: PreferencesUiData,
-    actions: PreferencesActions,
-    selectedPinId: String?,
-    onSelectPin: (String) -> Unit,
-) {
-    SectionCard("置顶项") {
-        if (data.pinnedItems.isEmpty()) {
-            Text(
-                text = "还没有置顶项目。在列表里按 ⌥P 置顶。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.hintColor,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-        } else {
-            data.pinnedItems.forEach { item ->
-                PinRow(
-                    item = item,
-                    isSelected = selectedPinId == item.id,
-                    onSelect = { onSelectPin(item.id) },
-                    onTitleChange = { title -> actions.onTitleChange(item, title) },
-                    onContentChange = { text -> actions.onContentChange(item, text) },
-                    onDelete = { actions.onDeletePinned(item) },
-                )
-            }
-            Text(
-                text = "前九个置顶项按顺序占用 ⌘1…⌘9；别名会替换列表里显示的标题；选中一行后按 Delete 可删除。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.hintColor,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-    }
-}
-
 /** 识别分区里的开关表；平台不支持时置灰并改说原因（而不是把这一项藏掉）。 */
 private fun recognitionSwitches(data: PreferencesUiData) = listOf(
     BooleanSetting(
@@ -713,109 +633,18 @@ private fun RecognitionSection(data: PreferencesUiData, actions: PreferencesActi
     }
 }
 
-/** 「暂停记录新的复制」：忽略分区里唯一与下面的列表无关的开关。 */
+/** 「暂停记录新的复制」：忽略分区里唯一的设置项。 */
 private val PauseRecordingSwitch = BooleanSetting(
     "暂停记录新的复制",
     { it.ignoreEvents },
     { value -> copy(ignoreEvents = value) },
 )
 
-/** 「仅记录上面列出的应用」：它必须紧跟应用列表，因此这里单独一张表。 */
-private fun onlyListedSwitch(data: PreferencesUiData) = BooleanSetting(
-    "仅记录上面列出的应用",
-    { it.ignoreAllAppsExceptListed },
-    { value -> copy(ignoreAllAppsExceptListed = value) },
-    enabled = data.supportsApplicationInfo,
-)
-
 @Composable
 private fun IgnoreSection(data: PreferencesUiData, actions: PreferencesActions) {
-    val colors = MaterialTheme.colorScheme
     val settings = data.settings
     SectionCard("忽略") {
         SwitchSettings(settings, listOf(PauseRecordingSwitch), actions.onSettingsChange)
-
-        DelimitedListField(
-            values = settings.ignoredRegexp,
-            onValuesChange = { patterns ->
-                actions.onSettingsChange { it.copy(ignoredRegexp = patterns) }
-            },
-            label = "忽略正则",
-            supportingText = "以逗号分隔，命中的复制内容不会被记录。",
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        )
-
-        // 对应 `IgnoreApplicationsSettingsView`：列出复制内容会被跳过的应用，
-        // 以及用于添加新条目的应用选择器。
-        if (data.supportsApplicationInfo) {
-            Text(
-                text = "忽略应用",
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.onSurface,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-            if (settings.ignoredApps.isEmpty()) {
-                Text(
-                    text = "尚未添加任何应用。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.hintColor,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            } else {
-                settings.ignoredApps.forEach { bundleId ->
-                    IgnoredApplicationRow(
-                        name = rememberApplicationName(actions.applicationName, bundleId) ?: bundleId,
-                        iconBase64 = rememberApplicationIcon(actions.applicationIcon, bundleId),
-                        onRemove = {
-                            actions.onSettingsChange {
-                                it.copy(ignoredApps = it.ignoredApps - bundleId)
-                            }
-                        },
-                    )
-                }
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(top = 4.dp),
-            ) {
-                if (actions.onPickApplication != null) {
-                    TextButton(onClick = actions.onPickApplication) { Text("添加应用…") }
-                }
-                Text(
-                    text = "来自这些应用的复制不会被记录。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.hintColor,
-                    modifier = Modifier.padding(start = 4.dp),
-                )
-            }
-        } else {
-            Text(
-                text = "当前平台无法识别复制来源的应用，因此没有忽略应用列表。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.hintColor,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-        }
-        SwitchSettings(settings, listOf(onlyListedSwitch(data)), actions.onSettingsChange)
-
-        DelimitedListField(
-            values = settings.ignoredPasteboardTypes,
-            onValuesChange = { types ->
-                actions.onSettingsChange { it.copy(ignoredPasteboardTypes = types) }
-            },
-            label = "忽略剪贴板类型",
-            supportingText = "以逗号分隔，如 org.nspasteboard.ConcealedType；机密内容不会被记录。",
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        )
-        // 对应 `IgnorePasteboardTypesSettingsView` 的
-        // `Defaults.reset(.ignoredPasteboardTypes)` 按钮；文本框会跟随这次外部修改自动刷新。
-        TextButton(
-            onClick = {
-                actions.onSettingsChange {
-                    it.copy(ignoredPasteboardTypes = AppSettings.DEFAULT_IGNORED_PASTEBOARD_TYPES)
-                }
-            },
-        ) { Text("恢复默认类型") }
     }
 }
 
@@ -858,7 +687,7 @@ private fun DataSection(data: PreferencesUiData, actions: PreferencesActions) {
  * 修改走的同一条路径，因此标题重算、丢弃不再收集的内容类型、窗口几何 / 托盘 / 热键重注册
  * 这些副作用，全部交给既有的观察者处理。
  *
- * 重置只覆盖设置：历史、置顶项与用户改过的别名都不属于设置，不会被它影响。
+ * 重置只覆盖设置：历史与置顶项都不属于设置，不会被它影响。
  */
 @Composable
 private fun ResetSection(data: PreferencesUiData, actions: PreferencesActions) {

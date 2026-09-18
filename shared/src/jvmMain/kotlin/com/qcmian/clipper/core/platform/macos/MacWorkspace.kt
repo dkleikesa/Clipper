@@ -107,15 +107,6 @@ object MacWorkspace {
         return MacNative.string(MacNative.send(url, "path"))
     }
 
-    /**
-     * `NSWorkspace.applicationName(at:)`，通过应用包路径解析，
-     * 这样忽略列表就能显示 `Safari` 而不是 `com.apple.Safari`。
-     */
-    fun applicationName(bundleId: String): String? {
-        val path = applicationPath(bundleId) ?: return null
-        return java.io.File(path).name.removeSuffix(".app").ifBlank { null }
-    }
-
     private fun sharedWorkspace(): Pointer? {
         val clazz = MacNative.clazz("NSWorkspace") ?: return null
         return MacNative.send(clazz, "sharedWorkspace")

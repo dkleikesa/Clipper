@@ -19,16 +19,6 @@ fun rememberApplicationIcon(
     bundleId: String?,
 ): String? = rememberOffComposition(bundleId) { bundleId?.let(load) }
 
-/**
- * 与 [rememberApplicationIcon] 同理，只是用于应用显示名，
- * 供偏好设置对话框的「忽略的应用」列表使用。
- */
-@Composable
-fun rememberApplicationName(
-    load: (String) -> String?,
-    bundleId: String,
-): String? = rememberOffComposition(bundleId) { load(bundleId) }
-
 /** 在 [Dispatchers.IO] 上执行一次阻塞式查找，并以 [key] 为键缓存结果。 */
 @Composable
 private fun <T> rememberOffComposition(key: Any?, load: () -> T?): T? {

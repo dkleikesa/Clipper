@@ -191,12 +191,6 @@ class DefaultClipboardRepository(
     override fun applicationIcon(bundleId: String?): String? =
         runCatching { native.applicationIcon(bundleId) }.getOrNull()
 
-    override fun applicationName(bundleId: String): String? =
-        runCatching { native.applicationName(bundleId) }.getOrNull()
-
-    override fun pickApplication(): SourceApplication? =
-        runCatching { native.pickApplication() }.getOrNull()
-
     override suspend fun recognizeText(image: ClipImage): String? =
         try {
             native.recognizeText(image)

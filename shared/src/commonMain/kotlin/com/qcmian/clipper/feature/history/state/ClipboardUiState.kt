@@ -47,7 +47,6 @@ data class ClipboardUiState(
     val historyBytes: Long = 0L,
     val screenCount: Int = 1,
     val supportsLaunchAtLogin: Boolean = false,
-    val supportsApplicationInfo: Boolean = false,
     /** 宿主是否能做图片文字识别；为假时偏好设置里的识别开关会被禁用。 */
     val supportsTextRecognition: Boolean = false,
     /** 宿主是否能退出应用，决定是否多出一行「退出」页脚。 */
@@ -83,9 +82,6 @@ data class ClipboardUiState(
     val unpinnedEntries: List<IndexedValue<SearchResult>> by lazy {
         results.withIndex().filterNot { it.value.item.isPinned }
     }
-
-    /** 置顶项，供偏好设置编辑。缓存方式同 [pinnedEntries]。 */
-    val pinnedItems: List<ClipItem> by lazy { results.map { it.item }.filter { it.isPinned } }
 
     val selectedResult: SearchResult? get() = results.getOrNull(historySelection)
 

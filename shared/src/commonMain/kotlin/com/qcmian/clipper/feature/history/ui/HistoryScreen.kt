@@ -90,7 +90,6 @@ fun HistoryScreen(
     /** 窗口的下限高度：滑动区的下限加上置顶区与头部 / 页脚，手动拖拽时宿主不会低于它。 */
     onMinimumHeightChange: (Dp) -> Unit,
     applicationIcon: (String?) -> String?,
-    applicationName: (String) -> String?,
     /**
      * 设置页录制快捷键期间的一次按键；返回 `true` 表示已被录制器消费。
      *
@@ -558,8 +557,6 @@ fun HistoryScreen(
     HistoryDialogs(
         state = state,
         onAction = onUiAction,
-        applicationName = applicationName,
-        applicationIcon = applicationIcon,
         captureShortcutKey = captureShortcutKey,
     )
 }
