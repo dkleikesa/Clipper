@@ -3,7 +3,6 @@ package com.qcmian.clipper.core.domain.usecase
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
-import com.qcmian.clipper.core.domain.model.SourceApplication
 import com.qcmian.clipper.core.domain.model.removingUnsafeTitleScalars
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
@@ -39,10 +38,9 @@ class CaptureClipboardUseCase(
 
         if (settings.ignoreEvents) return
 
-        // 对应 `Clipboard.shouldIgnore(_ types:)`：临时类型与用户列出的粘贴板类型
-        // 永远不会进入历史。
-        val ignoredTypes = settings.ignoredPasteboardTypes + AppSettings.TRANSIENT_PASTEBOARD_TYPES
-        if (snapshot.types.any { it in ignoredTypes }) return
+        // 对应 `Clipboard.shouldIgnore(_ types:)`：临时 / 机密 / 自动生成的内容永远不会进入
+        // 历史——这是安全底线而不是设置项（见 `AppSettings.ALWAYS_IGNORED_PASTEBOARD_TYPES`）。
+        if (snapshot.types.any { it in AppSettings.ALWAYS_IGNORED_PASTEBOARD_TYPES }) return
 
         // 被关闭的内容类型根本不会进入历史。
         val text = snapshot.text.takeIf { settings.saveText }
@@ -50,11 +48,9 @@ class CaptureClipboardUseCase(
         val files = snapshot.files.takeIf { settings.saveFiles }.orEmpty()
         if (text.isNullOrBlank() && image == null && files.isEmpty()) return
 
-        if (!text.isNullOrBlank() && matchesIgnoredPattern(text, settings)) return
-
-        // 对应 `Clipboard.shouldIgnore(_ sourceAppBundle:)`。
+        // 对应 `NSWorkspace.frontmostApplication`：只用来标注条目来源（预览里的「应用:」一行），
+        // 不参与任何过滤。
         val sourceApplication = platform.currentSourceApplication()
-        if (sourceApplication != null && isIgnoredApplication(sourceApplication, settings)) return
 
         val items = repository.items.value
         // 墙钟精度只有毫秒，不足以保持快速连续复制之间的顺序。
@@ -99,8 +95,8 @@ class CaptureClipboardUseCase(
         // 只有「本来就没有文本表示」的图片才识别：条目带着 `text` / `files` 时，标题由它们的
         // 文本派生（见 `ClipItem.previewableText`），把识别结果写进去会把这部分文本从搜索里挤掉。
         //
-        // `merged.title.isBlank()` 同时兼作去重：已经有标题（上一次的识别结果，或用户在偏好设置
-        // 里改过的别名）就不再重跑 Vision——既省下一次识别，也不会把用户的改动覆盖回去。
+        // `merged.title.isBlank()` 同时兼作去重：已经有标题（上一次的识别结果）就不再重跑
+        // Vision——既省下一次识别，也不会把上一轮的结果覆盖回去。
         if (image != null &&
             text.isNullOrBlank() &&
             files.isEmpty() &&
@@ -125,7 +121,7 @@ class CaptureClipboardUseCase(
 
         // 标题存的是识别**原文**，不是列表显示用的单行串：这个字段同时是「复制图片文字」
         // 与搜索的数据源，换成 `⏎` / `·` 会把真换行一起复制出去（见 `copyExtractedText`）。
-        // 需要单行显示的地方（历史列表、置顶别名框）在渲染时自行压平。
+        // 需要单行显示的地方（历史列表、置顶项行）在渲染时自行压平。
         val title = recognized
             .take(MAX_RECOGNIZED_TEXT_LENGTH)
             .removingUnsafeTitleScalars()
@@ -133,20 +129,6 @@ class CaptureClipboardUseCase(
         if (title.isBlank()) return
 
         repository.setItems(items.toMutableList().also { it[index] = it[index].copy(title = title) })
-    }
-
-    private fun matchesIgnoredPattern(text: String, settings: AppSettings): Boolean =
-        settings.ignoredRegexp.any { pattern ->
-            runCatching { Regex(pattern).containsMatchIn(text) }.getOrDefault(false)
-        }
-
-    private fun isIgnoredApplication(
-        application: SourceApplication,
-        settings: AppSettings,
-    ): Boolean {
-        val keys = setOfNotNull(application.bundleId, application.name)
-        val listed = settings.ignoredApps.any { it in keys }
-        return if (settings.ignoreAllAppsExceptListed) !listed else listed
     }
 
     private companion object {

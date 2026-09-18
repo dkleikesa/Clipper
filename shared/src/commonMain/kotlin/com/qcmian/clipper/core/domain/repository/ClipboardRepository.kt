@@ -93,10 +93,6 @@ interface ClipboardPlatform {
 
     fun applicationIcon(bundleId: String?): String?
 
-    fun applicationName(bundleId: String): String?
-
-    fun pickApplication(): SourceApplication?
-
     /** 在图片中识别出的文字，用作图片条目的标题。 */
     suspend fun recognizeText(image: ClipImage): String?
 

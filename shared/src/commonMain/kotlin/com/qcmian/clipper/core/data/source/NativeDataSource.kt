@@ -45,24 +45,12 @@ interface NativeDataSource {
     fun applicationIcon(bundleId: String?): String? = null
 
     /**
-     * 应用的可读名称，按 bundle id 解析。对应 `NSWorkspace.applicationName(at:)`，
-     * `IgnoreApplicationsSettingsView` 用它来标注忽略列表的条目。
-     */
-    fun applicationName(bundleId: String): String? = null
-
-    /**
      * 试注册一次 [shortcut]，判断它是否已被系统或其它应用占用。
      *
      * 这是唯一可靠的判断方式：平台没有「这个组合被谁注册了」的查询接口。注册随即注销，
      * 不会真的留下这个热键。平台无法判断时返回 `true`——无从判断，也不该拦住用户。
      */
     fun isGlobalShortcutAvailable(shortcut: ShortcutSpec): Boolean = true
-
-    /**
- * 打开平台的应用选择器并返回用户选择的应用。 在忽略列表旁展示的
-     * `.fileImporter(allowedContentTypes: [.application])`。平台没有选择器或用户取消时返回 `null`。
-     */
-    fun pickApplication(): SourceApplication? = null
 
     /** 在图片中识别出的文字，用作图片条目的标题。 */
     suspend fun recognizeText(image: ClipImage): String? = null

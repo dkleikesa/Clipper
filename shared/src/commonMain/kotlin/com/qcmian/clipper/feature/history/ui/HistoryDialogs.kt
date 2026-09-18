@@ -24,8 +24,6 @@ import com.qcmian.clipper.feature.preferences.ui.PreferencesUiData
 internal fun HistoryDialogs(
     state: ClipboardUiState,
     onAction: (ClipboardUiAction) -> Unit,
-    applicationName: (String) -> String?,
-    applicationIcon: (String?) -> String?,
     captureShortcutKey: (KeyEvent) -> Boolean,
 ) {
     val settings = state.settings
@@ -33,30 +31,18 @@ internal fun HistoryDialogs(
         PreferencesDialog(
             data = PreferencesUiData(
                 settings = settings,
-                pinnedItems = state.pinnedItems,
                 storageSize = state.storageSize,
                 historyBytes = state.historyBytes,
                 screenCount = state.screenCount,
                 supportsLaunchAtLogin = state.supportsLaunchAtLogin,
-                supportsApplicationInfo = state.supportsApplicationInfo,
                 supportsTextRecognition = state.supportsTextRecognition,
                 shortcutRecording = state.shortcutRecording,
             ),
             actions = PreferencesActions(
                 onSettingsChange = { transform -> onAction(ClipboardUiAction.UpdateSettings(transform)) },
-                onTitleChange = { item, title -> onAction(ClipboardUiAction.UpdateTitle(item, title)) },
-                onContentChange = { item, text -> onAction(ClipboardUiAction.UpdateContent(item, text)) },
-                onDeletePinned = { item -> onAction(ClipboardUiAction.DeleteItem(item)) },
                 onClearUnpinned = { onAction(ClipboardUiAction.RequestClear(all = false, hidePanel = false)) },
                 onClearAll = { onAction(ClipboardUiAction.RequestClear(all = true, hidePanel = false)) },
                 onDismiss = { onAction(ClipboardUiAction.DismissPreferences) },
-                applicationName = applicationName,
-                applicationIcon = applicationIcon,
-                onPickApplication = if (state.supportsApplicationInfo) {
-                    { onAction(ClipboardUiAction.PickIgnoredApplication) }
-                } else {
-                    null
-                },
                 // 录制期间宿主要停掉系统级热键，否则同一个组合会一边被录、一边触发原动作
                 // （见 `ClipboardUiState.shortcutRecording`）。
                 onStartShortcutRecording = { slot ->

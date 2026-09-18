@@ -60,13 +60,9 @@ sealed interface ClipboardUiAction {
     data class SetPreviewWidth(val width: Int) : ClipboardUiAction
 
     data class TogglePin(val item: ClipItem) : ClipboardUiAction
-    data class DeleteItem(val item: ClipItem) : ClipboardUiAction
 
     // ------------------------------------------------------------------ 偏好设置
     data class UpdateSettings(val transform: (AppSettings) -> AppSettings) : ClipboardUiAction
-    data class UpdateTitle(val item: ClipItem, val title: String) : ClipboardUiAction
-    data class UpdateContent(val item: ClipItem, val text: String) : ClipboardUiAction
-    data object PickIgnoredApplication : ClipboardUiAction
 
     // ------------------------------------------------------------------ 对话框
     data object ShowPreferences : ClipboardUiAction

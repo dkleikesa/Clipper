@@ -142,7 +142,6 @@ fun App(
             onPreferredHeightChange = onPreferredHeightChange,
             onMinimumHeightChange = onMinimumHeightChange,
             applicationIcon = viewModel::applicationIcon,
-            applicationName = viewModel::applicationName,
             // 设置页录制的按键由 ViewModel 的状态机处理（见 `ShortcutRecorder`）。
             captureShortcutKey = viewModel::captureShortcutKey,
             previewHost = previewHost,

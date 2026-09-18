@@ -3,12 +3,10 @@ package com.qcmian.clipper.feature.preferences.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -21,36 +19,28 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.ui.components.HoverTooltip
-import com.qcmian.clipper.core.ui.components.rememberImageBitmap
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
@@ -94,151 +84,6 @@ internal fun SectionCard(
             )
             Spacer(Modifier.height(8.dp))
             content()
-        }
-    }
-}
-
-/**
- * 忽略应用列表中的一行：应用图标、解析出的应用名，
- * 以及把它从忽略列表中移除的按钮。
- */
-@Composable
-internal fun IgnoredApplicationRow(
-    name: String,
-    iconBase64: String?,
-    onRemove: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    val icon = rememberImageBitmap(iconBase64)
-
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (icon != null) {
-            Image(
-                bitmap = icon,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-            )
-        } else {
-            ClipperIcon(ClipperIconKind.APP, size = 18.dp, tint = colors.onSurfaceVariant)
-        }
-        Spacer(Modifier.width(8.dp))
-        Text(
-            text = name,
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onSurface,
-            modifier = Modifier.weight(1f),
-        )
-        HoverTooltip("从忽略列表移除") {
-            IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
-                ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
-            }
-        }
-    }
-}
-
-@Composable
-internal fun PinRow(
-    item: ClipItem,
-    isSelected: Boolean,
-    onSelect: () -> Unit,
-    onTitleChange: (String) -> Unit,
-    onContentChange: (String) -> Unit,
-    onDelete: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    // 别名是一个单行输入框，而图片条目的标题是识别原文、可能带换行：显示时压平成空格。
-    var title by remember(item.id, item.title) { mutableStateOf(item.title.replace('\n', ' ')) }
-    // `PinValueView`：只有纯文本条目才提供可编辑的内容字段。
-    val editable = item.text != null && item.image == null && item.files.isEmpty()
-    var content by remember(item.id, item.text) { mutableStateOf(item.text.orEmpty()) }
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            // `PinsSettingsPane` 的表格选中：点击该行会让它成为 Delete 键的作用目标。
-            .clickable(onClick = onSelect)
-            .background(
-                if (isSelected) colors.primary.copy(alpha = 0.12f) else Color.Transparent,
-                RoundedCornerShape(6.dp),
-            )
-            .padding(horizontal = 4.dp, vertical = 6.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            // 别名
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(30.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(colors.surfaceVariant.copy(alpha = 0.35f))
-                    .border(1.dp, colors.outline.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                BasicTextField(
-                    value = title,
-                    onValueChange = {
-                        title = it
-                        onTitleChange(it)
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 12.sp,
-                        color = colors.onSurface,
-                    ),
-                    cursorBrush = SolidColor(colors.primary),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            HoverTooltip("删除这条置顶项") {
-                IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                    ClipperIcon(ClipperIconKind.TRASH, size = 13.dp, tint = colors.onSurfaceVariant)
-                }
-            }
-        }
-
-        if (editable) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp)
-                    .height(30.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(colors.surfaceVariant.copy(alpha = 0.35f))
-                    .border(1.dp, colors.outline.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                BasicTextField(
-                    value = content,
-                    onValueChange = {
-                        content = it
-                        onContentChange(it)
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 12.sp,
-                        color = colors.onSurface,
-                    ),
-                    cursorBrush = SolidColor(colors.primary),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        } else {
-            Text(
-                text = "该置顶项不是纯文本，无法编辑内容。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.hintColor,
-                modifier = Modifier.padding(top = 4.dp),
-            )
         }
     }
 }
@@ -538,41 +383,3 @@ internal fun <T> SegmentedBlock(
     }
 }
 
-/**
- * 以逗号展开 `List<String>` 的单行输入框。
- *
- * 维护一份本地草稿：本框输入实时提交到 [onValuesChange]，同时用 [committed] 记账，
- * 因此设置被外部修改（如「恢复默认类型」按钮）时草稿会自动跟随刷新，
- * 而本框自己的提交不会触发重置，逗号分隔的连续输入不受影响。
- */
-@Composable
-internal fun DelimitedListField(
-    values: List<String>,
-    onValuesChange: (List<String>) -> Unit,
-    label: String,
-    supportingText: String,
-    modifier: Modifier = Modifier,
-) {
-    var draft by remember { mutableStateOf(values.joinToString(", ")) }
-    var committed by remember { mutableStateOf(values) }
-
-    LaunchedEffect(values) {
-        if (values != committed) {
-            draft = values.joinToString(", ")
-            committed = values
-        }
-    }
-
-    OutlinedTextField(
-        value = draft,
-        onValueChange = { text ->
-            draft = text
-            committed = text.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            onValuesChange(committed)
-        },
-        label = { Text(label) },
-        supportingText = { Text(supportingText, color = MaterialTheme.hintColor) },
-        singleLine = true,
-        modifier = modifier,
-    )
-}
