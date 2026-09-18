@@ -3,6 +3,7 @@ package com.qcmian.clipper.feature.history.state
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.AppSettings
+import com.qcmian.clipper.feature.preferences.state.ShortcutRecording
 
 /** 当前屏幕上显示的是哪个模态框（如果有）。 */
 enum class ClipboardDialog { PREFERENCES }
@@ -54,14 +55,17 @@ data class ClipboardUiState(
     val dialog: ClipboardDialog? = null,
     val confirmation: ClearConfirmation? = null,
     /**
-     * 偏好设置里正在录制某个快捷键。
+     * 偏好设置里正在录制的快捷键。
      *
      * 宿主必须知道这件事：系统级热键（呼出面板）由 Carbon 派发，**不看焦点**，录制期间照旧会
      * 触发原动作——表现为「一边录快捷键、一边把面板切走 / 选中某一条」。界面内那几类快捷键
      * 不受影响：对话框是场景里的一层，它拿到焦点后按键根本不会派发到面板（见
      * `CanvasLayersComposeScene.processKeyEvent`）。
+     *
+     * 状态机在 `ShortcutRecorder` 里，这里只是它的投影：设置页渲染录制态与失败原因，宿主读
+     * [isRecordingShortcut]。
      */
-    val isRecordingShortcut: Boolean = false,
+    val shortcutRecording: ShortcutRecording = ShortcutRecording(),
     /** 每当搜索框需要重新获得焦点时自增。 */
     val focusRequestToken: Int = 0,
 ) {
@@ -95,6 +99,9 @@ data class ClipboardUiState(
 
     /** 有对话框弹出时为 `true`，此时桌面端面板不得自动隐藏。 */
     val isModalOpen: Boolean get() = dialog != null || confirmation != null
+
+    /** 设置页正在录制快捷键；宿主据此让出系统级热键。 */
+    val isRecordingShortcut: Boolean get() = shortcutRecording.isActive
 
     /** `AppDelegate.isStatusItemDisabled`：已暂停，或者根本没有在记录任何内容。 */
     val isStatusItemDisabled: Boolean

@@ -1,7 +1,9 @@
 package com.qcmian.clipper.feature.history.viewmodel
 
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.di.ClipboardUseCases
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
@@ -19,6 +21,8 @@ import com.qcmian.clipper.feature.history.state.ClearConfirmation
 import com.qcmian.clipper.feature.history.state.ClipboardDialog
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.state.ClipboardUiState
+import com.qcmian.clipper.feature.history.state.defaultSelectionIndex
+import com.qcmian.clipper.feature.preferences.viewmodel.ShortcutRecorder
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -33,17 +37,20 @@ import kotlin.math.roundToInt
  * 历史界面的状态持有者。它持有整个 [ClipboardUiState]，把 [ClipboardUiAction] 转成领域用例调用，
  * 并且是唯一决定界面下一步长什么样的地方。界面本身始终是它所接收状态的纯函数。
  *
- * 界面中两块自洽的行为——搜索节流、列表 / 页脚导航——分别位于 [HistorySearchController] 与
- * [HistoryNavigationController]（它们直接读写本类持有的状态）。本类持有状态、把各部分耦合
- * 起来、触达剪贴板生命周期，以及驱动用例。
+ * 界面中三块自洽的行为——搜索节流、列表 / 页脚导航、设置页的快捷键录制——分别位于
+ * [HistorySearchController]、[HistoryNavigationController] 与 [ShortcutRecorder]（它们直接
+ * 读写本类持有的状态）。本类持有状态、把各部分耦合起来、触达剪贴板生命周期，以及驱动用例。
  *
  * @param showQuit 宿主是否能退出应用，会因此多出一行页脚。
+ * @param canUseGlobalShortcut 试注册一次全局快捷键，判断它是否已被系统或其它应用占用；设置页
+ *   录制系统级快捷键时用它把关。宿主无法判断时保持默认值——无从判断不该拦住用户。
  */
 class ClipboardViewModel(
     private val repository: ClipboardRepository,
     private val platform: ClipboardPlatform,
     private val useCases: ClipboardUseCases,
     private val showQuit: Boolean = false,
+    canUseGlobalShortcut: (ShortcutSpec) -> Boolean = { true },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ClipboardUiState(showQuit = showQuit))
@@ -62,6 +69,13 @@ class ClipboardViewModel(
         items = { repository.items.value },
         scope = viewModelScope,
         onQueryApplied = navigation::resetKeyboardNavigation,
+    )
+
+    /** 设置页的快捷键录制状态机。 */
+    private val shortcutRecorder = ShortcutRecorder(
+        state = _uiState,
+        updateSettings = { transform -> useCases.updateSettings(transform) },
+        canUseGlobalShortcut = canUseGlobalShortcut,
     )
 
     /** 由宿主设置：隐藏面板，使合成粘贴能到达目标应用。 */
@@ -164,9 +178,9 @@ class ClipboardViewModel(
             ClipboardUiAction.DismissPreferences ->
                 _uiState.update { it.copy(dialog = null) }
 
-            // 录制状态要透给宿主：系统级热键在此期间必须停手（见 `ClipboardUiState`）。
-            is ClipboardUiAction.SetShortcutRecording ->
-                _uiState.update { it.copy(isRecordingShortcut = action.active) }
+            // 录制期间状态要透给宿主：系统级热键在此期间必须停手（见 `ClipboardUiState`）。
+            is ClipboardUiAction.StartShortcutRecording -> shortcutRecorder.start(action.slot)
+            ClipboardUiAction.CancelShortcutRecording -> shortcutRecorder.cancel()
 
             is ClipboardUiAction.RequestClear -> requestClear(action.all, action.hidePanel)
             ClipboardUiAction.ConfirmClear -> confirmClear()
@@ -186,6 +200,15 @@ class ClipboardViewModel(
 
     /** `NSWorkspace.applicationName(at:)`：把 bundle id 变成显示名。 */
     fun applicationName(bundleId: String): String? = platform.applicationName(bundleId)
+
+    /**
+     * 设置页录制快捷键期间的一次按键；返回 `true` 表示这次按键已被录制器消费。
+     *
+     * 界面在**预览阶段**转发它（见 `PreferencesDialog` 根 `Column` 的 `onPreviewKeyEvent`）：
+     * 录制中的按键必须就地截下，否则会打进对话框里的输入框、或落到面板自己的快捷键上。
+     * 之所以不走 `onAction`，是因为这里要拿返回值，而动作是单向的。
+     */
+    fun captureShortcutKey(event: KeyEvent): Boolean = shortcutRecorder.onKeyEvent(event)
 
     // ---------------------------------------------------------------------------------
     // 激活
@@ -254,7 +277,8 @@ class ClipboardViewModel(
         navigation.resetKeyboardNavigation()
         _uiState.update {
             it.copy(
-                historySelection = 0,
+                // 默认选中内容区（未置顶）第一条，而不是最顶上的置顶项（见 `defaultSelectionIndex`）。
+                historySelection = it.results.defaultSelectionIndex(),
                 footerSelection = -1,
                 focusRequestToken = it.focusRequestToken + 1,
                 // 面板重新打开选中第一条：允许界面把它滚进可视区（回到列表顶部）。

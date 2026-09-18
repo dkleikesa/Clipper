@@ -1,7 +1,14 @@
 package com.qcmian.clipper.feature.history.ui
 
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.core.ui.Popup
+
+/** 低于此宽度时，预览面板改为覆盖在列表上，而不是并排显示。 */
+internal val OverlayThreshold = 700.dp
+
+/** 宽度比较容差，吸收 dp↔px 取整。 */
+internal val WidthTolerance = 2.dp
 
 /**
  * 宿主为预览面板提供的空间约束——界面据此决定预览能不能与主列表并排。
@@ -90,4 +97,91 @@ internal fun previewPlacement(
     // 宿主正在为预览加宽窗口：等加宽完成再让预览进场。
     host.expandsWindow -> PreviewPlacement.WAITING_FOR_RESIZE
     else -> PreviewPlacement.OVERLAY
+}
+
+/**
+ * 预览槽位的几何判定：窗口能不能并排、槽位要不要先占住、分隔条能拖多宽。
+ *
+ * 三者由同一组输入推出，改动时应当一起看，因此收成一个值。
+ */
+internal data class PreviewSlotMetrics(
+    /** 窗口已经宽到能与主列表并排。 */
+    val docked: Boolean,
+    /**
+     * 槽位「已经让出来、但还没被卡片占住」的那几帧。
+     *
+     * - 打开时：窗口正在加宽，卡片还没进场；
+     * - 收起时：卡片已经移除，窗口还没收回来——窗口比主列表宽出来的那一段正是残留的槽位。
+     *
+     * 这几帧要把主列表的宽度钉在打开前的值，否则它会先占满整窗（文字重排、滚动条跟着跑）再被
+     * 窗口收回来——一次收起闪两下。
+     *
+     * 宽度差只在「恰好一块滑出面板」时才算残留槽位：别的差值只是两者尚未同步，据此钉住列表会
+     * 把它永久留在旧宽度上。
+     *
+     * 判据用「窗口比**内容区**宽出多少」，而不是「窗口比主列表宽出多少」：主列表被钉住的那几帧
+     * 里测出来的正是那个钉住的宽度，拿它去比会自我印证——差值一旦落在容差里就再也解不开，表现
+     * 为预览收起后主列表右侧永远留一条空白（窗口已经收回来了，这里却还认为槽位没让出）。内容区
+     * 宽度取自设置，与钉不钉住无关，因此窗口一收窄，这个差值必定落到 0。
+     *
+     * 覆盖层占位不走这条路：那种情况窗口尺寸不变，列表照旧跟随窗口。
+     *
+     * 拖动分隔条期间**不**算槽位空着：那时窗口一帧都不动（`docked` 恒为真），预览变宽挤窄的本来
+     * 就该是主列表，钉住反而会让两个面板一起溢出窗口。
+     */
+    val slotReserved: Boolean,
+    /**
+     * 分隔条能拖到的上限 = min(窗口内剩余空间, 屏幕余量)：
+     *
+     * - 窗口内剩余空间 = 窗口宽 − 分隔条 − 主列表的**划分下限**（[Popup.minimumSplitContentWidth]，
+     *   比窗口自身的下限小，因此默认窗口里也留得出余量）。窗口在拖动期间固定不变，预览变宽只能
+     *   挤窄主列表，最多挤到这里；
+     * - 屏幕余量由宿主给出（[PreviewHostPolicy.maxPreviewWidth]）：超过它，落盘时会被夹回来
+     *   （窗口跟着缩一截）。
+     *
+     * 只用前者会拖出屏幕放不下的宽度；只用后者，主列表还站在下限上时同样拖不动。
+     */
+    val maxDragWidth: Dp,
+)
+
+/**
+ * 由「预览是否打开」「宿主约束」与两个实测宽度推出槽位几何。
+ *
+ * 「窗口内剩余空间」用实测的 [windowWidth] 而不是「内容区宽度 + 预览宽度」：两者稳态下相等，
+ * 但窗口还没跟上设置的几帧里只有实测值是对的。
+ */
+internal fun previewSlotMetrics(
+    previewOpen: Boolean,
+    host: PreviewHostPolicy,
+    windowWidth: Dp,
+    listWidth: Dp,
+    contentWidth: Dp,
+    slideoutWidth: Dp,
+): PreviewSlotMetrics {
+    val docked = when {
+        !previewOpen -> false
+        // 固定尺寸窗口（手机）：窗口本身够宽才并排，否则退回覆盖层。
+        !host.expandsWindow -> windowWidth >= OverlayThreshold
+        // 桌面端：窗口有没有让出位置，由宿主说了算（见 [PreviewHostPolicy.windowReady]）。
+        // 它和那次加宽 / 收回是同一次计算的产物，因此不会落后窗口一帧。
+        //
+        // 刻意**不**用界面量到的窗口宽度（`windowWidth`）判断：那是上一帧的测量值。窗口收起是
+        // 宿主在同一瞬间用原生调用完成的，界面却要在下一帧才知道——照实测值判断，收起的那一帧
+        // 会认为「还放得下」，把卡片画在已经变窄的窗口里（主面板闪一下预览内容）。
+        else -> host.windowReady
+    }
+    val leftoverSlot = windowWidth - contentWidth
+    val slotLeftOver = leftoverSlot > WidthTolerance &&
+        leftoverSlot <= slideoutWidth + WidthTolerance
+    val slotReserved = host.expandsWindow && !host.overlays &&
+        listWidth > 0.dp && !docked && (previewOpen || slotLeftOver)
+    val maxDragWidth = minOf(
+        windowWidth - Popup.previewDividerWidth - Popup.minimumSplitContentWidth,
+        host.maxPreviewWidth,
+    ).coerceAtLeast(Popup.minimumPreviewWidth)
+    return PreviewSlotMetrics(
+        docked = docked,
+        slotReserved = slotReserved,
+        maxDragWidth = maxDragWidth,
+    )
 }

@@ -5,6 +5,7 @@ import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.domain.search.ClipSearch
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.feature.history.state.ClipboardUiState
+import com.qcmian.clipper.feature.history.state.defaultSelectionIndex
 import com.qcmian.clipper.core.util.currentTimeMillis
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -59,7 +60,8 @@ internal class HistorySearchController(
     /** 对应 `History.searchQuery.didSet`：新查询会高亮第一个匹配项。 */
     private fun applyQuery(value: String) {
         val results = resultsFor(value)
-        val firstUnpinned = results.indexOfFirst { it.item.isUnpinned }.coerceAtLeast(0)
+        // 清空搜索时落回内容区第一条，与面板打开时的默认落点一致（见 `defaultSelectionIndex`）。
+        val firstUnpinned = results.defaultSelectionIndex()
 
         onQueryApplied()
         state.update {
