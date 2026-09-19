@@ -15,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -54,11 +53,10 @@ fun PreviewSlideout(
     /** 松手：界面据此把最终宽度写回设置（与新的主列表宽度一起）。 */
     onWidthChangeFinished: () -> Unit,
 ) {
-    // 面板与分隔条必须交给同一个 `Row` 排版：外层 `AnimatedVisibility` 会把它的所有子节点
-    // 都叠在 (0, 0)、再按其中最大的那个定尺寸。直接并列发出这两个子节点，分隔条会画在面板的
-    // 左边缘上（停靠左侧时看起来就贴在窗口最左边），而且槽位宽度只剩面板宽度，与桌面端加宽
-    // 窗口所用的 `Popup.slideoutWidth` 对不上。
-    Row(Modifier.previewSlot()) {
+    // 面板与分隔条必须交给同一个 `Row` 排版：两者的宽度合起来正好是卡片占位的那一段
+    // （`Popup.slideoutWidth`，拖动中就是拖到的那一段），否则列表会被挤掉分隔条那一条。
+    // 拖动时卡片占位与主列表宽度按同一个差值一涨一落，窗口因此全程不动。
+    Row(Modifier.fillMaxHeight()) {
         if (!onLeft) {
             PreviewDivider(previewWidth, maxDragWidth, onLeft, onWidthChange, onWidthChangeFinished)
         }
@@ -83,35 +81,6 @@ fun PreviewSlideout(
         if (onLeft) {
             PreviewDivider(previewWidth, maxDragWidth, onLeft, onWidthChange, onWidthChangeFinished)
         }
-    }
-}
-
-/**
- * 预览槽位（卡片本身，或左侧停靠时先占住的那段 `Spacer`）的宽度上限：**这一帧**的可用宽度减去
- * 内容区下限。
- *
- * 用的是这一帧的布局约束，而不是 `onSizeChanged` 量出来的窗口宽度——后者是**上一帧**的值，
- * 天生慢一拍：窗口已经收回去的那一帧它还说「放得下」，窗口刚加宽的那一帧它又说「放不下」。
- * 靠状态去猜，无论猜哪一边都会有一帧错位。夹在布局里就没有这个问题：
- *
- * - 窗口还没为预览加宽（刚打开）、或已经收回去（刚收起）的那一两帧，槽位被压成 0——卡片画不
- *   出来，主列表也不会被它挤窄；
- * - 窗口宽到位后回落到滑出面板本身的宽度，其余什么都不做。
- *
- * 夹的是**主列表在划分里的下限**（[Popup.minimumSplitContentWidth]，比窗口自身的下限小）而不是
- * 用户自定义的内容区宽度：并排稳态下窗口宽度 = 内容区宽度 + 滑出宽度，拿下限算只会更宽松；
- * 而分隔条拖动时主列表正是往这个下限让位，槽位必须跟着放宽到同一个数，否则拖动会被槽位当场
- * 夹住——预览一帧都不变宽，看起来就是「分隔条拖不动」。
- */
-@Composable
-internal fun Modifier.previewSlot(): Modifier {
-    val minimumSplitContentWidthPx =
-        with(LocalDensity.current) { Popup.minimumSplitContentWidth.roundToPx() }
-    return layout { measurable, constraints ->
-        val slot = (constraints.maxWidth - minimumSplitContentWidthPx)
-            .coerceIn(0, constraints.maxWidth)
-        val placeable = measurable.measure(constraints.copy(minWidth = 0, maxWidth = slot))
-        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
     }
 }
 

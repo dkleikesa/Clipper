@@ -175,14 +175,32 @@ internal class WindowGeometryController(
             .distinctUntilChanged()
             .collect { size ->
                 val previous = lastAppliedMinimumSize
-                if (size == previous) return@collect
-                lastAppliedMinimumSize = size
-                applyMinimumSize(size.width.value.roundToInt(), size.height.value.roundToInt())
-                if (previous != null && size.height < previous.height) {
+                applyMinimumSizeIfNeeded(size)
+                // 下限变小（收起预览、内容变矮）：之前可能有一次尺寸请求被旧下限夹住，补一次几何。
+                // 宽度也要看——收起预览只动宽度，而那次收窄正是最容易被旧下限夹住的一次。
+                if (previous != null && (size.width < previous.width || size.height < previous.height)) {
                     lastAppliedBounds = null
                     applyWindowGeometry(state.value, repository.settings.value)
                 }
             }
+    }
+
+    /**
+     * 应用窗口下限；与上次设过的值相同就是空操作。
+     *
+     * 它在 [applyWindowGeometry] 里**先于**尺寸跑一次，这是必须的：下限是原生窗口的一个属性，
+     * 而它取的是「上一次设过的值」——收起预览时窗口要收窄到内容宽度，此时下限里还含着预览那
+     * 一段，系统会把这次收窄夹回旧下限，而 [lastAppliedBounds] 记的是**请求值**：之后每次算出
+     * 同一个更窄的尺寸都会被判成「已经应用过」跳过，窗口于是再也收不回来（右侧留一块空白，整个
+     * 窗口一直宽着）。
+     *
+     * 两个收集器谁先醒由调度决定（[observeWindowGeometry] 与 [observeMinimumWindowSize] 订阅的是
+     * 同一条设置流），因此这里不能指望「下限那一次先跑」——偶发就是这么来的。
+     */
+    private fun applyMinimumSizeIfNeeded(size: DpSize) {
+        if (size == lastAppliedMinimumSize) return
+        lastAppliedMinimumSize = size
+        applyMinimumSize(size.width.value.roundToInt(), size.height.value.roundToInt())
     }
 
     /**
@@ -294,10 +312,10 @@ internal class WindowGeometryController(
         // 预览开没开直接读设置，**不**从界面上报：这里它决定窗口要不要为预览让位，这一份一旦
         // 停在「开着」，窗口就再也收不回来——预览早已收起，窗口右侧却留着预览那一块空白。
         val previewOpen = settings.previewOpen
-        // 桌面端**永远**并排，不走覆盖层（`overlays` 恒为 false，见 [DesktopShellUiState]）：
-        // 窗口宽度由内容 + 滑出面板决定，放不下时把滑出宽度按这一侧的余量夹小（下面 `slideout`），
-        // 而不是让预览盖在主列表上——覆盖层只要在过渡里出现一帧，看起来就是「预览整块盖住了
-        // 列表」，而并排布局里卡片与列表各占一边，任何一帧都不可能互相遮盖。
+        // 桌面端**永远**并排：窗口宽度由内容 + 滑出面板决定，放不下时把滑出宽度按这一侧的余量
+        // 夹小（下面 `slideout`），而不是让预览盖在主列表上——覆盖层只要在过渡里出现一帧，看
+        // 起来就是「预览整块盖住了列表」，而并排布局里卡片与列表各占一边，任何一帧都不可能互相
+        // 遮盖。
         val previewOnLeft = previewOpen && !fitsRight
 
         // 尺寸由内容与偏好决定（预览并排时额外容纳滑出面板）；位置以锚点为基准，预览停靠左侧时
@@ -340,26 +358,14 @@ internal class WindowGeometryController(
             anchor.x.value
         }
 
-        // 预览是不是（还）在窗口里：设置说开着；或者这次收起的过渡还没把窗口收回去（原生宽度仍
-        // 多着一段）——那几帧里卡片要继续占着槽位，主列表才不会随窗口一起挪。用户自己拖窗口
-        // 边缘时窗口也会比内容宽，那种情况不算（否则已经关闭的预览会凭空冒出来）。
-        val windowReady = previewOpen || (
-            !userIsResizing() &&
-                (lastNativeBounds?.width ?: 0) >
-                target.width.value.roundToInt() + RESIZE_TOLERANCE_DP.toInt()
-            )
+        // 预览在不在画面上由界面自己看设置决定（见 `HistoryScreen` 的预览段）：窗口加宽 / 收回
+        // 是瞬时完成的，界面不需要一个「窗口已就位」的信号，这里也就没有可残留、可滞后的状态。
+        // 只报「停靠在哪一侧」与「这一侧还能给多宽」——两者都是摆窗口的产物，界面算不出来。
         state.update {
-            if (it.previewOnLeft == previewOnLeft &&
-                it.previewWindowReady == windowReady &&
-                it.maxPreviewWidth == maxPreviewWidth
-            ) {
+            if (it.previewOnLeft == previewOnLeft && it.maxPreviewWidth == maxPreviewWidth) {
                 it
             } else {
-                it.copy(
-                    previewOnLeft = previewOnLeft,
-                    previewWindowReady = windowReady,
-                    maxPreviewWidth = maxPreviewWidth,
-                )
+                it.copy(previewOnLeft = previewOnLeft, maxPreviewWidth = maxPreviewWidth)
             }
         }
 
@@ -372,6 +378,8 @@ internal class WindowGeometryController(
             size = target,
             bounds = bounds,
         )
+        // 下限必须**先于**尺寸落地，否则这次收窄会被旧下限夹回（见 [applyMinimumSizeIfNeeded]）。
+        applyMinimumSizeIfNeeded(minimumWindowSizeOf(snapshot.minimumHeight, previewOpen))
         applyWindowBounds(
             x = placed.x.value.roundToInt(),
             y = placed.y.value.roundToInt(),

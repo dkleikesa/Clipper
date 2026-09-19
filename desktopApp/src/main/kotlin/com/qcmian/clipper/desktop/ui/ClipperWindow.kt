@@ -197,13 +197,6 @@ fun ApplicationScope.ClipperWindow(
             onQuit = { viewModel.quit() },
             previewHost = PreviewHostPolicy(
                 onLeft = uiState.previewOnLeft,
-                // 桌面端会为预览加宽窗口（`autoWindowSize`），因此预览永远与主列表并排：
-                // 界面等窗口加宽到位再让它进场，不会先盖在列表上闪一下。
-                // 也**不**传 `overlays`：并排布局里卡片与列表各占一边，任何一帧都不会互相遮盖，
-                // 而覆盖层只要在过渡里出现一帧，看起来就是「预览整块盖住了列表」。
-                expandsWindow = true,
-                // 「加宽到位」由本侧直接给出，界面不用量窗口宽度（实测值慢一帧，收起时会闪）。
-                windowReady = uiState.previewWindowReady,
                 // 分隔条拖动上限之一：本侧算好的「这一侧屏幕还能给预览多少」。界面会再与
                 // 「窗口内剩余空间」取较小值（见 `HistoryScreen.maxDragWidth`）。
                 maxPreviewWidth = uiState.maxPreviewWidth,

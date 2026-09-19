@@ -49,7 +49,7 @@ fun App(
     container: AppContainer,
     onRequestHideWindow: () -> Unit = {},
     onQuit: (() -> Unit)? = null,
-    /** 宿主为预览面板提供的空间约束；见 [HistoryScreen] 的同名参数。 */
+    /** 宿主为预览面板提供的空间约束：停靠侧与屏幕余量；见 [HistoryScreen] 的同名参数。 */
     previewHost: PreviewHostPolicy = PreviewHostPolicy(),
     windowController: WindowController? = null,
     hotkeyController: HotkeyController? = null,

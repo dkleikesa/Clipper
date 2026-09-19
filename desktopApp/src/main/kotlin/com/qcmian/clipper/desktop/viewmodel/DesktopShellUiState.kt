@@ -45,14 +45,6 @@ data class DesktopShellUiState(
      */
     val maxPreviewWidth: Dp = Popup.maximumPreviewWidth,
 
-    /**
-     * 窗口已经为预览让出位置（加宽 / 收回的那次几何**已经应用**），界面据此让预览卡片进场。
-     *
-     * 必须是宿主算出来的信号，不能让界面拿量到的窗口宽度去猜——实测值慢窗口一帧，收起预览时
-     * 会让卡片在已经收窄的窗口里多画一帧（见 `PreviewHostPolicy.windowReady`）。
-     */
-    val previewWindowReady: Boolean = false,
-
     /** 当前弹窗交互阶段：按住会话的投影，由 `GlobalHotKeyController` 写；界面目前不读它。 */
     val popupMode: PopupMode = PopupMode.TOGGLE,
 )
