@@ -393,6 +393,9 @@ internal class WindowGeometryController(
      * 拖动过程中每来一个尺寸通知就写一次偏好，会让整棵界面（含历史搜索）每帧重算，
      * 这正是拖动卡顿的根源。这里按「尺寸持续 [RESIZE_SETTLE_MILLIS] 不变」来判定手已松开，
      * 于是整段拖动只落盘一次；[collectLatest] 负责在下一个尺寸到来时取消上一次等待。
+     *
+     * 手还在动的这一整段时间要把 [DesktopShellUiState.userResizing] 报给界面：那几帧设置还是旧
+     * 的（落盘要等静默期），界面得跟随实测窗口宽度才跟得上手。
      */
     suspend fun observeUserResize() {
         snapshotFlow { windowState.size }
@@ -401,6 +404,7 @@ internal class WindowGeometryController(
                 // 判据必须是「最近若干次」而不是「最后一次」，理由见 [recentAppliedSizes]。
                 if (wasAppliedByProgram(size)) return@collectLatest
 
+                if (!state.value.userResizing) state.update { it.copy(userResizing = true) }
                 userResizeUntil = System.currentTimeMillis() + RESIZE_SETTLE_MILLIS
                 delay(RESIZE_SETTLE_MILLIS)
 
@@ -434,6 +438,8 @@ internal class WindowGeometryController(
                 )
 
                 userResizeUntil = 0L
+                // 新尺寸已经落盘，界面这一帧起改回「按设置算」。
+                if (state.value.userResizing) state.update { it.copy(userResizing = false) }
                 // 用户拖出的尺寸仍要受屏幕约束（例如不能盖住 Dock），补一次程序化几何。
                 applyWindowGeometry(
                     snapshot = state.value,

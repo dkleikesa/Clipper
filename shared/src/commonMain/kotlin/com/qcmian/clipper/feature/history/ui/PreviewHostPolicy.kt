@@ -21,10 +21,14 @@ import com.qcmian.clipper.core.ui.Popup
  * @param onLeft 预览停靠的优先侧（宿主按屏幕空间决定）。
  * @param maxPreviewWidth 当前停靠侧「锚点到屏幕边缘」还能给预览多少宽度（已扣掉分隔条与主
  *   列表）
+ * @param userResizing 用户正在拖窗口边缘（含刚停下的一小段静默期）。拖动期间设置里的尺寸还没
+ *   落盘、跟不上手，界面这时跟随**实测**窗口宽度；其余时候一律用设置算出来的定值——预览开关
+ *   只改变窗口宽度，主列表的宽度在那几帧必须一动不动。
  */
 data class PreviewHostPolicy(
     val onLeft: Boolean = false,
     val maxPreviewWidth: Dp = Popup.maximumPreviewWidth,
+    val userResizing: Boolean = false,
 )
 
 /**

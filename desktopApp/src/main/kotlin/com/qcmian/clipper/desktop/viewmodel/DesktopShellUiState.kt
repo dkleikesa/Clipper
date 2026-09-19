@@ -45,6 +45,15 @@ data class DesktopShellUiState(
      */
     val maxPreviewWidth: Dp = Popup.maximumPreviewWidth,
 
+    /**
+     * 用户正在拖窗口边缘改变尺寸（含刚停下的一小段静默期）。
+     *
+     * 报给界面是因为两种宽度来源要在这里切换：拖动期间设置还没落盘（要等 `RESIZE_SETTLE_MILLIS`
+     * 静默），界面得跟随**实测**窗口宽度才跟得上手；其余时候用设置算出来的定值——预览开关只改变
+     * 窗口宽度，主列表的宽度在那几帧必须一动不动（见 `HistoryScreen` 的 `mainWidth`）。
+     */
+    val userResizing: Boolean = false,
+
     /** 当前弹窗交互阶段：按住会话的投影，由 `GlobalHotKeyController` 写；界面目前不读它。 */
     val popupMode: PopupMode = PopupMode.TOGGLE,
 )

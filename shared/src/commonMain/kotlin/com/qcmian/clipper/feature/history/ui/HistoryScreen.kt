@@ -330,15 +330,22 @@ fun HistoryScreen(
     // 内容位移的像素量。卡片的揭示进度不在这里——它写在卡片自己那一段里，随卡片一起生灭。
     val slideoutWidthPx = with(density) { slideoutWidth.toPx() }
 
-    // 主列表（内容区）宽度 = 设置里的内容区宽度，加 / 减这次分隔条拖动让给预览的那一段。
+    // 主列表（内容区）宽度。两个来源，切换点是「用户是不是正在拖窗口边缘」：
     //
-    // 刻意**不**算成「窗口宽度 − 滑出宽度」：为预览让位的那次加宽 / 收回由宿主瞬时完成，界面要
-    // 下一帧才量得到窗口宽度——照它算，主列表会在开关的那一帧按「窗口还宽着」排版、下一帧再收
-    // 回来，文字当场重排一次。预览开关不该动主列表：窗口宽出来的那一段**全部**给预览卡。
+    // - **在拖**：设置里的尺寸要等 250ms 静默期才落盘，跟不上手——跟随实测窗口宽度（预览开着时
+    //   再减掉卡片那一段，卡片自己贴着窗口边缘），拖到哪就跟到哪；
+    // - **没在拖**：用设置算出来的定值。刻意**不**用实测宽度——为预览让位的那次加宽 / 收回由宿主
+    //   瞬时完成，界面要下一帧才量得到窗口宽度，照它算主列表会在开关的那一帧按「窗口还宽着」
+    //   排版、下一帧再收回来，文字当场重排一次。预览开关不该动主列表：窗口宽出来的那一段
+    //   **全部**给预览卡。
     //
     // 窗口被用户拖得比内容区还窄时不必特殊处理：固定宽度会被 `Modifier.width` 再夹进父约束
     // （也就是窗口宽度）里，列表自然跟随窗口。
-    val mainWidth = contentWidth + (settings.previewWidth - previewWidth).dp
+    val mainWidth = if (previewHost.userResizing) {
+        (windowWidth - if (previewOpen) slideoutWidth else 0.dp).coerceAtLeast(0.dp)
+    } else {
+        contentWidth + (settings.previewWidth - previewWidth).dp
+    }
 
     Box(
         modifier
