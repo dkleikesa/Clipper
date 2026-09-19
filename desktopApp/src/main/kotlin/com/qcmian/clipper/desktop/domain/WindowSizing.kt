@@ -14,6 +14,18 @@ val InitialPanelHeight: Dp = 400.dp
 /** 应用自己调整窗口尺寸后，忽略尺寸通知的时长。 */
 internal const val RESIZE_SETTLE_MILLIS = 250L
 
+/**
+ * 预览开关驱动窗口宽度动画的时长：展开与收起共用它。
+ *
+ * 界面一侧**不再**自己滑出（见 `HistoryScreen` 的预览段）：预览卡按完整宽度贴着窗口的预览侧
+ * 外沿，露出多少完全由窗口让出多少决定。因此这次窗口动画就是整个揭示过程本身——它不再只是
+ * 「窗口变大」，而是「面板被一帧帧让出来」。
+ */
+internal const val PREVIEW_TOGGLE_MILLIS = 250L
+
+/** 窗口动画的步进间隔（约 60fps）。 */
+internal const val PREVIEW_TOGGLE_FRAME_MILLIS = 16L
+
 /** 区分用户拖动与应用设定的尺寸时的容差，单位为 dp。 */
 internal const val RESIZE_TOLERANCE_DP = 2f
 
@@ -23,6 +35,10 @@ internal const val RESIZE_TOLERANCE_DP = 2f
  * 尺寸通知会滞后于程序的最新一次设定：预览打开 / 收起、内容高度变化、偏好改动都可能在几帧内
  * 连着改几次几何，第 N 次的尺寸通知常常在第 N+1 次之后才到。只记住最后那一个值，这些自己造成
  * 的通知就会被判成「用户在拖窗口边缘」，因此要留一小段历史（够覆盖那几帧的滞后即可）。
+ *
+ * **必须多于开关动画的帧数**（`PREVIEW_TOGGLE_MILLIS / PREVIEW_TOGGLE_FRAME_MILLIS`，当前
+ * 250 ÷ 16 ≈ 16）：动画逐帧写尺寸，漏记一帧就会被当成用户在拖窗口边缘，把中间那个宽度当自定义
+ * 宽度落盘。
  */
 internal const val APPLIED_SIZE_HISTORY = 24
 

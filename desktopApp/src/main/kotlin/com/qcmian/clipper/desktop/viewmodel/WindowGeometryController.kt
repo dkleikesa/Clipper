@@ -1,6 +1,7 @@
 package com.qcmian.clipper.desktop.viewmodel
 
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPosition
@@ -11,6 +12,8 @@ import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.PopupPosition
 import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.desktop.domain.APPLIED_SIZE_HISTORY
+import com.qcmian.clipper.desktop.domain.PREVIEW_TOGGLE_FRAME_MILLIS
+import com.qcmian.clipper.desktop.domain.PREVIEW_TOGGLE_MILLIS
 import com.qcmian.clipper.desktop.domain.RESIZE_SETTLE_MILLIS
 import com.qcmian.clipper.desktop.domain.RESIZE_TOLERANCE_DP
 import com.qcmian.clipper.desktop.domain.autoWindowSize
@@ -26,8 +29,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import java.awt.Rectangle
 import kotlin.math.roundToInt
@@ -42,6 +43,10 @@ import kotlin.math.roundToInt
  * （[moveToCursor]）；[applyWindowGeometry] 是它们共同的落点。面板显隐、预览开关、内容高度变化
  * 都不直接调用它——它们只改 [state] 或偏好，由这里的观察者自己收敛，因此窗口几何永远只有一个
  * 「算-应用」路径。
+ *
+ * 唯一的例外是**预览开关**：那一次几何不一次到位，而是由 [animateBoundsTo] 逐帧推过去。界面里
+ * 的预览卡不做动画、只跟着窗口走，因此这次窗口动画就是「面板被让出来」的过程本身（见
+ * `HistoryScreen` 的预览段）。
  *
  * @param openedByTray 本次显示是否由托盘触发；托盘呼出时锚点固定在菜单栏图标上
  *   （见 [placementPreference]）。
@@ -91,6 +96,24 @@ internal class WindowGeometryController(
     private var userResizeUntil = 0L
 
     /**
+     * 上一次落地几何时预览是开还是关；`null` 表示「本次显示还没落地过」（隐藏时清空）。
+     *
+     * 它是「这次几何计算要不要做开关动画」的唯一依据：两者不等，说明这一趟几何正是预览开关
+     * 引起的，窗口宽度就该一帧帧地让出来（见 [animateBoundsTo]）。刚显示的那一次是 `null`：
+     * 开关在这次呼出里并没有变，窗口一次到位，不为了「打开面板」多跑一段动画。
+     */
+    private var appliedPreviewOpen: Boolean? = null
+
+    /**
+     * 开关动画跑完后补发的布局结论（停靠侧 + 拖动上限，见 [publishLayout]）。
+     *
+     * 只有**收起**会欠这一笔：窗口停靠在左侧时，窗口左边缘就是「锚点 − 滑出宽度」，预览关掉之后
+     * 窗口还要逐帧收回左边那一段。结论先发出去，界面就会在窗口还宽着的那几帧按「预览在右」排版
+     * ——列表当场平移一个滑出宽度。打开则相反，必须**先**发布（见 [applyWindowGeometry]）。
+     */
+    private var deferredLayout: Pair<Boolean, Dp>? = null
+
+    /**
      * 主列表（内容区）左上角的锚点。预览打开时窗口以此为准向一侧展开，因此主列表本身不会移动；
      * 面板隐藏后清空，下次显示时重新取。
      */
@@ -127,7 +150,9 @@ internal class WindowGeometryController(
         }
         anchorPreviewWidth = settings.previewWidth
         lastPlacementSignature = Pair(placementPreference(settings), settings.popupScreen)
-        applyWindowGeometry(state.value, settings)
+        // 挪窗口不动预览开关，因此这里不会带出动画；真带出来了（开关刚好在切）也只是少一段过渡
+        // ——直接落地，窗口一定落在算出来的位置上，不会停在中间尺寸。
+        applyWindowGeometry(state.value, settings)?.let(::applyWindowBounds)
     }
 
     /**
@@ -178,32 +203,47 @@ internal class WindowGeometryController(
         ) { snapshot, settings, position ->
             Triple(snapshot, settings, position)
         }.collect { (snapshot, settings, _) ->
-            applyWindowGeometry(snapshot, settings)
+            // 开关动画同步跑在这条收集里（不另起协程）：一次开关的那几帧内不会有第二个几何计算
+            // 插进来跟它抢窗口，期间积压的状态变化会在动画跑完后按顺序再算一遍——那些计算要么被
+            // [applyWindowBounds] 去重，要么就是真正需要的新几何（例如动画那几帧里复制进来的新
+            // 条目改变了内容高度）。
+            val animation = applyWindowGeometry(snapshot, settings)
+            if (animation != null) {
+                animateBoundsTo(animation)
+                // 收起时押后的布局结论，等窗口收完再发（见 [deferredLayout]）。
+                deferredLayout?.let { (onLeft, maxWidth) -> publishLayout(onLeft, maxWidth) }
+            }
         }
     }
 
     /**
-     * 按内容、偏好与屏幕空间算出窗口的位置与尺寸，并一次写入。
+     * 按内容、偏好与屏幕空间算出窗口的位置与尺寸，并写进窗口。
      *
      * 主列表（内容区）的锚点先定下来，预览再以它为基准向一侧展开——默认在右侧（窗口向右
      * 加宽），主列表右边缘放不下时改到左侧（窗口向左加宽），因此预览永远不会盖住主列表，
      * 主列表本身也不会移动。
+     *
+     * 返回值是**需要动画时**窗口该落到的位置：非 `null` 表示这次是预览开关引起的几何变化、
+     * 并且还没有落地，调用方要么交给 [animateBoundsTo] 一帧帧过去（界面里的预览卡就是靠它被
+     * 让出来的），要么直接 [applyWindowBounds] 一次到位。返回 `null` 表示已经落地完毕。
      */
     private fun applyWindowGeometry(
         snapshot: DesktopShellUiState,
         settings: AppSettings,
-    ) {
+    ): Rectangle? {
         if (!snapshot.windowVisible) {
             // 隐藏后下次显示要重新取锚点，否则会把上一次的旧位置带过来。
             contentAnchor = null
             anchorPreviewWidth = null
             lastPlacementSignature = null
-            return
+            // 下次显示时窗口一次到位：重新呼出面板不是「切换预览」。
+            appliedPreviewOpen = null
+            return null
         }
         // 用户正在拖边缘：这一刻以他的手为准。程序化改几何会和拖动互相打架
         // （两边都在 setSize / setLocation），拖左边框时尤其明显——位置同时也在变。
         // 手停下来后由 [observeUserResize] 补一次。
-        if (userIsResizing()) return
+        if (userIsResizing()) return null
 
         val contentWidth = contentWidthOf(settings)
         val desiredSlideout = slideoutWidthOf(settings)
@@ -310,17 +350,6 @@ internal class WindowGeometryController(
             anchor.x.value
         }
 
-        // 预览在不在画面上由界面自己看设置决定（见 `HistoryScreen` 的预览段）：窗口加宽 / 收回
-        // 是瞬时完成的，界面不需要一个「窗口已就位」的信号，这里也就没有可残留、可滞后的状态。
-        // 只报「停靠在哪一侧」与「这一侧还能给多宽」——两者都是摆窗口的产物，界面算不出来。
-        state.update {
-            if (it.previewOnLeft == previewOnLeft && it.maxPreviewWidth == maxPreviewWidth) {
-                it
-            } else {
-                it.copy(previewOnLeft = previewOnLeft, maxPreviewWidth = maxPreviewWidth)
-            }
-        }
-
         rememberAppliedSize(target)
         // 位置与尺寸必须一次应用（见 [applyBounds]），`windowState` 也由 [applyWindowBounds] 一并
         // 对齐——不写它会留下一帧「尺寸已新、位置仍旧」的窗口，理由见那里。
@@ -333,21 +362,110 @@ internal class WindowGeometryController(
         // 下限先于尺寸落地（见 [applyMinimumSizeIfNeeded]）：值一旦大于当前窗口，系统会立刻把
         // 窗口撑到下限，排在这里就能与随后的 `setBounds` 落在同一条调用里。
         applyMinimumSizeIfNeeded(minimumWindowSizeOf(snapshot.minimumHeight))
-        applyWindowBounds(
-            x = placed.x.value.roundToInt(),
-            y = placed.y.value.roundToInt(),
-            size = target,
+
+        // Java 的 `Rectangle` 不吃具名参数。
+        val placedBounds = Rectangle(
+            placed.x.value.roundToInt(),
+            placed.y.value.roundToInt(),
+            target.width.value.roundToInt(),
+            target.height.value.roundToInt(),
         )
+
+        // 预览开关带来的宽度变化是全套几何里幅度最大、也最该被看见的一次，交给调用方做动画
+        // （见 [animateBoundsTo]）；其余来源（面板显隐、内容高度、偏好改动、窗口被挪走）一律一次
+        // 到位——它们本来就该是「悄悄发生」的，做成动画只会让界面上别的变化跟着晃。
+        val togglingPreview = appliedPreviewOpen != null && appliedPreviewOpen != previewOpen
+        appliedPreviewOpen = previewOpen
+        if (togglingPreview) {
+            if (previewOpen) {
+                // 打开：停靠侧必须**先**发布。窗口是朝预览那一侧长出去的，列表得立刻按新的一侧
+                // 贴住锚点（左侧停靠时贴窗口右边缘），否则它会跟着窗口的左边缘一起平移。
+                publishLayout(previewOnLeft, maxPreviewWidth)
+            } else {
+                // 收起：结论押后到窗口收完再发（见 [deferredLayout]）。
+                deferredLayout = Pair(previewOnLeft, maxPreviewWidth)
+            }
+            return placedBounds
+        }
+        publishLayout(previewOnLeft, maxPreviewWidth)
+        applyWindowBounds(placedBounds)
+        return null
+    }
+
+    /**
+     * 把摆窗口的产物发布给界面：预览停靠在哪一侧、这一侧还能给多宽。
+     *
+     * 界面算不出这两件事（它们是「窗口整个放不放得进屏幕」的结论），但它们也**不**表示「预览
+     * 该不该在画面上」——那由设置本身决定（见 `HistoryScreen` 的预览段）：为预览让位的加宽 / 收回
+     * 就是窗口宽度本身，界面跟着窗口走就行。值没变时不产生新状态。
+     *
+     * 发布的一定是最新结论，因此顺手清掉可能欠着的那一笔（见 [deferredLayout]）：它已经被这次
+     * 取代，再发出去就是拿旧值往回写。
+     */
+    private fun publishLayout(previewOnLeft: Boolean, maxPreviewWidth: Dp) {
+        deferredLayout = null
+        state.update {
+            if (it.previewOnLeft == previewOnLeft && it.maxPreviewWidth == maxPreviewWidth) {
+                it
+            } else {
+                it.copy(previewOnLeft = previewOnLeft, maxPreviewWidth = maxPreviewWidth)
+            }
+        }
+    }
+
+    /**
+     * 把窗口从当前位置一帧帧推到 [to]：预览开关的过渡就是它。
+     *
+     * 界面里的预览卡不做任何动画（见 `HistoryScreen` 的预览段）：它按完整宽度贴着窗口的预览侧
+     * 外沿排版，露出多少完全由窗口让出多少决定。因此这里的每一帧 `setBounds` 就是把面板「让」
+     * 出来一步——面板边界与窗口边界始终是同一条，不存在「窗口已经到位、卡片还在外面滑」的错位
+     * （那正是「从左侧出来的面板整块闪一下」的来源）。
+     *
+     * 逐帧同步跑在几何观察者那条协程里（见 [observeWindowGeometry]）：不占新协程，也就不会与它
+     * 抢窗口。这几帧写下去的尺寸都记进了 [recentAppliedSizes]（见 [applyNativeBounds]），因此它们
+     * 以及稍稍滞后到达的通知都不会被当成「用户在拖窗口边缘」——[APPLIED_SIZE_HISTORY] 必须多于
+     * 这里的帧数。
+     *
+     * [userIsResizing] 一旦为真立刻让路：用户已经把窗口边缘按在手里了，动画再改尺寸只会打架，
+     * 剩下的几何由 `observeUserResize` 松手后那次计算收尾。
+     */
+    private suspend fun animateBoundsTo(to: Rectangle) {
+        // 起点用「程序最后落地过的几何」。它被清掉（用户刚拖过窗口边缘）说明此刻的尺寸是用户的
+        // 手说了算，那就别补动画，一次到位。
+        val from = lastAppliedBounds
+        if (from == null) {
+            applyWindowBounds(to)
+            return
+        }
+        if (from == to) return
+        // 步进按固定间隔，**进度按实际经过的时间**算：单帧偶尔比 [PREVIEW_TOGGLE_FRAME_MILLIS]
+        // 慢（一次 `setBounds` 触发原生 resize + 整棵界面重排，慢起来不止一帧）时，总时长仍
+        // 是 [PREVIEW_TOGGLE_MILLIS]，不会跟着被拖长成「帧数 × 实际帧耗」。
+        val startedAt = System.currentTimeMillis()
+        while (true) {
+            delay(PREVIEW_TOGGLE_FRAME_MILLIS)
+            if (userIsResizing()) return
+            // 进度夹在 [0, 1]：夹到 1 的那一帧插出来的就是 [to] 本身（[smoothStep] 两端取 0 / 1），
+            // 因此循环退出时窗口已经落在目标上，不用再补一次。
+            val progress = (
+                (System.currentTimeMillis() - startedAt).toFloat() /
+                    PREVIEW_TOGGLE_MILLIS.toFloat()
+                ).coerceIn(0f, 1f)
+            val eased = smoothStep(progress)
+            applyWindowBounds(
+                Rectangle(
+                    lerp(from.x, to.x, eased),
+                    lerp(from.y, to.y, eased),
+                    lerp(from.width, to.width, eased),
+                    lerp(from.height, to.height, eased),
+                ),
+            )
+            if (progress >= 1f) return
+        }
     }
 
     /** 应用一次窗口几何；与上次应用过的完全相同就跳过，避免每次状态变化都动一次原生窗口。 */
-    private fun applyWindowBounds(x: Int, y: Int, size: DpSize) {
-        val bounds = Rectangle(
-            x,
-            y,
-            size.width.value.roundToInt(),
-            size.height.value.roundToInt(),
-        )
+    private fun applyWindowBounds(bounds: Rectangle) {
         if (lastAppliedBounds == bounds) return
         lastAppliedBounds = bounds
         applyNativeBounds(bounds)
@@ -441,10 +559,12 @@ internal class WindowGeometryController(
                 // 新尺寸已经落盘，界面这一帧起改回「按设置算」。
                 if (state.value.userResizing) state.update { it.copy(userResizing = false) }
                 // 用户拖出的尺寸仍要受屏幕约束（例如不能盖住 Dock），补一次程序化几何。
+                // 拖动期间开关不可能变，因此这里不会有动画；真带出来了也直接落地，理由同
+                // [moveToCursor]。
                 applyWindowGeometry(
                     snapshot = state.value,
                     settings = repository.settings.value,
-                )
+                )?.let(::applyWindowBounds)
             }
     }
 
@@ -465,3 +585,16 @@ internal class WindowGeometryController(
     /** 用户是否正在手动调整窗口尺寸（含刚停下的一小段静默期）。 */
     private fun userIsResizing(): Boolean = System.currentTimeMillis() < userResizeUntil
 }
+
+/**
+ * 开关动画的进度曲线：两端慢、中间快（`3p² − 2p³`）。
+ *
+ * 取它而不是线性插值：起手和收尾都是渐入渐出，看不出「启动 / 停住」那两拍；也不必为此引入整
+ * 套 `Animatable`——这条动画是宿主的窗口尺寸，本来就跑在协程里，几行插值足够，还顺手避开了
+ * 非组合环境没有 `MonotonicFrameClock` 的坑。
+ */
+private fun smoothStep(progress: Float): Float = progress * progress * (3f - 2f * progress)
+
+/** 整数像素的线性插值；[progress] 已经过 [smoothStep] 之类的曲线。 */
+private fun lerp(from: Int, to: Int, progress: Float): Int =
+    (from + (to - from) * progress).roundToInt()

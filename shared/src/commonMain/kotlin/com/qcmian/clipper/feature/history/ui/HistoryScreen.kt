@@ -1,7 +1,5 @@
 package com.qcmian.clipper.feature.history.ui
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,7 +27,6 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -67,8 +65,14 @@ import com.qcmian.clipper.feature.history.state.ClipboardUiState
 import com.qcmian.clipper.feature.history.viewmodel.resolveKeyActions
 import com.qcmian.clipper.feature.history.viewmodel.shortcutMap
 
-/** 预览卡内容从主窗口那一侧滑出的时长。窗口本身不做动画，一次到位。 */
-private const val PreviewRevealMillis = 180
+/**
+ * 预览卡与主列表之间「至少还剩这么宽」才算窗口里还留着预览的位置。
+ *
+ * 只用来判断收起的尾巴：窗口收回到内容区宽度之后卡片就不该再渲染了。阈值取半像素而不是 0：
+ * 窗口宽度是实测的浮点 dp，恰好等于内容区时可能差出千分之几，用 0 会让卡片永远留在组合里
+ * （看不见，但白留着整个预览面板）；取半个像素既能落干净，又不会在收尾那一帧留下可见的缝。
+ */
+private val PreviewCardDissolveWidth = 0.5.dp
 
 /**
  * 主界面：头部、历史列表、页脚，外加预览滑出面板。
@@ -321,23 +325,23 @@ fun HistoryScreen(
     // 分隔条能拖到的上限，见 [previewMaxDragWidth]。
     val maxDragWidth = previewMaxDragWidth(host = previewHost, windowWidth = windowWidth)
 
-    // 预览是不是在画面上：唯一真值就是设置（宿主为它加宽 / 收回窗口是瞬时完成的）。
+    // 预览开关：唯一真值就是设置。宿主据此把窗口一帧帧地变宽 / 收窄（见
+    // `WindowGeometryController.animateBoundsTo`），界面里的卡片跟着窗口一帧帧被让出来——**没有**
+    // 第二条「已经滑到哪」的时间线要跟它对齐，也是本复刻版把面板动画删掉的原因：两条时间线各跑
+    // 各的，错开的那一帧看起来就是整块闪一下。
     //
-    // 不需要宿主再报一个「窗口已经让位」：卡片贴在窗口的预览侧，窗口还没宽出来的那几帧它整块
-    // 落在窗口之外，窗口还没收回的那几帧主列表铺满整窗把它盖住（见下面 `mainWidth`）。反过来，
-    // 多一个宿主信号就多一个会滞后、会残留的真值源——「点了没反应」正是从那里来的。
+    // 不需要宿主再报一个「窗口已经让位」：卡片贴着窗口的预览侧、按完整宽度排版，窗口宽多少就露
+    // 多少（见下面卡片那一段）。多一个宿主信号就多一个会滞后、会残留的真值源——「点了没反应」
+    // 正是从那里来的。
     val previewOpen = state.previewOpen
-    // 内容位移的像素量。卡片的揭示进度不在这里——它写在卡片自己那一段里，随卡片一起生灭。
-    val slideoutWidthPx = with(density) { slideoutWidth.toPx() }
 
     // 主列表（内容区）宽度。两个来源，切换点是「用户是不是正在拖窗口边缘」：
     //
     // - **在拖**：设置里的尺寸要等 250ms 静默期才落盘，跟不上手——跟随实测窗口宽度（预览开着时
     //   再减掉卡片那一段，卡片自己贴着窗口边缘），拖到哪就跟到哪；
-    // - **没在拖**：用设置算出来的定值。刻意**不**用实测宽度——为预览让位的那次加宽 / 收回由宿主
-    //   瞬时完成，界面要下一帧才量得到窗口宽度，照它算主列表会在开关的那一帧按「窗口还宽着」
-    //   排版、下一帧再收回来，文字当场重排一次。预览开关不该动主列表：窗口宽出来的那一段
-    //   **全部**给预览卡。
+    // - **没在拖**：用设置算出来的定值。刻意**不**用实测宽度——为预览让位的加宽 / 收回是逐帧
+    //   做出来的，界面要下一帧才量得到窗口宽度，照它算主列表会在开关的每一帧里跟着窗口一起
+    //   变窄变宽，文字逐帧重排。预览开关不该动主列表：窗口宽出来的那一段**全部**给预览卡。
     //
     // 窗口被用户拖得比内容区还窄时不必特殊处理：固定宽度会被 `Modifier.width` 再夹进父约束
     // （也就是窗口宽度）里，列表自然跟随窗口。
@@ -346,6 +350,13 @@ fun HistoryScreen(
     } else {
         contentWidth + (settings.previewWidth - previewWidth).dp
     }
+
+    // 预览卡在不在画面上：开着时当然在；**刚关上时窗口还没收回去**，卡片要留到窗口收拢为止，
+    // 否则预览内容是「啪」地消失、后面留一块背景慢慢收，同样是一次错位。
+    //
+    // 判据只读实测的窗口宽度，不额外记「正在收起」这类会残留的状态：窗口收回到内容区宽度时它
+    // 自然为假，收起的最后一帧也正好是卡片被主列表完全盖住的时候。
+    val previewCardVisible = previewOpen || windowWidth - mainWidth > PreviewCardDissolveWidth
 
     Box(
         modifier
@@ -384,31 +395,24 @@ fun HistoryScreen(
 
         // 预览卡：**必须声明在主列表之前**，z 序才在它下层。这是「窗口还没为预览让位」那几帧的
         // 唯一藏身处——列表不透明又铺满整窗，卡片压在它下面正好看不见；一旦声明在列表之后（更
-        // 不用说挪出根 `Box`，那样连 `align` 都解析不了），揭示动画的起点（整体挪出一个卡片宽度）
-        // 就会当场盖住列表的右半边，看起来就是一帧的闪。
+        // 不用说挪出根 `Box`，那样连 `align` 都解析不了），窗口还窄着的那几帧卡片就会当场盖住
+        // 列表的右半边，看起来就是一帧的闪。
         //
-        // 底色与内容同在 `graphicsLayer` **之内**，是同一块东西在滑；`graphicsLayer` 排在
-        // `background` 之前，底色写在它后面才会跟着一起位移。
-        if (previewOpen) {
-            // 揭示进度：0 = 整体藏在主窗口那一侧，1 = 就位。它随卡片一起创建、一起销毁，每次打开
-            // 都从 0 开始，没有「上一轮的值」要复位——放到外面 `remember` 就得靠 `snapTo(0f)` 拉回
-            // 0，而那要等副作用跑完：先画出一帧已经就位的卡片，再跳回去重新滑出来，同样是一帧的闪。
-            //
-            // 只在绘制阶段读，动画帧不触发重组。
-            val reveal = remember { Animatable(0f) }
-            LaunchedEffect(Unit) { reveal.animateTo(1f, tween(PreviewRevealMillis)) }
+        // 卡片自己**不做任何动画**：它按完整宽度排版、贴着窗口的预览侧外沿，被让出来多少完全由
+        // 窗口宽度决定——窗口每变宽一点，卡片就从列表后面多露出一点，两个动画本就是同一个。
+        //
+        // 宽度必须用 `requiredWidth`：窗口还窄着时它大于父约束，`width` 会被夹成「窗口此刻多
+        // 宽」，面板内容当场按那个宽度重排（文字重新折行、图片重新缩放），跟着窗口逐帧抖；卡片
+        // 要的是「被窗口裁掉一部分」，而不是「被压扁」。超出窗口的那部分由根 `Box` 的圆角裁剪
+        // 挡在外面，指针也到不了。
+        if (previewCardVisible) {
             Box(
                 Modifier
-                    .width(slideoutWidth)
+                    .requiredWidth(slideoutWidth)
                     .align(
                         if (previewHost.onLeft) Alignment.CenterStart else Alignment.CenterEnd,
                     )
                     .fillMaxHeight()
-                    .graphicsLayer {
-                        val progress = reveal.value
-                        translationX = (if (previewHost.onLeft) 1f else -1f) *
-                            slideoutWidthPx * (1f - progress)
-                    }
                     .background(colors.background),
             ) {
                 PreviewSlideout(
