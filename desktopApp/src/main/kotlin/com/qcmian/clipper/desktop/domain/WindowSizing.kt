@@ -14,26 +14,6 @@ val InitialPanelHeight: Dp = 400.dp
 /** 应用自己调整窗口尺寸后，忽略尺寸通知的时长。 */
 internal const val RESIZE_SETTLE_MILLIS = 250L
 
-/**
- * 预览滑出 / 收回时，窗口几何过渡的时长。**恒为 0：窗口一次到位，不做逐帧过渡。**
- *
- * 逐帧改窗口尺寸要每帧过一次原生 `setBounds`（还会连带 Compose 整窗重新测量），代价远高于在
- * 界面内做一段绘制动画。而预览滑出的动效只是「展示一下」，没必要让真实窗口陪着一起动——它只
- * 由 `HistoryScreen` 里的预览卡自己做（见 `PREVIEW_REVEAL_MILLIS`）。
- *
- * 只有「位置与宽度一起变、高度不变」时才走这条过渡（见 `applyWindowBounds`）；置 0 即一次到位。
- */
-internal const val WINDOW_SLIDE_MILLIS = 0L
-
-/**
- * 过渡的步进间隔，约一帧。
- *
- * 用 [kotlinx.coroutines.delay] 而不是 `withFrameNanos`：后者要 `MonotonicFrameClock`，而它只
- * 在组合的协程上下文里；`viewModelScope` 里没有，`withFrameNanos` 会直接抛异常，几何再也应用
- * 不上去（表现为窗口尺寸不动、也不跟鼠标）。用绝对时刻算进度，主线程偶尔卡一下也只是少几帧。
- */
-internal const val WINDOW_SLIDE_STEP_MILLIS = 16L
-
 /** 区分用户拖动与应用设定的尺寸时的容差，单位为 dp。 */
 internal const val RESIZE_TOLERANCE_DP = 2f
 
@@ -102,29 +82,19 @@ internal fun contentHeightOf(
 /**
  * 窗口允许的最小尺寸，交给 AWT 的 `window.minimumSize`。
  *
- * 宽度 = 内容区下限 + 预览开着时的滑出面板下限。**必须把预览那段算进去**：预览开着时窗口里要
- * 并排放下主列表与预览，下限若只算内容区，用户就能把窗口压到「两个面板的下限之和」以下——那时
- * 分隔条一点可分配的宽度都没有，只能一动不动（看起来就是「分隔条坏了」）。多留出的这一段正好
- * 是划分的下限（[Popup.minimumSplitContentWidth]）与窗口下限（[Popup.minimumContentWidth]）
- * 之差，窗口压到最小时分隔条也仍有可拖的余量。
+ * 宽度**恒为内容区下限**，不随预览开没开变——这一点是被踩出来的：下限一旦大于当前窗口宽度，
+ * 系统会**立刻**把窗口撑到下限，那是一次程序没安排的、时机不受控的原生 resize（预览停靠左侧时
+ * 还会带着窗口一起移动），而且它在 Compose 看来跟「用户拖窗口」无法区分，会顺手打开 250ms 的
+ * 拖拽静默期。预览并排需要的宽度由几何公式保证（窗口宽 = 内容区 + 滑出宽度），不靠下限兜。
  *
- * 预览关着时必须**只取内容区下限**，不能按「开过预览的最小值」卡住：原生下限是「上一次设过的
- * 值」，关预览时窗口要收窄到内容宽度，却会被并排时设下的下限卡住，`setBounds` 被系统夹回旧值，
- * 窗口再也收不回来；更糟的是 `lastAppliedBounds` 记的是我们**请求**的尺寸，后续每次算出同一个
- * 更窄的尺寸都会被判成「已经应用过」而跳过，于是永久卡住。
- *
- * 拖拽时的保护交给 `observeUserResize`：右 / 下两侧框架本来就不读这个下限，左 / 上两侧读到
- * 的也只是这个宽度；无论哪一侧，落盘时都会把自定义宽度收敛回划分下限。
+ * 预览开着时用户把窗口拖窄，预览会被压住（卡片按设置宽度画、超出部分被窗口裁掉）；松手落盘时
+ * `observeUserResize` 会按「整窗宽度 − 滑出宽度」重算内容区宽度，窗口随即被补回并排所需的宽度。
  *
  * 高度下限直接取 [minimumHeight]——它已经把置顶区与头部 / 页脚算进去了，置顶项再多也不会挤掉
  * 滑动区那几行。
  */
-internal fun minimumWindowSizeOf(minimumHeight: Dp, previewOpen: Boolean = false): DpSize =
-    DpSize(
-        width = Popup.minimumContentWidth +
-            if (previewOpen) Popup.minimumSlideoutWidth else 0.dp,
-        height = minimumHeight,
-    )
+internal fun minimumWindowSizeOf(minimumHeight: Dp): DpSize =
+    DpSize(width = Popup.minimumContentWidth, height = minimumHeight)
 
 /**
  * 预览滑出面板占用的总宽度：面板本身加上与主列表之间的分隔条。

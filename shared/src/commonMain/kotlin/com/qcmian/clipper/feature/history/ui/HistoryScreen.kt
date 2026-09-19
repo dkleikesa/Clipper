@@ -22,7 +22,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -374,9 +373,12 @@ fun HistoryScreen(
             }
             .onPreviewKeyEvent(keyHandler),
     ) {
+
+
         // 预览卡：**必须声明在主列表之前**，z 序才在它下层。这是「窗口还没为预览让位」那几帧的
-        // 唯一藏身处——列表不透明又铺满整窗，卡片压在它下面正好看不见；一旦声明在列表之后，揭示
-        // 动画的起点（整体挪出一个卡片宽度）就会当场盖住列表的右半边，看起来就是一帧的闪。
+        // 唯一藏身处——列表不透明又铺满整窗，卡片压在它下面正好看不见；一旦声明在列表之后（更
+        // 不用说挪出根 `Box`，那样连 `align` 都解析不了），揭示动画的起点（整体挪出一个卡片宽度）
+        // 就会当场盖住列表的右半边，看起来就是一帧的闪。
         //
         // 底色与内容同在 `graphicsLayer` **之内**，是同一块东西在滑；`graphicsLayer` 排在
         // `background` 之前，底色写在它后面才会跟着一起位移。

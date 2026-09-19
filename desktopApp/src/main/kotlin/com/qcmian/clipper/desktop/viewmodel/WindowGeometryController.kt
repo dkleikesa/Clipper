@@ -13,8 +13,6 @@ import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.desktop.domain.APPLIED_SIZE_HISTORY
 import com.qcmian.clipper.desktop.domain.RESIZE_SETTLE_MILLIS
 import com.qcmian.clipper.desktop.domain.RESIZE_TOLERANCE_DP
-import com.qcmian.clipper.desktop.domain.WINDOW_SLIDE_MILLIS
-import com.qcmian.clipper.desktop.domain.WINDOW_SLIDE_STEP_MILLIS
 import com.qcmian.clipper.desktop.domain.autoWindowSize
 import com.qcmian.clipper.desktop.domain.constrained
 import com.qcmian.clipper.desktop.domain.contentWidthOf
@@ -24,9 +22,6 @@ import com.qcmian.clipper.desktop.domain.nearlyEquals
 import com.qcmian.clipper.desktop.domain.resolvePosition
 import com.qcmian.clipper.desktop.domain.screenBounds
 import com.qcmian.clipper.desktop.domain.slideoutWidthOf
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -34,7 +29,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import java.awt.Rectangle
 import kotlin.math.roundToInt
 
@@ -44,10 +38,10 @@ import kotlin.math.roundToInt
  * 它持有全部几何状态（锚点、上一次应用的几何、程序自己设过的尺寸历史、拖拽静默期），
  * 并把这些字段从 ViewModel 里收拢到一处——原 `DesktopShellViewModel` 里耦合最深的就是这一块。
  *
- * 对外只有三个观察入口（[observeWindowGeometry] / [observeMinimumWindowSize] /
- * [observeUserResize]）与一个命令（[moveToCursor]）；[applyWindowGeometry] 是它们共同落点。
- * 面板显隐、预览开关、内容高度变化都不直接调用它——它们只改 [state] 或偏好，由这里的观察者
- * 自己收敛，因此窗口几何永远只有一个「算-应用」路径。
+ * 对外只有两个观察入口（[observeWindowGeometry] / [observeUserResize]）与一个命令
+ * （[moveToCursor]）；[applyWindowGeometry] 是它们共同的落点。面板显隐、预览开关、内容高度变化
+ * 都不直接调用它——它们只改 [state] 或偏好，由这里的观察者自己收敛，因此窗口几何永远只有一个
+ * 「算-应用」路径。
  *
  * @param openedByTray 本次显示是否由托盘触发；托盘呼出时锚点固定在菜单栏图标上
  *   （见 [placementPreference]）。
@@ -69,11 +63,9 @@ internal class WindowGeometryController(
      * 设置窗口允许的最小尺寸（AWT `window.minimumSize`）。
      *
      * 手动拖拽窗口边缘时由框架读它拦下收缩（`UndecoratedWindowResizer`），因此这里算的
-     * 就是内容区的下限（预览并排时再加上滑出面板），见 [minimumWindowSizeOf]。
+     * 就是内容区的下限（宽度恒为内容区下限，不含预览那一段，见 [minimumWindowSizeOf]）。
      */
     private val applyMinimumSize: (width: Int, height: Int) -> Unit,
-    /** 窗口几何过渡（[geometryJob]）运行在这里。 */
-    private val scope: CoroutineScope,
     private val openedByTray: () -> Boolean,
 ) {
     /**
@@ -88,12 +80,6 @@ internal class WindowGeometryController(
 
     /** 应用自己最后设定过的窗口几何（位置 + 尺寸），用来跳过重复的原生调用。 */
     private var lastAppliedBounds: Rectangle? = null
-
-    /** 最后**落到原生窗口上**的几何。预览滑出 / 收回的过渡从这里开始插值，见 [applyWindowBounds]。 */
-    private var lastNativeBounds: Rectangle? = null
-
-    /** 正在跑的窗口几何过渡（位置 / 宽度逐帧插值）；新目标到来时取代上一次。 */
-    private var geometryJob: Job? = null
 
     /** 应用自己最后设定过的窗口最小尺寸，用来跳过重复的原生调用。 */
     private var lastAppliedMinimumSize: DpSize? = null
@@ -155,47 +141,13 @@ internal class WindowGeometryController(
         if (openedByTray()) PopupPosition.MENU_BAR else settings.popupPosition
 
     /**
-     * 窗口允许的最小尺寸（内容区下限 + 预览开着时的滑出面板），交给 AWT 的 `window.minimumSize`。
-     *
-     * 用户拖拽窗口边缘时由框架读它拦下收缩（`UndecoratedWindowResizer` 对左 / 上两侧做了
-     * `coerceAtLeast(window.minimumSize)`），所以下限要在拖拽开始之前就已经设好。宽度由
-     * [minimumWindowSizeOf] 给出（预览开着时含滑出面板），高度用界面报上来的
-     * [DesktopShellUiState.minimumHeight]。值没变时不产生原生调用。
-     *
-     * 下限**变小**时额外补一次几何：之前可能有一次尺寸请求被旧下限夹住（系统接受的是夹过之后
-     * 的值，而 [lastAppliedBounds] 记的是请求值，于是再也去重不掉），清掉记录再请求一次，
-     * 窗口才收得回来。
-     */
-    suspend fun observeMinimumWindowSize() {
-        combine(
-            state,
-            // 预览开关决定下限要不要含滑出面板（见 [minimumWindowSizeOf]）。
-            repository.settings.map { it.previewOpen }.distinctUntilChanged(),
-        ) { snapshot, previewOpen -> minimumWindowSizeOf(snapshot.minimumHeight, previewOpen) }
-            .distinctUntilChanged()
-            .collect { size ->
-                val previous = lastAppliedMinimumSize
-                applyMinimumSizeIfNeeded(size)
-                // 下限变小（收起预览、内容变矮）：之前可能有一次尺寸请求被旧下限夹住，补一次几何。
-                // 宽度也要看——收起预览只动宽度，而那次收窄正是最容易被旧下限夹住的一次。
-                if (previous != null && (size.width < previous.width || size.height < previous.height)) {
-                    lastAppliedBounds = null
-                    applyWindowGeometry(state.value, repository.settings.value)
-                }
-            }
-    }
-
-    /**
      * 应用窗口下限；与上次设过的值相同就是空操作。
      *
-     * 它在 [applyWindowGeometry] 里**先于**尺寸跑一次，这是必须的：下限是原生窗口的一个属性，
-     * 而它取的是「上一次设过的值」——收起预览时窗口要收窄到内容宽度，此时下限里还含着预览那
-     * 一段，系统会把这次收窄夹回旧下限，而 [lastAppliedBounds] 记的是**请求值**：之后每次算出
-     * 同一个更窄的尺寸都会被判成「已经应用过」跳过，窗口于是再也收不回来（右侧留一块空白，整个
-     * 窗口一直宽着）。
+     * 它只在 [applyWindowGeometry] 里、**先于**尺寸跑一次：下限是原生窗口的一个属性，值一旦大于
+     * 当前窗口，系统会立刻把窗口撑到下限——那是一次程序没安排的原生 resize。放在尺寸之前，这次
+     * 撑大与随后的 `setBounds` 落在同一条调用里，不会单独露出来。
      *
-     * 两个收集器谁先醒由调度决定（[observeWindowGeometry] 与 [observeMinimumWindowSize] 订阅的是
-     * 同一条设置流），因此这里不能指望「下限那一次先跑」——偶发就是这么来的。
+     * 宽度是常数（见 [minimumWindowSizeOf]），只有高度会随界面测量的内容高度变。
      */
     private fun applyMinimumSizeIfNeeded(size: DpSize) {
         if (size == lastAppliedMinimumSize) return
@@ -378,8 +330,9 @@ internal class WindowGeometryController(
             size = target,
             bounds = bounds,
         )
-        // 下限必须**先于**尺寸落地，否则这次收窄会被旧下限夹回（见 [applyMinimumSizeIfNeeded]）。
-        applyMinimumSizeIfNeeded(minimumWindowSizeOf(snapshot.minimumHeight, previewOpen))
+        // 下限先于尺寸落地（见 [applyMinimumSizeIfNeeded]）：值一旦大于当前窗口，系统会立刻把
+        // 窗口撑到下限，排在这里就能与随后的 `setBounds` 落在同一条调用里。
+        applyMinimumSizeIfNeeded(minimumWindowSizeOf(snapshot.minimumHeight))
         applyWindowBounds(
             x = placed.x.value.roundToInt(),
             y = placed.y.value.roundToInt(),
@@ -396,64 +349,27 @@ internal class WindowGeometryController(
             size.height.value.roundToInt(),
         )
         if (lastAppliedBounds == bounds) return
-        val from = lastNativeBounds
         lastAppliedBounds = bounds
-        geometryJob?.cancel()
-
-        // 首次摆放、或高度也变了：一次到位。高度由内容决定（条目增减），逐帧插值只会让窗口
-        // 长得比内容慢；首次摆放时窗口本来就在进场，也不该滑一下。`WINDOW_SLIDE_MILLIS` 置 0
-        // 即关掉过渡，退回一次到位。
-        if (from == null || from.height != bounds.height || from.width == bounds.width ||
-            WINDOW_SLIDE_MILLIS <= 0L
-        ) {
-            applyNativeBounds(bounds)
-            return
-        }
-
-        // 只有「预览滑出 / 收回」这一类变化（位置与宽度一起变、高度不变）才逐帧插值，见
-        // [WINDOW_SLIDE_MILLIS]：一次到位会留下系统按旧内容补位的那一帧，看起来就是预览整块
-        // 盖在主列表上。
-        geometryJob = scope.launch {
-            val startedAt = System.nanoTime()
-            try {
-                while (true) {
-                    val progress = (
-                        (System.nanoTime() - startedAt) / 1_000_000f / WINDOW_SLIDE_MILLIS
-                        ).coerceIn(0f, 1f)
-                    applyNativeBounds(
-                        Rectangle(
-                            from.x + ((bounds.x - from.x) * progress).roundToInt(),
-                            bounds.y,
-                            from.width + ((bounds.width - from.width) * progress).roundToInt(),
-                            bounds.height,
-                        ),
-                    )
-                    if (progress >= 1f) return@launch
-                    delay(WINDOW_SLIDE_STEP_MILLIS)
-                }
-            } catch (cancellation: CancellationException) {
-                // 被新的目标取代：停在当前帧，由新的那次过渡接着走。
-                throw cancellation
-            } catch (error: Throwable) {
-                // 过渡本身出岔子也不能让窗口停在半路：直接把目标摆上。
-                applyNativeBounds(bounds)
-            }
-        }
+        applyNativeBounds(bounds)
     }
 
     /**
      * 真正落到原生窗口上的一次应用，并把 `windowState` 对齐到同一组值。
      *
-     * 对齐 state 是因为 Compose 自己的窗口实现会把 state 里的尺寸与位置**分两次**应用到窗口
-     * 上（先尺寸、后位置），而它读到的这两个值来自窗口的通知，到达有先后：缩放通知先到、移动
-     * 通知后到。左侧停靠时窗口要同时「左移」和「变宽」，于是它可能在「尺寸已新、位置仍旧」的
-     * 那一帧按旧位置再摆一次窗口。我们把 state 一并对齐后，它那两次应用都是空操作。
+     * **同步**调用 [applyBounds]（不推迟到下一帧）：窗口的 resize 通知由它同步发出、排在当前事件
+     * 之后，而下一帧排在通知之后——顺序正好是「窗口动 → 场景按新尺寸布好 → 那一帧画出来」。
+     * 试过把提交推迟到帧内（`SideEffect`）省掉中间那一拍，结果场景尺寸反而落后一帧：窗口已经左移
+     * 加宽，内容还按旧尺寸排版，整个面板偏出一个滑出宽度。
      *
-     * 每一帧都要记进 [recentAppliedSizes]：插值的中间尺寸也是**程序自己**设的，漏记的话会被
-     * 当成「用户在拖窗口边缘」（见 [observeUserResize]）。
+     * 对齐 state 是因为 Compose 自己的窗口实现会把 state 里的尺寸与位置**分两次**应用到窗口上
+     * （先尺寸、后位置），而它读到的这两个值来自窗口的通知，到达有先后：缩放通知先到、移动通知
+     * 后到。左侧停靠时窗口要同时「左移」和「变宽」，于是它可能在「尺寸已新、位置仍旧」的那一帧按
+     * 旧位置再摆一次窗口。我们把 state 一并对齐后，它那两次应用都是空操作。
+     *
+     * 尺寸要记进 [recentAppliedSizes]：它的通知随后就到，漏记的话会被当成「用户在拖窗口边缘」
+     * （见 [observeUserResize]）。
      */
     private fun applyNativeBounds(bounds: Rectangle) {
-        lastNativeBounds = bounds
         applyBounds(bounds.x, bounds.y, bounds.width, bounds.height)
         val size = DpSize(bounds.width.dp, bounds.height.dp)
         rememberAppliedSize(size)

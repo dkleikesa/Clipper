@@ -107,7 +107,7 @@ fun ApplicationScope.ClipperWindow(
         state = windowState,
     ) {
 
-        // 内容组合由窗口宿主提供 ViewModelStoreOwner：窗口隐藏时组合保留、store 不销毁。
+        // 内容组合由窗口提供 ViewModelStoreOwner：窗口隐藏时组合保留、store 不销毁。
         val viewModel = viewModel {
             DesktopShellViewModel(
                 container = container,
@@ -117,9 +117,13 @@ fun ApplicationScope.ClipperWindow(
                 // 位置与尺寸一次应用。Compose 自己的实现是 `setSize` + `setLocation` 两次
                 // 调用，左侧停靠时窗口要同时「左移」和「变宽」，两次之间的中间帧会被系统
                 // 画出来——整个窗口左右闪一下；`setBounds` 是原子的。
+                //
+                // **同步**提交（不推迟到下一帧）：窗口的 resize 通知会排在当前这条事件之后，
+                // 而下一帧排在它之后——顺序正好是「resize → 场景按新尺寸布好 → 这一帧画出来」。
+                // 试过推迟到帧内提交，代价是场景尺寸反而落后一帧，画出来整个面板偏一个滑出宽度。
                 applyBounds = { x, y, width, height -> window.setBounds(x, y, width, height) },
                 // 内容区的下限：无标题栏拖拽由框架读 `minimumSize` 拦下，用户拖不过去
-                // （见 `DesktopShellViewModel.observeMinimumWindowSize`）。
+                // （见 `WindowSizing.minimumWindowSizeOf`）。
                 applyMinimumSize = { width, height -> window.minimumSize = Dimension(width, height) },
             )
         }
@@ -137,7 +141,7 @@ fun ApplicationScope.ClipperWindow(
             }
         }
 
-        // 对应 `FloatingPanel.resignKey()`：面板失去焦点即隐藏，但它的对话框弹出时不隐藏。
+        // 对应 `FloatingPanel.resignKey()`：面板失去焦点即隐藏，但它的对话框弹出时不隐藏。        // 对应 `FloatingPanel.resignKey()`：面板失去焦点即隐藏，但它的对话框弹出时不隐藏。
         DisposableEffect(window) {
             val listener = object : WindowFocusListener {
                 override fun windowGainedFocus(event: WindowEvent?) {

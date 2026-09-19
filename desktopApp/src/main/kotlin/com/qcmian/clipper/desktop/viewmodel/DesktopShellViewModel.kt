@@ -68,7 +68,6 @@ class DesktopShellViewModel(
         windowState = windowState,
         applyBounds = applyBounds,
         applyMinimumSize = applyMinimumSize,
-        scope = viewModelScope,
         openedByTray = { presentation.openedByTray },
     )
 
@@ -91,7 +90,6 @@ class DesktopShellViewModel(
         viewModelScope.launch { hotKeys.observeShortcut() }
         viewModelScope.launch { hotKeys.observeHotKeyHold() }
         viewModelScope.launch { geometry.observeWindowGeometry() }
-        viewModelScope.launch { geometry.observeMinimumWindowSize() }
         viewModelScope.launch { geometry.observeUserResize() }
         viewModelScope.launch { presentation.observeToggleRequests() }
         viewModelScope.launch { presentation.observeOutsideClicks() }
