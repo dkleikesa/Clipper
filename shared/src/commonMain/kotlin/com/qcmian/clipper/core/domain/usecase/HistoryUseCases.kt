@@ -3,7 +3,7 @@ package com.qcmian.clipper.core.domain.usecase
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 
-/** 对应 `History.togglePin`：置顶条目，或取消置顶。 */
+/** 置顶条目，或取消置顶。 */
 class TogglePinUseCase(
     private val repository: ClipboardRepository,
 ) {

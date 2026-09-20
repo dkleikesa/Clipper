@@ -32,6 +32,7 @@ class UpdateSettingsUseCase(private val repository: ClipboardRepository) {
 
         val layoutChanged = updated.historyMaxCount != previous.historyMaxCount ||
             updated.sortBy != previous.sortBy ||
+            updated.sortOrder != previous.sortOrder ||
             updated.pinTo != previous.pinTo
 
         if (items != original || layoutChanged) {

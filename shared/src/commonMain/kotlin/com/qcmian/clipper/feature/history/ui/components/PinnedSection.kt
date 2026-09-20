@@ -17,8 +17,7 @@ import com.qcmian.clipper.core.ui.Popup
  * 置顶在头部侧（[separatorFirst] 为 `false`）或页脚侧（为 `true`）时的排列顺序镜像：分隔线
  * 永远在滚动列表那一侧。
  *
- * 对应 `HistoryListView` 顶部 / 底部区块的 `readHeight`（`popup.extraTopHeight` /
- * `extraBottomHeight`）：测出的高度由上层算进窗口高度。
+ * 测出的高度由上层算进窗口高度。
  *
  * @param separator 是否画与滚动列表之间的分隔线（仅置顶与非置顶都存在时为真）。
  * @param row 单条目行，与可滚动列表共用（见 `HistoryScreen.entryRow`）。

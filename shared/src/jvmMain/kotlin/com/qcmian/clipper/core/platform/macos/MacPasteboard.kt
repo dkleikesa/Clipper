@@ -29,7 +29,7 @@ object MacPasteboard {
      * 读出剪贴板上每一种类型的原始字节。
      *
      * 优先走 `pasteboardItems`：`NSPasteboard.types` 会列出「声明了但当前条目里并不存在」的
-     * 类型（见 Maccy #241），逐个 item 读 `dataForType:` 才拿得到真实载荷。
+     * 类型，逐个 item 读 `dataForType:` 才拿得到真实载荷。
      * `pasteboardItems` 读不到时退化为直接在粘贴板上读 `types` + `dataForType:`。
      *
      * 返回值只做「把字节安全拷出来」这一件事：`NSData.bytes` 是裸指针，只在当前

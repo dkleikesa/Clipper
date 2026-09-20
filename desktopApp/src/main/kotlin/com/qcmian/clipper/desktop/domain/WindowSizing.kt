@@ -27,7 +27,6 @@ internal const val RESIZE_TOLERANCE_DP = 2f
 internal const val APPLIED_SIZE_HISTORY = 8
 
 /**
- * 对应 `SlideoutController.computeSizeWithPreview` + `FloatingPanel.windowWillResize`：
  * 宽度是内容宽度（预览打开时再加上滑出宽度），高度由内容决定（自动模式）或取自自定义高度，
  * 再用「锚点下方还剩多少」截一刀，因此面板永远从光标处向下长、不会越过屏幕底边。
  *

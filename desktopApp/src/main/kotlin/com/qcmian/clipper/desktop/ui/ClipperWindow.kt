@@ -134,7 +134,7 @@ fun ApplicationScope.ClipperWindow(
             }
         }
 
-        // 对应 `FloatingPanel.resignKey()`：面板失去焦点即隐藏，但它的对话框弹出时不隐藏。        // 对应 `FloatingPanel.resignKey()`：面板失去焦点即隐藏，但它的对话框弹出时不隐藏。
+        // 面板失去焦点即隐藏，但它的对话框弹出时不隐藏。
         DisposableEffect(window) {
             val listener = object : WindowFocusListener {
                 override fun windowGainedFocus(event: WindowEvent?) {
@@ -157,7 +157,7 @@ fun ApplicationScope.ClipperWindow(
         // 每一次「呼出面板」（热键或托盘）都会自增；用来判断这次显示是不是新的一次。
         val openRequests by hotkeyController.openRequests.collectAsStateWithLifecycle()
 
-        // 对应 `FloatingPanel.makeKeyAndOrderFront`：显示时把本应用带到前台并取得键盘焦点，
+        // 显示时把本应用带到前台并取得键盘焦点，
         // 面板才能成为 key window——键盘输入可到达面板，点击窗口外部也会触发失焦收起。
         //
         // 必须跟随 [windowVisible]（真正传给 `Window(visible=...)` 的那个状态），而不是

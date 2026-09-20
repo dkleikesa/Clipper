@@ -113,7 +113,6 @@ class ClipboardViewModel(
         repository.flush()
     }
 
-    /** 对应 `AppDelegate.applicationWillTerminate`。 */
     fun onQuit() = useCases.handleQuit()
 
     // ---------------------------------------------------------------------------------
@@ -151,7 +150,7 @@ class ClipboardViewModel(
 
             ClipboardUiAction.TogglePinSelected -> _uiState.value.selectedItem?.let {
                 useCases.togglePin(it)
-                // 对应 `History.togglePin`：置顶之后总是会离开搜索状态。
+                // 置顶之后总是会离开搜索状态。
                 search.clearSearch()
             }
 
@@ -232,7 +231,7 @@ class ClipboardViewModel(
         }
     }
 
-    /** 对应 `AppState.select` + `ConfirmationView`：清除历史前总是先确认。 */
+    /** 清除历史前总是先确认。 */
     private fun requestClear(all: Boolean, hidePanel: Boolean = true) {
         _uiState.update {
             it.copy(
@@ -256,7 +255,6 @@ class ClipboardViewModel(
     // 宿主事件
     // ---------------------------------------------------------------------------------
 
-    /** 对应 `Popup.handleFirstKeyDown`。 */
     private fun onOpened() {
         navigation.resetKeyboardNavigation()
         _uiState.update {
@@ -271,7 +269,7 @@ class ClipboardViewModel(
         }
     }
 
-    /** 对应 `Popup.handleFlagsChanged`：松开修饰键时接受当前高亮的条目。 */
+    /** 松开修饰键时接受当前高亮的条目。 */
     private fun onAccept() {
         val state = _uiState.value
         if (state.footerSelection < 0 && state.results.isNotEmpty()) {
@@ -314,8 +312,6 @@ class ClipboardViewModel(
     }
 
     /**
-     * 对应 `SlideoutController.togglePreview(trigger: .manual)`。
-     *
      * 写的是设置而不是界面状态：开关随设置持久化，因此面板关闭、应用重启都不会把它复位，
      * 打开的预览会一直开着（见 `AppSettings.previewOpen`）。
      */

@@ -93,8 +93,8 @@ fun App(
             viewModel.onRequestHideWindow = onRequestHideWindow
             viewModel.onQuitRequest = onQuit ?: {}
             onDispose {
-                // 对应 `AppDelegate.applicationWillTerminate`：把防抖的写入落盘，
-                // 并应用「退出时清空历史」偏好。只有真正能退出的宿主才会走到这里。
+                // 把防抖的写入落盘，并应用「退出时清空历史」偏好。
+                // 只有真正能退出的宿主才会走到这里。
                 if (onQuit != null) viewModel.onQuit() else container.repository.flush()
             }
         }

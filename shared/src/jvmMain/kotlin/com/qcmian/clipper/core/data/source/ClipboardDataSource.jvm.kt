@@ -90,7 +90,7 @@ private class JvmClipboardDataSource : ClipboardDataSource {
             while (isActive) {
                 delay(pollIntervalMillis)
                 // macOS 上先读 `changeCount`（一个 int）做快速比对：变化即一次复制，
-                // 内容相同也算——重复制交给捕获层合并并累加次数（对齐 Maccy）。
+                // 内容相同也算——重复制交给捕获层合并并累加次数。
                 // 本应用自己写入的选中走的也是这条路：仓库随后把它合并一次、排到最前。
                 if (isMacOs()) {
                     val changeCount = MacPasteboard.changeCount()

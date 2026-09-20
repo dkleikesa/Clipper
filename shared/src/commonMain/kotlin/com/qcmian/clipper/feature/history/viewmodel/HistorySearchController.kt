@@ -32,11 +32,19 @@ internal class HistorySearchController(
     private var searchJob: Job? = null
     private var lastSearchAt = 0L
 
-    /** [query] 针对当前历史的结果，不触碰状态。 */
-    fun resultsFor(query: String): List<SearchResult> =
-        ClipSearch.search(query, items(), settings().searchMode)
+    /** [query] 针对当前历史的结果，不触碰状态。类型筛选在这里先于搜索生效。 */
+    fun resultsFor(query: String): List<SearchResult> {
+        val filtered = filterByType(items())
+        return ClipSearch.search(query, filtered, settings().searchMode)
+    }
 
-    /** 对应 `History.searchQuery.didSet` + `Throttler(minimumDelay: 0.2)`。 */
+    /** 按设置里的类型集合过滤；置顶项永远保留，不受类型筛选影响。 */
+    private fun filterByType(items: List<ClipItem>): List<ClipItem> {
+        val types = settings().filterTypes
+        // 空集表示用户取消了所有类型：未置顶内容一条都不显示，置顶项仍保留。
+        return items.filter { it.isPinned || it.clipType in types }
+    }
+
     fun updateQuery(value: String) {
         state.update { it.copy(query = value) }
 
@@ -57,7 +65,7 @@ internal class HistorySearchController(
         }
     }
 
-    /** 对应 `History.searchQuery.didSet`：新查询会高亮第一个匹配项。 */
+    /** 新查询会高亮第一个匹配项。 */
     private fun applyQuery(value: String) {
         val results = resultsFor(value)
         // 清空搜索时落回内容区第一条，与面板打开时的默认落点一致（见 `defaultSelectionIndex`）。

@@ -23,16 +23,16 @@ enum class ShortcutSlot(
     /** 出厂默认绑定；`null` 表示默认不绑定。 */
     val default: ShortcutSpec?,
 ) {
-    /** 对应 `KeyboardShortcuts.Name.popup`，`⇧⌘C`。 */
+    /** 默认 `⇧⌘C`。 */
     POPUP("呼出面板", global = true, default = ShortcutSpec("C", command = true, shift = true)),
 
-    /** 对应 `KeyboardShortcuts.Name.pin`，`⌥P`。 */
+    /** 默认 `⌥P`。 */
     PIN("置顶 / 取消置顶", global = false, default = ShortcutSpec("P", option = true)),
 
-    /** 对应 `KeyboardShortcuts.Name.delete`，`⌥⌫`。 */
+    /** 默认 `⌥⌫`。 */
     DELETE("删除选中项", global = false, default = ShortcutSpec("\u232b", option = true)),
 
-    /** 对应 `KeyboardShortcuts.Name.togglePreview`，`⌃Space`。 */
+    /** 默认 `⌃Space`。 */
     TOGGLE_PREVIEW("显示 / 隐藏预览", global = false, default = ShortcutSpec(" ", control = true)),
 
     /**

@@ -3,7 +3,6 @@ package com.qcmian.clipper.core.domain.usecase
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 
 /**
- * 对应 `AppDelegate.applicationWillTerminate`，并额外做一次同步落盘：
  * 应用「退出时清空历史」偏好，并确保防抖的写入已经落地。
  */
 class HandleQuitUseCase(

@@ -33,8 +33,7 @@ data class HostUiState(
     val isWindowVisible: Boolean = false,
 
     /**
-     * 有对话框（偏好设置、关于、清除确认）显示时为 `true`。
-     * 对应 `FloatingPanel.resignKey`，它在弹出警告框时不会关闭面板。
+     * 有对话框（偏好设置、关于、清除确认）显示时为 `true`，弹出警告框时不会关闭面板。
      */
     val isModalOpen: Boolean = false,
 
@@ -98,7 +97,7 @@ class WindowController {
         _toggleRequests.value++
     }
 
-    /** 对应 `FloatingPanel.close()`：关闭弹窗的同时也关闭预览滑出面板。 */
+    /** 关闭弹窗的同时也关闭预览滑出面板。 */
     fun requestHide() {
         _hideRequests.value++
     }
@@ -108,9 +107,9 @@ class WindowController {
         _exitRequested.value = true
     }
 
-    /** 对应 `ListHeaderView` 的「弹窗失去焦点时清空搜索」。 */
+    /** 弹窗失去焦点时清空搜索。 */
     fun clearSearch() = clearSearchAction()
 
-    /** 对应 `AppDelegate.applicationWillTerminate`：应用「退出时清空历史」偏好。 */
+    /** 应用「退出时清空历史」偏好。 */
     fun quit() = quitAction()
 }

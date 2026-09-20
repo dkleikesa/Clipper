@@ -1,6 +1,7 @@
 package com.qcmian.clipper.core.domain.model
 
 import androidx.compose.runtime.Immutable
+import com.qcmian.clipper.core.settings.ClipFilterType
 
 /**
  * 剪贴板历史中的单条记录。
@@ -52,7 +53,7 @@ data class ClipItem(
     }
 
     /**
-     * 用于预览和搜索的文本。对应 `HistoryItem.previewableText`：图片没有文本表示，
+     * 用于预览和搜索的文本。图片没有文本表示，
      * 因此在文字识别填入之前，其标题保持为空。
      */
     val previewableText: String
@@ -72,6 +73,20 @@ data class ClipItem(
     val hasRecognizedText: Boolean
         get() = image != null && text.isNullOrBlank() && files.isEmpty() && title.isNotBlank()
 
+    /**
+     * 条目在筛选栏里归属的类型。
+     *
+     * 一次复制可能同时携带多种表示（例如网页同时有纯文本与 HTML），这里取最具体的一种，
+     * 优先级：文件 > 图片 > 富文本 > 文本。
+     */
+    val clipType: ClipFilterType
+        get() = when {
+            files.isNotEmpty() -> ClipFilterType.FILE
+            image != null -> ClipFilterType.IMAGE
+            contents.isNotEmpty() -> ClipFilterType.RICH_TEXT
+            else -> ClipFilterType.TEXT
+        }
+
     /** 当本条目已包含 [other] 提供的全部内容时返回 `true`。 */
     fun supersedes(other: ClipItem): Boolean {
         val hasContent = other.text != null || other.image != null ||
@@ -84,7 +99,7 @@ data class ClipItem(
     }
 
     /**
-     * 构建列表显示的单行标题。对应 `HistoryItem.generateTitle()`，包含 `showSpecialSymbols`
+     * 构建列表显示的单行标题，包含 `showSpecialSymbols`
      * 偏好：开启时首尾空格显示为 `·`，换行与制表符显示为 `⏎`/`⇥`。
      */
     fun generateTitle(showSpecialSymbols: Boolean = true): String =
@@ -109,7 +124,7 @@ private fun String.utf8SizeBytes(): Long = encodeToByteArray().size.toLong()
  */
 private val UNSAFE_TITLE_SCALARS = setOf('\uFFFC')
 
-/** 对应 `String.removingScalarsUnsafeForTitleLayout()`，按标量逐个过滤。 */
+/** 按标量逐个过滤。 */
 fun String.removingUnsafeTitleScalars(): String =
     if (none { it in UNSAFE_TITLE_SCALARS }) this else filterNot { it in UNSAFE_TITLE_SCALARS }
 

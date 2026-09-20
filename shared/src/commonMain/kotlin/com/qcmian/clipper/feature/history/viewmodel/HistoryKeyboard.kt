@@ -36,7 +36,7 @@ fun resolveKeyActions(
     shortcuts: Map<String, List<KeyShortcut>>,
     footerActions: List<FooterAction>,
 ): List<ClipboardUiAction> {
-    // 对应 `KeyHandlingView`：输入法候选窗打开时忽略按键。
+    // 输入法候选窗打开时忽略按键。
     if (composing) return emptyList()
     if (event.type != KeyEventType.KeyDown || flags.isModifierKey(event)) return emptyList()
 
@@ -75,7 +75,7 @@ fun resolveKeyActions(
 
             state.results.isNotEmpty() -> listOf(ClipboardUiAction.Activate(state.historySelection, shift, alt, meta))
 
-            // 对应 `AppState.select`：没有选中任何条目，于是复制查询词本身。
+            // 没有选中任何条目，于是复制查询词本身。
             else -> listOf(ClipboardUiAction.CopySearchQuery)
         }
 

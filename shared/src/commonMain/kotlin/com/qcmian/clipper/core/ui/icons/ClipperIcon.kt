@@ -38,6 +38,14 @@ enum class ClipperIconKind {
     PAUSE,
     /** `questionmark.app.dashed`，应用没有图标时显示的兜底图标。 */
     APP,
+    /** 下拉箭头（实心向下三角形）。 */
+    CHEVRON_DOWN,
+    /** 升序箭头。 */
+    ARROW_UP,
+    /** 降序箭头。 */
+    ARROW_DOWN,
+    /** 对号（勾选标记）。 */
+    CHECKMARK,
 }
 
 @Composable
@@ -156,6 +164,60 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
                 size = Size(s * 0.32f, s * 0.32f),
                 cornerRadius = CornerRadius(s * 0.10f),
                 style = Fill,
+            )
+        }
+
+        ClipperIconKind.CHEVRON_DOWN -> {
+            drawPath(
+                Path().apply {
+                    moveTo(s * 0.18f, s * 0.34f)
+                    lineTo(s * 0.50f, s * 0.66f)
+                    lineTo(s * 0.82f, s * 0.34f)
+                    close()
+                },
+                color,
+                style = Fill,
+            )
+        }
+
+        ClipperIconKind.ARROW_UP -> {
+            drawLine(
+                color, Offset(s * 0.50f, s * 0.82f), Offset(s * 0.50f, s * 0.22f),
+                strokeWidth, StrokeCap.Round,
+            )
+            drawLine(
+                color, Offset(s * 0.30f, s * 0.44f), Offset(s * 0.50f, s * 0.22f),
+                strokeWidth, StrokeCap.Round,
+            )
+            drawLine(
+                color, Offset(s * 0.70f, s * 0.44f), Offset(s * 0.50f, s * 0.22f),
+                strokeWidth, StrokeCap.Round,
+            )
+        }
+
+        ClipperIconKind.ARROW_DOWN -> {
+            drawLine(
+                color, Offset(s * 0.50f, s * 0.18f), Offset(s * 0.50f, s * 0.78f),
+                strokeWidth, StrokeCap.Round,
+            )
+            drawLine(
+                color, Offset(s * 0.30f, s * 0.56f), Offset(s * 0.50f, s * 0.78f),
+                strokeWidth, StrokeCap.Round,
+            )
+            drawLine(
+                color, Offset(s * 0.70f, s * 0.56f), Offset(s * 0.50f, s * 0.78f),
+                strokeWidth, StrokeCap.Round,
+            )
+        }
+
+        ClipperIconKind.CHECKMARK -> {
+            drawLine(
+                color, Offset(s * 0.22f, s * 0.52f), Offset(s * 0.42f, s * 0.72f),
+                strokeWidth, StrokeCap.Round,
+            )
+            drawLine(
+                color, Offset(s * 0.42f, s * 0.72f), Offset(s * 0.78f, s * 0.28f),
+                strokeWidth, StrokeCap.Round,
             )
         }
     }

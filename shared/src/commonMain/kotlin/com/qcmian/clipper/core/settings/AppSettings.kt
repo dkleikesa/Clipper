@@ -15,6 +15,21 @@ enum class SortBy(val label: String) {
     LAST_COPIED_AT("最后复制"),
     FIRST_COPIED_AT("首次复制"),
     NUMBER_OF_COPIES("复制次数"),
+    FILE_SIZE("内容大小"),
+}
+
+/** 排序方向。 */
+enum class SortOrder(val label: String) {
+    DESCENDING("降序"),
+    ASCENDING("升序"),
+}
+
+/** 剪贴板条目的类型，用于主面板的筛选栏。 */
+enum class ClipFilterType(val label: String) {
+    TEXT("文本"),
+    IMAGE("图片"),
+    FILE("文件"),
+    RICH_TEXT("富文本"),
 }
 
 /**。 */
@@ -85,15 +100,18 @@ data class AppSettings(
      */
     val historyMaxCount: Int = DEFAULT_HISTORY_MAX_COUNT,
     val sortBy: SortBy = SortBy.LAST_COPIED_AT,
+    val sortOrder: SortOrder = SortOrder.DESCENDING,
+    /** 主面板筛选栏选中的类型集合；空集表示不显示任何未置顶内容。默认全选。 */
+    val filterTypes: Set<ClipFilterType> = ClipFilterType.entries.toSet(),
 
     // 行为
     val pasteByDefault: Boolean = false,
     val removeFormattingByDefault: Boolean = false,
     val clearOnQuit: Boolean = false,
     val searchThrottleMillis: Int = 200,
-    /** 对应 `Defaults[.clipboardCheckInterval]`，单位毫秒。 */
+    /** 单位毫秒。 */
     val clipboardCheckIntervalMillis: Int = 500,
-    /** 对应 `LaunchAtLogin`；把应用注册为开机自启项。 */
+    /** 把应用注册为开机自启项。 */
     val launchAtLogin: Boolean = false,
 
     // 快捷键
@@ -120,14 +138,16 @@ data class AppSettings(
     val pinTo: PinPosition = PinPosition.TOP,
     val showHexColorSwatch: Boolean = true,
     val showSpecialSymbols: Boolean = true,
+    /** 在工具栏（主面板顶部）显示筛选栏；关闭时改到设置页「外观」里配置。 */
+    val showFilterBar: Boolean = false,
     val showApplicationIcons: Boolean = false,
     val imageMaxHeight: Int = 40,
     val popupPosition: PopupPosition = PopupPosition.CURSOR,
-    /** 对应 `Defaults[.showInStatusBar]`：显示或隐藏菜单栏 / 托盘图标。 */
+    /** 显示或隐藏菜单栏 / 托盘图标。 */
     val showInStatusBar: Boolean = true,
-    /** 对应 `Defaults[.popupScreen]`：0 表示当前活动屏幕，1 及以上指向特定屏幕。 */
+    /** 0 表示当前活动屏幕，1 及以上指向特定屏幕。 */
     val popupScreen: Int = 0,
-    /** 对应 `Defaults[.previewWidth]`：预览面板宽度，只由预览分隔条的拖拽写入。 */
+    /** 预览面板宽度，只由预览分隔条的拖拽写入。 */
     val previewWidth: Int = DEFAULT_PREVIEW_WIDTH,
     /**
      * 预览面板是否打开。

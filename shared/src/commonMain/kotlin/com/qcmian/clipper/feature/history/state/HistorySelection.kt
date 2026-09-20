@@ -40,7 +40,7 @@ object HistoryNavigation {
     fun footer(current: HistorySelection, index: Int, footerCount: Int): HistorySelection =
         current.copy(footerIndex = index.coerceIn(0, maxOf(0, footerCount - 1)))
 
-    /** 对应 `NavigationManager.highlightNext(allowCycle:)`：只在历史内移动（含置顶项），从不进入页脚。 */
+    /** 只在历史内移动（含置顶项），从不进入页脚。 */
     fun next(
         current: HistorySelection,
         lastIndex: Int,

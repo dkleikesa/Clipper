@@ -43,7 +43,7 @@ class SelectClipUseCase(
         action: ClipAction,
         onHidePanel: () -> Unit,
     ): SelectResult {
-        // 对应 `History.select`：不支持的修饰键组合什么都不做。
+        // 不支持的修饰键组合什么都不做。
         if (action == ClipAction.UNKNOWN) return SelectResult.IGNORED
 
         val settings = repository.settings.value
@@ -53,7 +53,7 @@ class SelectClipUseCase(
             return SelectResult.UNSUPPORTED
         }
 
-        // 对应 `History.select`：所有分支都会关闭弹窗，复制也不例外。
+        // 所有分支都会关闭弹窗，复制也不例外。
         onHidePanel()
 
         if (!action.pastes(settings)) return SelectResult.COPIED
@@ -75,7 +75,7 @@ class SelectClipUseCase(
             )
         }
 
-        // 对应 `Clipboard.clearFormatting(_:)`：保留纯字符串*以及*文件 URL，
+        // 保留纯字符串*以及*文件 URL，
         // 这样「不带格式粘贴」仍然能粘贴文件。当条目没有任何字符串表示时，
         // 表现得与普通复制完全一致。
         if (item.text == null) {

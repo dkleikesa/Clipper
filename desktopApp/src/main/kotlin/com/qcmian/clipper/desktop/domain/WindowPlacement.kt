@@ -29,7 +29,7 @@ internal fun resolvePosition(
 }
 
 /**
- * 对应 `PopupPosition.statusItem`：面板挂在菜单栏图标正下方，左边缘对齐图标左边缘。
+ * 面板挂在菜单栏图标正下方，左边缘对齐图标左边缘。
  *
  * [statusItem] 是图标的真实水平范围，因此图标被拖到菜单栏别处时也跟得住；
  * 取不到时（非 AppKit 宿主）退回屏幕右边缘。
@@ -48,10 +48,9 @@ internal fun menuBarPosition(size: DpSize, screenIndex: Int, statusItem: MenuBar
 }
 
 /**
- * 对应 `PopupPosition.origin`：索引 0 是鼠标所在的屏幕（活动屏幕），
- * 其它索引指向 `NSScreen.screens[index - 1]`。
+ * 索引 0 是鼠标所在的屏幕（活动屏幕），其它索引指向 `NSScreen.screens[index - 1]`。
  *
- * 返回的是**可用区域**（对应 `NSScreen.visibleFrame`），已去掉菜单栏与 Dock，
+ * 返回的是**可用区域**（`NSScreen.visibleFrame`），已去掉菜单栏与 Dock，
  * 因此弹窗定位与自动高度都不会延伸到 Dock 之下。
  */
 internal fun screenBounds(index: Int): Rectangle {
@@ -110,7 +109,7 @@ internal fun screenCenterPosition(size: DpSize, screenIndex: Int): WindowPositio
     )
 }
 
-/** 把面板保持在请求的屏幕内，对应 `PopupPosition.constrained`。 */
+/** 把面板保持在请求的屏幕内。 */
 internal fun constrained(x: Int, y: Int, size: DpSize, bounds: Rectangle): WindowPosition {
     val maxX = (bounds.x + bounds.width - size.width.value).toInt()
     val maxY = (bounds.y + bounds.height - size.height.value).toInt()

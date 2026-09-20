@@ -63,7 +63,7 @@ fun main() {
 }
 
 /**
- * macOS：把应用标记成「只在菜单栏里存在」，也就是 Maccy 的 `LSUIElement`——不出现在 Dock
+ * macOS：把应用标记成「只在菜单栏里存在」，也就是 `LSUIElement`——不出现在 Dock
  * 与 ⌘Tab 中，也不占用菜单栏左侧的应用菜单。
  *
  * 三条生效路径：

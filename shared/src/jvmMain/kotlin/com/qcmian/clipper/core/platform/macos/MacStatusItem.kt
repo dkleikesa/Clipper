@@ -27,7 +27,7 @@ import javax.imageio.ImageIO
  *
  * - `NSVariableStatusItemLength` 让 AppKit 自己算宽度，自带原生的左右内边距；
  * - 按下高亮由 AppKit 画，也就是系统那个胶囊，不必自己画；
- * - action 在鼠标抬起时派发（Maccy 同款），此时按钮的鼠标追踪已结束，程序化推上去的
+ * - action 在鼠标抬起时派发，此时按钮的鼠标追踪已结束，程序化推上去的
  *   高亮不会被追踪循环清掉。
  *
  * **线程**：AppKit 要求状态项只能在主线程上创建（`NSWindow should only be instantiated on
@@ -52,7 +52,7 @@ object MacStatusItem {
     /** 标准 `NSStatusItem` 的按钮类名；AWT 宿主下拿到的可能不是它。 */
     private const val BUTTON_CLASS = "NSStatusBarButton"
 
-    /** 左 / 右键抬起时派发 action（与 Maccy 一致）：此时鼠标追踪已结束，推高亮不会被清掉。 */
+    /** 左 / 右键抬起时派发 action：此时鼠标追踪已结束，推高亮不会被清掉。 */
     private val MOUSE_UP_MASK = (1L shl 2) or (1L shl 4)
 
     /** 栅格化的倍率：按 2x 出图，Retina 下才清晰。 */

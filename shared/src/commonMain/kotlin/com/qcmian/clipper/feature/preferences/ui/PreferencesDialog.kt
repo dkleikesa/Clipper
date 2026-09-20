@@ -58,7 +58,6 @@ import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.settings.PopupPosition
 import com.qcmian.clipper.core.settings.SearchMode
 import com.qcmian.clipper.core.settings.ShortcutSlot
-import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.ThemeMode
 import com.qcmian.clipper.core.settings.shortcut
 import com.qcmian.clipper.core.settings.withShortcut
@@ -66,6 +65,7 @@ import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
+import com.qcmian.clipper.feature.history.ui.components.HistoryFilterBar
 import com.qcmian.clipper.feature.preferences.state.ShortcutRecording
 import kotlin.math.roundToInt
 
@@ -419,8 +419,7 @@ private fun BehaviorSection(data: PreferencesUiData, actions: PreferencesActions
     val switches = remember(data.supportsLaunchAtLogin) { behaviorSwitches(data) }
     SectionCard("行为") {
         SwitchSettings(settings, switches, actions.onSettingsChange)
-        // 对应 `GeneralSettingsPane` 的「修饰键」说明，它展示当前偏好下
-        // 每种动作对应的按键组合。
+        // 展示当前偏好下每种动作对应的按键组合。
         Text(
             text = "按 ${modifierFlagsOf(ClipAction.COPY, settings)} 复制，" +
                 "${modifierFlagsOf(ClipAction.PASTE, settings)} 粘贴，" +
@@ -618,14 +617,35 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
             label = { it.label },
             onSelect = { value -> actions.onSettingsChange { it.copy(pinTo = value) } },
         )
-        // 原「存储」分区的排序方式：它决定列表怎么排，属于显示偏好。
-        SegmentedBlock(
-            title = "排序方式",
-            values = SortBy.entries,
-            selected = settings.sortBy,
-            label = { it.label },
-            onSelect = { value -> actions.onSettingsChange { it.copy(sortBy = value) } },
-        )
+        // 筛选栏开关：开 → 工具栏显示筛选栏（设置页里这几个按钮隐藏）；
+        // 关 → 设置页「外观」里显示筛选栏的同一套按钮。
+        SwitchRow(
+            title = "显示筛选栏",
+            checked = settings.showFilterBar,
+            description = "在工具栏上显示类型、排序与升降序按钮。",
+        ) { value ->
+            actions.onSettingsChange { it.copy(showFilterBar = value) }
+        }
+        AnimatedVisibility(
+            visible = !settings.showFilterBar,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            HistoryFilterBar(
+                filterTypes = settings.filterTypes,
+                sortBy = settings.sortBy,
+                sortOrder = settings.sortOrder,
+                onFilterTypesChange = { value ->
+                    actions.onSettingsChange { it.copy(filterTypes = value) }
+                },
+                onSortByChange = { value ->
+                    actions.onSettingsChange { it.copy(sortBy = value) }
+                },
+                onSortOrderChange = { value ->
+                    actions.onSettingsChange { it.copy(sortOrder = value) }
+                },
+            )
+        }
         SwitchSettings(settings, AppearanceSwitches, actions.onSettingsChange)
         SliderRow(
             title = "图片最大高度",

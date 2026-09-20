@@ -16,7 +16,7 @@ import androidx.compose.ui.input.key.utf16CodePoint
 import com.qcmian.clipper.core.settings.ShortcutSpec
 
 /**
- * 当前按下的修饰键。对应 `NSEvent.ModifierFlags`，包含 AppKit 使用的 `⌃⌥⇧⌘` 渲染顺序。
+ * 当前按下的修饰键，包含 AppKit 使用的 `⌃⌥⇧⌘` 渲染顺序。
  */
 class ModifierFlags {
     var control by mutableStateOf(false)
@@ -92,7 +92,7 @@ data class KeyShortcut(
     val shift: Boolean = false,
     val command: Boolean = false,
 ) {
-    /** `⌥⌘`，由 `KeyboardShortcutView` 渲染成独立的一段文本。 */
+    /** `⌥⌘`，渲染成独立的一段文本。 */
     val modifiers: String
         get() = buildString {
             if (control) append('\u2303')
@@ -106,7 +106,7 @@ data class KeyShortcut(
 }
 
 /**
- * 对应 `KeyShortcut.create(character:)`：普通的 ⌘ 变体、⌥ 变体，
+ * 普通的 ⌘ 变体、⌥ 变体，
  * 以及「不带格式粘贴」变体。
  */
 fun keyShortcuts(character: String, pasteByDefault: Boolean): List<KeyShortcut> = listOf(
@@ -119,7 +119,7 @@ fun keyShortcuts(character: String, pasteByDefault: Boolean): List<KeyShortcut> 
     },
 )
 
-/** 对应 `KeyShortcut.isVisible(_:_:)`：挑出与当前按下修饰键匹配的那个变体。 */
+/** 挑出与当前按下修饰键匹配的那个变体。 */
 fun visibleShortcut(shortcuts: List<KeyShortcut>, flags: ModifierFlags): KeyShortcut? {
     if (shortcuts.isEmpty()) return null
     if (shortcuts.size == 1) return shortcuts.first()

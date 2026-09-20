@@ -25,7 +25,7 @@ import com.qcmian.clipper.core.ui.components.HoverTooltip
 import kotlin.math.roundToInt
 
 /**
- * 对应 `SlideoutView` + `SlideoutController.startResize(.slideout)`：带可拖拽分隔条的预览面板，
+ * 带可拖拽分隔条的预览面板，
  * 默认停靠在右侧；当弹窗旁边放不下时改为停靠在左侧。
  *
  * 分隔条永远夹在预览面板与主列表之间，也就是**靠主列表的那一侧**：预览停靠在右侧时它在面板

@@ -62,7 +62,7 @@ fun SearchField(
         }
     }
 
-    // 对应 `KeyHandlingView` 的 `hasMarkedText()` 检查：输入法已标记文本时，
+    // 输入法已标记文本时，
     // 每次按键都属于候选窗，面板不得把它当成快捷键。
     LaunchedEffect(value.composition) {
         onCompositionChange(value.composition != null)

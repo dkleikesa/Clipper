@@ -56,7 +56,7 @@ internal const val CYCLE_INTERVAL_MILLIS = 120L
  */
 internal const val MODIFIER_POLL_MILLIS = 30L
 
-/** 面板刚显示后忽略那一次短暂失焦的时长（对应 `FloatingPanel.resignKey` 的时序）。 */
+/** 面板刚显示后忽略那一次短暂失焦的时长。 */
 internal const val FOCUS_GRACE_MILLIS = 250L
 
 /**

@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.collect
 import com.qcmian.clipper.feature.history.ui.components.EmptyState
 import com.qcmian.clipper.feature.history.ui.components.FooterRows
 import com.qcmian.clipper.feature.history.ui.components.HistoryHeader
+import com.qcmian.clipper.feature.history.ui.components.HistoryFilterBar
 import com.qcmian.clipper.feature.history.ui.components.HistoryRow
 import com.qcmian.clipper.feature.history.ui.components.HistoryScrollbar
 import com.qcmian.clipper.feature.history.ui.components.PausedBanner
@@ -126,7 +127,7 @@ fun HistoryScreen(
         awaitSearchFocus(searchFocusRequester)
     }
 
-    // 对应 Maccy `KeyHandlingView` 常驻第一响应者的体验：搜索框是面板的常驻输入点，光标
+    // 搜索框是面板的常驻输入点，光标
     // 应当一直可见、随时可输入。但点击面板内的任何按钮（预览开关、行内操作、页脚……）都会
     // 把焦点从搜索框抢走，光标消失，用户得再点一次输入框。因此每次「有实质的」交互之后把
     // 焦点请回来；设置 / 清除确认弹窗打开期间除外——那时焦点属于弹窗，关闭后自动恢复。
@@ -154,6 +155,7 @@ fun HistoryScreen(
     // 量出的各区块高度。它们从 0 开始，与 `Popup.height` 一致：
     // 面板先以最小高度打开，测量结果随后调整大小，使其贴合内容。
     var headerHeight by remember { mutableStateOf(0.dp) }
+    var filterHeight by remember { mutableStateOf(0.dp) }
     var topPinsHeight by remember { mutableStateOf(0.dp) }
     var bottomPinsHeight by remember { mutableStateOf(0.dp) }
     var footerHeight by remember { mutableStateOf(0.dp) }
@@ -169,7 +171,6 @@ fun HistoryScreen(
         shortcutMap(results, settings.pasteByDefault)
     }
 
-    // 对应 `HistoryListView.scrollBottomPadding`。
     val pinsAtTop = settings.pinTo == PinPosition.TOP
     val pinsSeparator = pinnedEntries.isNotEmpty() && unpinnedEntries.isNotEmpty()
 
@@ -194,6 +195,7 @@ fun HistoryScreen(
     val metrics = historyHeightMetrics(
         itemsHeight = unpinnedEntries.fold(0.dp) { total, entry -> total + rowHeight(entry.value) },
         headerHeight = headerHeight,
+        filterHeight = filterHeight,
         topPinsHeight = topPinsHeight,
         bottomPinsHeight = bottomPinsHeight,
         footerHeight = footerHeight,
@@ -434,8 +436,7 @@ fun HistoryScreen(
                 .fillMaxHeight()
                 .background(colors.background),
         ) {
-            // 对应 `HeaderView.readHeight(appState, into: \.popup.headerHeight)`。
-            // 暂停横幅是复刻版新增的，因此折进同一个被测量的区块。
+            // 暂停横幅折进同一个被测量的区块。
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -467,23 +468,47 @@ fun HistoryScreen(
             }
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (results.isEmpty()) {
-                    EmptyState(searching = state.query.isNotEmpty())
-                } else {
-                    Column(Modifier.fillMaxSize()) {
-                        // 对应 `HistoryListView` 顶部区块的 `readHeight`
-                        // （`popup.extraTopHeight`）：固定的置顶项及其分隔线。
-                        if (pinsAtTop && pinnedEntries.isNotEmpty()) {
-                            PinnedSection(
-                                entries = pinnedEntries,
-                                separator = pinsSeparator,
-                                separatorFirst = false,
-                                onHeightChange = { topPinsHeight = it },
-                                row = entryRow,
+                Column(Modifier.fillMaxSize()) {
+                    // 固定的置顶项及其分隔线。
+                    if (pinsAtTop && pinnedEntries.isNotEmpty()) {
+                        PinnedSection(
+                            entries = pinnedEntries,
+                            separator = pinsSeparator,
+                            separatorFirst = false,
+                            onHeightChange = { topPinsHeight = it },
+                            row = entryRow,
+                        )
+                    }
+
+                    // 筛选栏放在内容区（未置顶列表）上方，且只作用于内容区：置顶项不受筛选影响。
+                    // 开关关闭时整块隐藏；外层 Box 始终存在，让 filterHeight 能跟着归零。
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { filterHeight = with(density) { it.height.toDp() } },
+                    ) {
+                        if (settings.showFilterBar) {
+                            HistoryFilterBar(
+                                filterTypes = settings.filterTypes,
+                                sortBy = settings.sortBy,
+                                sortOrder = settings.sortOrder,
+                                onFilterTypesChange = { value ->
+                                    onUiAction(ClipboardUiAction.UpdateSettings { it.copy(filterTypes = value) })
+                                },
+                                onSortByChange = { value ->
+                                    onUiAction(ClipboardUiAction.UpdateSettings { it.copy(sortBy = value) })
+                                },
+                                onSortOrderChange = { value ->
+                                    onUiAction(ClipboardUiAction.UpdateSettings { it.copy(sortOrder = value) })
+                                },
                             )
                         }
+                    }
 
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        if (results.isEmpty()) {
+                            EmptyState(searching = state.query.isNotEmpty())
+                        } else {
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize(),
@@ -512,18 +537,16 @@ fun HistoryScreen(
                                     .padding(end = 8.dp),
                             )
                         }
+                    }
 
-                        // 对应 `HistoryListView` 底部区块的 `readHeight`
-                        // （`popup.extraBottomHeight`）。
-                        if (!pinsAtTop && pinnedEntries.isNotEmpty()) {
-                            PinnedSection(
-                                entries = pinnedEntries,
-                                separator = pinsSeparator,
-                                separatorFirst = true,
-                                onHeightChange = { bottomPinsHeight = it },
-                                row = entryRow,
-                            )
-                        }
+                    if (!pinsAtTop && pinnedEntries.isNotEmpty()) {
+                        PinnedSection(
+                            entries = pinnedEntries,
+                            separator = pinsSeparator,
+                            separatorFirst = true,
+                            onHeightChange = { bottomPinsHeight = it },
+                            row = entryRow,
+                        )
                     }
                 }
             }
@@ -535,7 +558,6 @@ fun HistoryScreen(
                 // `FooterItemView.onHover` 原本会在悬停页脚时收起预览；预览开关现在是持久化的
                 // 用户选择（见 `AppSettings.previewOpen`），只由按钮 / 快捷键切换，这里不再动它。
                 onHover = { index -> onUiAction(ClipboardUiAction.HoverFooter(index)) },
-                // 对应 `FooterView.readHeight(appState, into: \.popup.footerHeight)`。
                 modifier = Modifier.onSizeChanged {
                     footerHeight = with(density) { it.height.toDp() }
                 },

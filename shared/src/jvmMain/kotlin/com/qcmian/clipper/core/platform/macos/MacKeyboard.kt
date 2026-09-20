@@ -5,7 +5,6 @@ import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 
 /**
- * 按 Maccy `Clipboard.paste()`（源自 Clipy 的 `PasteService`）的方式，
  * 用 CoreGraphics 合成一次「⌘ + 某个键」（默认 `V`）。
  *
  * 不用 [java.awt.Robot]：macOS 上它的 `keyEvent` 并不把修饰键写进事件，而是靠
@@ -15,24 +14,20 @@ import com.sun.jna.Pointer
  * 这段时间里这个先后关系并不保险：⌘ 的按下可能落到别处、也可能还没生效，`V` 于是成了一次裸
  * 按键——这就是「偶尔只粘贴出一个 v」。
  *
- * 与 Maccy 一致的四个细节：
+ * 实现细节：
  * 1. 事件源用 `kCGEventSourceStateCombinedSessionState`；
  * 2. ⌘ 直接写在按下 / 抬起事件的 flags 上（不单独发修饰键事件），并额外带上
- *    `kCGEventFlagMaskNonCoalesced`——部分应用只认带「非合并」标记的合成事件
- *    （Maccy `cmdFlag` 里的 `| 0x000008`，见 Flycut#18）；
+ *    `kCGEventFlagMaskNonCoalesced`——部分应用只认带「非合并」标记的合成事件；
  * 3. 投到 `kCGSessionEventTap` 而非 HID tap；
  * 4. 发送前给事件源设置抑制期过滤器，只放行鼠标与系统事件：合成的 ⌘V 落地后系统
  *    会短暂抑制本地事件，这样不会反过来触发本应用自己的热键 / 全局事件监听。
  *
- * 按下与抬起之间 Maccy 不留任何间隔，这里同样如此。键位固定用物理 `V`
- * （`kVK_ANSI_V`）：「Dvorak - QWERTY ⌘」这类按 ⌘ 临时切回 QWERTY 的布局天然正确
- * （对应 Maccy 的 `QWERTYKeyCode` 分支）。
+ * 按下与抬起之间不留任何间隔。键位固定用物理 `V`（`kVK_ANSI_V`）：
+ * 「Dvorak - QWERTY ⌘」这类按 ⌘ 临时切回 QWERTY 的布局天然正确。
  *
- * Maccy 之所以能在 `popup.close()` 之后**立即**发送 ⌘V，是因为它的面板是
- * `.nonactivatingPanel`——从不激活自己，目标应用始终在前台。本应用的面板是普通窗口，
- * 打开时会激活自己，隐藏时用 `NSRunningApplication.activate` 还焦点又只是**异步**生效：
- * 若把事件投到 session tap，落在谁头上取决于投递瞬间谁在最前，激活没完成事件就被丢弃。
- * 因此只要知道目标 pid，就改用 `CGEventPostToPid` 直接投给那个进程，与前台时序彻底解耦。
+ * 面板是普通窗口，打开时会激活自己，隐藏时用 `NSRunningApplication.activate` 还焦点又只是
+ * **异步**生效：若把事件投到 session tap，落在谁头上取决于投递瞬间谁在最前，激活没完成事件就
+ * 被丢弃。因此只要知道目标 pid，就改用 `CGEventPostToPid` 直接投给那个进程，与前台时序彻底解耦。
  *
  * 所有调用都是防御式的：框架或符号缺失时 [available] 为 `false`，调用方退回 [java.awt.Robot]。
  */
@@ -44,7 +39,7 @@ object MacKeyboard {
     /** `kCGEventFlagMaskCommand`。 */
     private const val FLAG_COMMAND = 1L shl 20
 
-    /** `kCGEventFlagMaskNonCoalesced`：Maccy `cmdFlag` 里额外 `|` 上的 `0x000008`。 */
+    /** `kCGEventFlagMaskNonCoalesced`：额外带上「非合并」标记（`0x000008`）。 */
     private const val FLAG_NON_COALESCED = 1L shl 3
 
     /** `kCGSessionEventTap`。 */
@@ -158,7 +153,7 @@ object MacKeyboard {
 
         val source = createEventSource()
         val argument = source ?: Pointer.NULL
-        // Maccy：抑制期内只放行鼠标与系统事件。这个符号拿不到就跳过——它只影响
+        // 抑制期内只放行鼠标与系统事件。这个符号拿不到就跳过——它只影响
         // 本应用自身在抑制期里收到什么，不影响事件向目标应用的投递。
         val filter = setLocalEventsFilter
         if (source != null && filter != null) {

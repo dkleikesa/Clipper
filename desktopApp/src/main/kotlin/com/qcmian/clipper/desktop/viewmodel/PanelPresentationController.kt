@@ -95,14 +95,14 @@ internal class PanelPresentationController(
 
     fun onWindowGainedFocus() {
         lastFocusGainedAt = System.currentTimeMillis()
-        // 对应 Maccy `HistoryListView.onChange(of: scenePhase)`：面板真正成为 key window 时，
-        // 搜索框重新获得焦点并选中第一条。聚焦跟着「窗口取得键盘焦点」走，而不是跟着
+        // 面板真正成为 key window 时，搜索框重新获得焦点并选中第一条。
+        // 聚焦跟着「窗口取得键盘焦点」走，而不是跟着
         // 「打开意图」走——后者可能落在窗口显示之前，`requestFocus()` 会静默失效，
         // 表现为「打开后偶尔打不了字」。
         if (state.value.windowVisible) hotkey.requestOpen()
     }
 
-    /** 对应 `FloatingPanel.resignKey()`：失去焦点即隐藏（有弹窗时不隐藏）。 */
+    /** 失去焦点即隐藏（有弹窗时不隐藏）。 */
     fun onWindowLostFocus() {
         val current = state.value
         if (!current.windowVisible || panel.hostUiState.value.isModalOpen) return

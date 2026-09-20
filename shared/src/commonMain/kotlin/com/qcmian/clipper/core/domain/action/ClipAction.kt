@@ -9,7 +9,7 @@ import com.qcmian.clipper.core.settings.AppSettings
 enum class ClipAction { DEFAULT, COPY, PASTE, PASTE_WITHOUT_FORMATTING, UNKNOWN }
 
 /**
- * 对应 `HistoryItemAction.init(_:)`：为当前按下的确切修饰键组合解析出动作。
+ * 为当前按下的确切修饰键组合解析出动作。
  * [meta] 是 `⌘`（没有该键的平台上是 `Ctrl`）。
  *
  * 偏好项 `pasteByDefault` 与 `removeFormattingByDefault` 都会改变每一种组合的含义，
@@ -48,7 +48,7 @@ fun defaultAction(settings: AppSettings, shift: Boolean, alt: Boolean, meta: Boo
             else -> ClipAction.UNKNOWN
         }
 
-        // 完全不按修饰键：`History.select` 按 `removeFormattingByDefault` 处理，
+        // 完全不按修饰键：按 `removeFormattingByDefault` 处理，
         // 且只有 `pasteByDefault` 开启时才粘贴。
         !shift && !alt && !meta -> ClipAction.DEFAULT
 
@@ -57,7 +57,7 @@ fun defaultAction(settings: AppSettings, shift: Boolean, alt: Boolean, meta: Boo
 }
 
 /**
- * 对应 `History.select`：只有普通激活与显式的「不带格式粘贴」会去掉格式。
+ * 只有普通激活与显式的「不带格式粘贴」会去掉格式。
  * 即便开启了 `removeFormattingByDefault`，显式的 `⌘` 复制也从不这么做。
  */
 fun ClipAction.removesFormatting(settings: AppSettings): Boolean = when (this) {
@@ -66,7 +66,7 @@ fun ClipAction.removesFormatting(settings: AppSettings): Boolean = when (this) {
     else -> false
 }
 
-/** 对应 `History.select`：该动作是否同时触发一次粘贴。 */
+/** 该动作是否同时触发一次粘贴。 */
 fun ClipAction.pastes(settings: AppSettings): Boolean = when (this) {
     ClipAction.PASTE, ClipAction.PASTE_WITHOUT_FORMATTING -> true
     ClipAction.DEFAULT -> settings.pasteByDefault
@@ -98,7 +98,7 @@ private val MODIFIER_COMBOS = listOf(
 )
 
 /**
- * 对应 `HistoryItemAction.modifierFlags`：会触发 [action] 的修饰键组合，
+ * 会触发 [action] 的修饰键组合，
  * 偏好设置窗口用它来解释当前的映射关系。
  *
  * 由 [defaultAction] 反推，而不是另写一张表：正反两个方向共用同一份规则，改映射不会漂移。

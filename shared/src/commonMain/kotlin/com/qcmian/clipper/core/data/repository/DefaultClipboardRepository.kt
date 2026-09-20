@@ -160,7 +160,7 @@ class DefaultClipboardRepository(
         // Room 首次打开数据库（含 WAL 恢复）实测要几百毫秒。
         // [loaded] 仍然等历史就绪才置位，保证 [flush] 不会用空历史覆盖已存数据。
         _settingsLoaded.value = true
-        // 对应 `Storage.sanitizeTitles()`，外加对旧版图片标题的还原，见 [sanitisedTitle]。
+        // 过滤不安全标量，并还原旧版图片标题，见 [sanitisedTitle]。
         val restored = storage.loadItems().map { it.withSanitisedTitle() }
         _items.value = normalise(restored, settings)
         loaded = true
@@ -172,7 +172,7 @@ class DefaultClipboardRepository(
      * 修正单条已持久化历史的标题。
      *
      * 做两件事：
-     * - 过滤会让 CoreText 在 macOS 26 上卡死的不安全标量（对应 `Storage.sanitizeTitles()`）；
+     * - 过滤会让 CoreText 在 macOS 26 上卡死的不安全标量；
      * - 还原旧版本图片标题里的 `⏎` / `⇥`。早期实现把识别结果的换行、制表符替换成这两个符号
      *   之后才存进 `title`，而 `title` 正是「复制图片文字」复制出去的内容，于是复制出来的
      *   就成了符号。纯图片条目的标题只可能来自识别，因此这两个符号必然是当时格式化留下的。
@@ -295,7 +295,7 @@ class DefaultClipboardRepository(
      * 丢弃。[AppSettings.historyMaxCount] 至少为 1，因此刚复制的内容不会被立刻清掉。
      */
     private fun normalise(items: List<ClipItem>, settings: AppSettings): List<ClipItem> {
-        val sorted = ClipSorter.sort(items, settings.sortBy, settings.pinTo)
+        val sorted = ClipSorter.sort(items, settings.sortBy, settings.sortOrder, settings.pinTo)
         val maxCount = settings.historyMaxCount
         // 非正数视为「不裁剪」：设置页只允许正整数，这里防的是外部写入的异常值。
         if (maxCount <= 0) return sorted

@@ -24,20 +24,20 @@ class HotkeyController {
 
     private val _acceptRequests = MutableStateFlow(0)
 
-    /** 循环模式下松开全局热键时自增。对应 `Popup.handleFlagsChanged`，它在松开时接受当前高亮的条目。 */
+    /** 循环模式下松开全局热键时自增，松开时接受当前高亮的条目。 */
     val acceptRequests: StateFlow<Int> = _acceptRequests.asStateFlow()
 
-    /** 对应面板关闭时的 `Popup.handleFirstKeyDown`。 */
+    /** 请求打开面板。 */
     fun requestOpen() {
         _openRequests.value++
     }
 
-    /** 对应 `.cycle` 状态下 `Popup.handleKeyDown`：移到下一条历史。 */
+    /** 移到下一条历史。 */
     fun requestCycle() {
         _cycleRequests.value++
     }
 
-    /** 对应 `Popup.handleFlagsChanged`：松开修饰键时接受高亮的条目。 */
+    /** 松开修饰键时接受高亮的条目。 */
     fun requestAccept() {
         _acceptRequests.value++
     }

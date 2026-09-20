@@ -34,7 +34,7 @@ internal class HistoryNavigationController(
         keyboardNavigating = true
     }
 
-    /** 对应 `MouseMovedViewModifier`：鼠标移动会结束键盘导航，悬停从此直接接管选择。 */
+    /** 鼠标移动会结束键盘导航，悬停从此直接接管选择。 */
     fun onPointerMoved() {
         keyboardNavigating = false
     }
@@ -77,17 +77,16 @@ internal class HistoryNavigationController(
         }
     }
 
-    /** 对应 `NavigationManager.highlightNext(allowCycle)`：只在历史内移动 / 循环，不进页脚。 */
+    /** 只在历史内移动 / 循环，不进页脚。 */
     fun moveNext(allowCycle: Boolean) {
         applyMove(HistoryNavigation.next(currentSelection(), state.value.results.lastIndex, allowCycle))
     }
 
-    /** 对应 `NavigationManager.highlightPrevious`。 */
     fun movePrevious() {
         applyMove(HistoryNavigation.previous(currentSelection(), state.value.results.lastIndex))
     }
 
-    /** 对应 `NavigationManager.highlightLast`：停到最后一条历史。 */
+    /** 停到最后一条历史。 */
     fun moveToLast() {
         applyMove(HistoryNavigation.last(currentSelection(), state.value.results.lastIndex))
     }

@@ -39,7 +39,7 @@ fun ClipboardPlatform.copySearchQuery(query: String): Boolean {
 }
 
 /**
- * 对应 `ToolbarView` 的 `text.viewfinder` 动作：把图片中识别出的文字（即条目标题）
+ * 把图片中识别出的文字（即条目标题）
  * 放回剪贴板。返回 `true` 表示确实写入了剪贴板。
  */
 fun ClipboardPlatform.copyExtractedText(item: ClipItem): Boolean {

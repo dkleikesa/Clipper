@@ -38,7 +38,7 @@ class CaptureClipboardUseCase(
 
         if (settings.ignoreEvents) return
 
-        // 对应 `Clipboard.shouldIgnore(_ types:)`：临时 / 机密 / 自动生成的内容永远不会进入
+        // 临时 / 机密 / 自动生成的内容永远不会进入
         // 历史——这是安全底线而不是设置项（见 `AppSettings.ALWAYS_IGNORED_PASTEBOARD_TYPES`）。
         if (snapshot.types.any { it in AppSettings.ALWAYS_IGNORED_PASTEBOARD_TYPES }) return
 
@@ -49,7 +49,7 @@ class CaptureClipboardUseCase(
         val contents = snapshot.contents
         if (text.isNullOrBlank() && image == null && files.isEmpty() && contents.isEmpty()) return
 
-        // 对应 `NSWorkspace.frontmostApplication`：只用来标注条目来源（预览里的「应用:」一行），
+        // 只用来标注条目来源（预览里的「应用:」一行），
         // 不参与任何过滤。
         val sourceApplication = platform.currentSourceApplication()
 
@@ -91,7 +91,7 @@ class CaptureClipboardUseCase(
         val updated = items.filterNot { it.id == existing?.id } + merged
         repository.setItems(updated)
 
-        // 对应 `HistoryItem.generateTitle()`：图片的标题来自文字识别。识别放在自己的子协程里，
+        // 图片的标题来自文字识别。识别放在自己的子协程里，
         // 以免阻塞下一份快照的处理。
         //
         // 只有「本来就没有文本表示」的图片才识别：条目带着 `text` / `files` 时，标题由它们的

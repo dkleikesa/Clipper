@@ -35,7 +35,7 @@ object ClipSearch {
             }
         }
 
-    /** 对应 `Search.simpleSearch(_:within:options: .regularExpression)`，区分大小写。 */
+    /** 区分大小写。 */
     private fun regexp(query: String, items: List<ClipItem>): List<SearchResult> {
         val regex = runCatching { Regex(query) }.getOrNull() ?: return emptyList()
         return items.mapNotNull { item ->

@@ -36,7 +36,7 @@ interface NativeDataSource {
     fun frontmostApplication(): SourceApplication? = null
 
     /**
-     * 处理事件触发时按下的修饰键，对应 `NSApp.currentEvent.modifierFlags`。
+     * 处理事件触发时按下的修饰键。
      * 平台无法给出时返回 `0`。
      */
     fun currentModifierFlags(): Int = 0

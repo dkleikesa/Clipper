@@ -90,7 +90,6 @@ object MacWorkspace {
 
     /**
      * `NSEvent.modifierFlags`，即当前正在处理的事件的修饰键。
-     * 对应 `AppDelegate.performStatusItemClick` 中对 `NSApp.currentEvent.modifierFlags` 的检查。
      */
     fun currentModifierFlags(): Int {
         if (!loaded) return 0

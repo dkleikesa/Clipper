@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * NSEvent 全局 / 本地监视器：识别「点击落在面板之外」。
  *
  * 点击系统菜单栏或其它应用的托盘图标时，AWT 不会向本窗口报告 `windowLostFocus`；
- * 这里补上 Maccy `FloatingPanel.resignKey` → `close()` 的语义：
+ * 这里补上「失去焦点即关闭」的语义：
  *
  * - **全局监视器**：收到其它应用的鼠标抬起（点别的应用窗口、桌面、Dock、其它托盘）→ 面板外；
  * - **本地监视器**：收到本应用的鼠标抬起，若事件窗口不是面板（菜单栏、菜单）→ 面板外；

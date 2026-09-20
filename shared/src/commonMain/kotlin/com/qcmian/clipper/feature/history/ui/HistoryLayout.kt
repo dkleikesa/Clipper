@@ -40,8 +40,6 @@ internal data class HistoryHeightMetrics(
 /**
  * 由各区块的实测高度与条目总高推导窗口高度。
  *
- * 对应 `Popup.suitableHeight(for:)` + `Popup.preferredHeight(for:)`。
- *
  * - `minimumHeight`：滑动区（内容区）至少 [Popup.minimumContentHeight]——也就是剪贴板为空时的
  *   默认值，因此历史很少时窗口也不会缩成一条缝。置顶区与头部 / 页脚都在滑动区之外，先由
  *   [chromeHeight] 计入，所以置顶项再多也只是把窗口顶高，不会吃掉滑动区的高度。
@@ -55,6 +53,7 @@ internal data class HistoryHeightMetrics(
 internal fun historyHeightMetrics(
     itemsHeight: Dp,
     headerHeight: Dp,
+    filterHeight: Dp,
     topPinsHeight: Dp,
     bottomPinsHeight: Dp,
     footerHeight: Dp,
@@ -67,7 +66,7 @@ internal fun historyHeightMetrics(
         Popup.verticalSeparatorPadding - 1.dp
     }
     val listHeight = itemsHeight + Popup.verticalSeparatorPadding + listBottomPadding
-    val chromeHeight = headerHeight + topPinsHeight + bottomPinsHeight + footerHeight
+    val chromeHeight = headerHeight + filterHeight + topPinsHeight + bottomPinsHeight + footerHeight
     val suitableHeight = listHeight + chromeHeight
     val minimumHeight = (chromeHeight + Popup.minimumContentHeight)
         .coerceAtLeast(headerHeight + Popup.verticalPadding)

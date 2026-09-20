@@ -108,7 +108,7 @@ fun ListItemRow(
 }
 
 /**
- * 行的标题，对应 `ListItemTitleView`（单行、中间截断）。
+ * 行的标题（单行、中间截断）。
  *
  * 行高被固定下来，使该行保持 `Popup.itemHeight`，而不会继承 Material 默认高得多的行框。
  */

@@ -144,8 +144,7 @@ internal class GlobalHotKeyController(
             setPopupMode(PopupMode.OPENING)
             return
         }
-        // 修饰键也已经全松开，这是新的一次按键：先往下选一条（Maccy 的「连按往下选」），
-        // 再开始计时。
+        // 修饰键也已经全松开，这是新的一次按键：先往下选一条，再开始计时。
         hotkey.requestCycle()
         beginHoldSession()
     }

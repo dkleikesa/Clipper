@@ -20,7 +20,7 @@ compose.desktop {
     application {
         mainClass = "com.qcmian.clipper.MainKt"
 
-        // 应用只活在菜单栏里（Maccy 的 `LSUIElement`），不该出现在 Dock / ⌘Tab。
+        // 应用只活在菜单栏里（`LSUIElement`），不该出现在 Dock / ⌘Tab。
         // 让 AWT 初始化时把激活策略设成 `NSApplicationActivationPolicyAccessory`：
         // `run` 任务不经过 .app 包，读不到 Info.plist，只能靠这个 JVM 参数；
         // 打包产物两者都有，见下面 `nativeDistributions.macOS.infoPlist`。

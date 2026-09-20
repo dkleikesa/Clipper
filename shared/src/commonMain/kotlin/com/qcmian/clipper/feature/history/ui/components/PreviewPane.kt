@@ -57,7 +57,7 @@ fun PreviewPane(
     appIconBase64: String?,
     onTogglePin: () -> Unit,
     onDelete: () -> Unit,
-    /** 对应 `ToolbarView` 的 `text.viewfinder` 按钮，对带 OCR 文字的图片显示。 */
+    /** 对带 OCR 文字的图片显示。 */
     onCopyExtractedText: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -120,7 +120,7 @@ fun PreviewPane(
                         .clip(RoundedCornerShape(5.dp)),
                 )
             } else {
-                // 对应 `PreviewItemView` 的 `LargeTextPreviewView`：超过 `largeTextThreshold`
+                // 超过 `largeTextThreshold`
                 // 个字符时原生实现会改用专门的文本视图。Compose 没有只布局可视区域的文本
                 // 能力，因此这里直接截断尾部，而不是每帧去布局一个数兆字节的字符串。
                 val text = item.previewableText

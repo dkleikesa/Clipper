@@ -92,7 +92,7 @@ data class ClipboardUiState(
 
     val isHistoryHighlighted: Boolean get() = footerSelection < 0
 
-    /** 对应 `AppState.searchVisible`；搜索框开启即总是显示。 */
+    /** 搜索框开启即总是显示。 */
     val searchVisible: Boolean
         get() = settings.showSearch
 

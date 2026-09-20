@@ -169,7 +169,6 @@ private fun ColorSwatch(color: Color) {
     )
 }
 
-/** 对应 `HistoryItemDecorator.highlight(_:_:)`。 */
 private fun highlightedTitle(
     title: String,
     ranges: List<IntRange>,
@@ -189,7 +188,7 @@ private fun highlightedTitle(
         )
     }
 
-    // 对应 `HistoryItemDecorator.highlight`：带属性的标题上限为 500 个字符，
+    // 带属性的标题上限为 500 个字符，
     // 因此超出部分的偏移会被丢弃。
     val visible = title.take(HIGHLIGHT_LENGTH)
     return buildAnnotatedString {
