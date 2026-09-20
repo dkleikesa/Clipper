@@ -98,4 +98,13 @@ object Popup {
 
     /** 预览滑出面板的最小占位宽度（面板下限 + 分隔条）：比它还小的空间就算「放不下预览」。 */
     val minimumSlideoutWidth = minimumPreviewWidth + previewDividerWidth
+
+    /**
+     * 预览开关的揭示动画时长：打开 / 收起共用。
+     *
+     * 打开时窗口一次到位，界面里的预览卡在这段时间里从主列表后面滑出来；收起时相反——卡片先
+     * 收回去，宿主（`WindowGeometryController`）等满这段时间再把窗口缩回内容区宽度。两处必须
+     * 读同一个值，否则收起时窗口会在卡片还没藏好时缩掉、或在藏好之后还空等。
+     */
+    const val previewRevealMillis: Int = 250
 }
