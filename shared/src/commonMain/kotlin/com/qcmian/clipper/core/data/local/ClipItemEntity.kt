@@ -2,6 +2,7 @@ package com.qcmian.clipper.core.data.local
 
 import androidx.room3.Entity
 import androidx.room3.PrimaryKey
+import com.qcmian.clipper.core.domain.model.ClipboardContent
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.SourceApplication
@@ -22,6 +23,8 @@ data class ClipItemEntity(
     val image: ByteArray?,
     /** 文件路径的 JSON 数组。 */
     val files: String,
+    /** 额外类型（HTML / RTF 等）的 JSON 数组；载荷字节以 base64 编码。 */
+    val contents: String,
     val firstCopiedAt: Long,
     val lastCopiedAt: Long,
     val numberOfCopies: Int,
@@ -36,6 +39,7 @@ internal fun ClipItemEntity.toModel(): ClipItem = ClipItem(
     text = text,
     image = image?.let(::ClipImage),
     files = decodeJsonOrNull<List<String>>(files).orEmpty(),
+    contents = decodeJsonOrNull<List<ClipboardContent>>(contents).orEmpty(),
     firstCopiedAt = firstCopiedAt,
     lastCopiedAt = lastCopiedAt,
     numberOfCopies = numberOfCopies,
@@ -49,6 +53,7 @@ internal fun ClipItem.toEntity(): ClipItemEntity = ClipItemEntity(
     text = text,
     image = image?.toByteArray(),
     files = encodeJson(files),
+    contents = encodeJson(contents),
     firstCopiedAt = firstCopiedAt,
     lastCopiedAt = lastCopiedAt,
     numberOfCopies = numberOfCopies,
@@ -65,6 +70,7 @@ internal fun ClipItem.toRowLite(): ClipItemLite = ClipItemLite(
     id = id,
     text = text,
     files = encodeJson(files),
+    contents = encodeJson(contents),
     firstCopiedAt = firstCopiedAt,
     lastCopiedAt = lastCopiedAt,
     numberOfCopies = numberOfCopies,

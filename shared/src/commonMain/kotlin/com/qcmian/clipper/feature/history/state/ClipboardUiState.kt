@@ -1,5 +1,6 @@
 package com.qcmian.clipper.feature.history.state
 
+import androidx.compose.runtime.Immutable
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.AppSettings
@@ -22,6 +23,7 @@ data class ClearConfirmation(
  * UI 只渲染这个对象，除此之外什么都不读；每一次用户交互都以 [ClipboardUiAction] 的形式回传。
  * 它是该界面的唯一数据源，由 `ClipboardViewModel` 生成。
  */
+@Immutable
 data class ClipboardUiState(
     val settings: AppSettings = AppSettings(),
     /** 用户输入的内容，每敲一个键就更新。 */
@@ -100,8 +102,7 @@ data class ClipboardUiState(
     /** 设置页正在录制快捷键；宿主据此让出系统级热键。 */
     val isRecordingShortcut: Boolean get() = shortcutRecording.isActive
 
-    /** `AppDelegate.isStatusItemDisabled`：已暂停，或者根本没有在记录任何内容。 */
+    /** `AppDelegate.isStatusItemDisabled`：已暂停记录新的复制。 */
     val isStatusItemDisabled: Boolean
-        get() = settings.ignoreEvents ||
-            (!settings.saveText && !settings.saveImages && !settings.saveFiles)
+        get() = settings.ignoreEvents
 }

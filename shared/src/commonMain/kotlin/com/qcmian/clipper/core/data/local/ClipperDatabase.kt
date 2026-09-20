@@ -12,7 +12,7 @@ import androidx.room3.RoomDatabaseConstructor
  */
 @Database(
     entities = [ClipItemEntity::class, AppSettingsEntity::class],
-    version = 2,
+    version = 3,
 )
 @ConstructedBy(ClipperDatabaseConstructor::class)
 abstract class ClipperDatabase : RoomDatabase() {

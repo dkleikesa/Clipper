@@ -1,5 +1,6 @@
 package com.qcmian.clipper.core.domain.model
 
+import androidx.compose.runtime.Immutable
 import com.qcmian.clipper.core.util.fnv1a64
 
 /**
@@ -12,6 +13,7 @@ import com.qcmian.clipper.core.util.fnv1a64
  * 与落库使用的表示一致（Room 里就是一个 BLOB），因此内存与磁盘之间不再需要 base64
  * 编解码，也不再有 33% 的编码膨胀。
  */
+@Immutable
 class ClipImage(bytes: ByteArray) {
     private val bytes: ByteArray = bytes
 

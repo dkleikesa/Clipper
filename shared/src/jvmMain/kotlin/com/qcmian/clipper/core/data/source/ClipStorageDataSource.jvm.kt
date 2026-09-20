@@ -19,6 +19,8 @@ private fun createDatabase(): ClipperDatabase {
     val file = databaseFile()
     file.parentFile?.mkdirs()
     return Room.databaseBuilder<ClipperDatabase>(name = file.absolutePath)
+        // schema 变更不做迁移：旧库不兼容时直接删除重建（历史内容都来自系统剪贴板，可再复制回来）。
+        .fallbackToDestructiveMigration()
         .setDriver(BundledSQLiteDriver())
         // 回滚日志（TRUNCATE）代替 WAL：没有 -wal / -shm，全部数据都在主库文件里，
         // 读写也不再需要 wal-index。代价是每事务多一两次 fsync、写期间读被阻塞——

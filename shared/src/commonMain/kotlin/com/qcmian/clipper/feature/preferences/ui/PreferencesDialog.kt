@@ -267,13 +267,6 @@ private fun PreferencesContent(
 // 分区
 // ---------------------------------------------------------------------------------
 
-/** 存储与数据分区里的开关表；顺序即显示顺序。 */
-private val StorageSwitches = listOf(
-    BooleanSetting("保存文本", { it.saveText }, { value -> copy(saveText = value) }),
-    BooleanSetting("保存图片", { it.saveImages }, { value -> copy(saveImages = value) }),
-    BooleanSetting("保存文件", { it.saveFiles }, { value -> copy(saveFiles = value) }),
-)
-
 /** 原「数据」分区的开关表；该分区已整体并入「存储与数据」。 */
 private val DataSwitches = listOf(
     BooleanSetting(
@@ -289,7 +282,6 @@ private fun StorageSection(data: PreferencesUiData, actions: PreferencesActions)
     val colors = MaterialTheme.colorScheme
     val settings = data.settings
     SectionCard("存储与数据") {
-        SwitchSettings(settings, StorageSwitches, actions.onSettingsChange)
         HistoryLimitField(
             maxCount = settings.historyMaxCount,
             usageCount = data.historyCount,
@@ -424,8 +416,9 @@ private fun behaviorSwitches(data: PreferencesUiData) = listOf(
 @Composable
 private fun BehaviorSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
+    val switches = remember(data.supportsLaunchAtLogin) { behaviorSwitches(data) }
     SectionCard("行为") {
-        SwitchSettings(settings, behaviorSwitches(data), actions.onSettingsChange)
+        SwitchSettings(settings, switches, actions.onSettingsChange)
         // 对应 `GeneralSettingsPane` 的「修饰键」说明，它展示当前偏好下
         // 每种动作对应的按键组合。
         Text(
@@ -665,8 +658,9 @@ private fun recognitionSwitches(data: PreferencesUiData) = listOf(
 @Composable
 private fun RecognitionSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
+    val switches = remember(data.supportsTextRecognition) { recognitionSwitches(data) }
     SectionCard("AI服务") {
-        SwitchSettings(settings, recognitionSwitches(data), actions.onSettingsChange)
+        SwitchSettings(settings, switches, actions.onSettingsChange)
     }
 }
 

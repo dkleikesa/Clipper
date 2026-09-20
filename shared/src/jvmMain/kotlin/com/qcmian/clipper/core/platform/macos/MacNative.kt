@@ -116,6 +116,20 @@ internal object MacNative {
     }
 
     /**
+     * 把 `NSData` 读成 [ByteArray]。
+     *
+     * `-bytes` 返回的裸指针只在 `NSData` 存活（通常限于当前 autorelease pool）时有效，
+     * 因此必须立即按 `-length` 拷贝出来，不能把裸指针带出本方法。
+     */
+    fun nsDataBytes(nsData: Pointer?): ByteArray? {
+        if (nsData == null) return null
+        val length = sendLong(nsData, "length")
+        if (length <= 0) return ByteArray(0)
+        val bytes = send(nsData, "bytes") ?: return null
+        return bytes.getByteArray(0, length.toInt())
+    }
+
+    /**
      * 不经过结构体传参来设置 `NSImage.size`。
      *
      * `setSize:` 接收的是按值传递的 `NSSize`，JNA 传结构体按值的 ABI 跨架构不够可靠；改成

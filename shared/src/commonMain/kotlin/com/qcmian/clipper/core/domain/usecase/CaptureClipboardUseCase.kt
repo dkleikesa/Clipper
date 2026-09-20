@@ -42,11 +42,12 @@ class CaptureClipboardUseCase(
         // 历史——这是安全底线而不是设置项（见 `AppSettings.ALWAYS_IGNORED_PASTEBOARD_TYPES`）。
         if (snapshot.types.any { it in AppSettings.ALWAYS_IGNORED_PASTEBOARD_TYPES }) return
 
-        // 被关闭的内容类型根本不会进入历史。
-        val text = snapshot.text.takeIf { settings.saveText }
-        val image = snapshot.image.takeIf { settings.saveImages }
-        val files = snapshot.files.takeIf { settings.saveFiles }.orEmpty()
-        if (text.isNullOrBlank() && image == null && files.isEmpty()) return
+        // 内容类型不做过滤：文本 / 图片 / 文件 / 额外类型全部记录。
+        val text = snapshot.text
+        val image = snapshot.image
+        val files = snapshot.files
+        val contents = snapshot.contents
+        if (text.isNullOrBlank() && image == null && files.isEmpty() && contents.isEmpty()) return
 
         // 对应 `NSWorkspace.frontmostApplication`：只用来标注条目来源（预览里的「应用:」一行），
         // 不参与任何过滤。
@@ -61,6 +62,7 @@ class CaptureClipboardUseCase(
             text = text,
             image = image,
             files = files,
+            contents = contents,
             firstCopiedAt = now,
             lastCopiedAt = now,
             numberOfCopies = 1,

@@ -1,5 +1,7 @@
 package com.qcmian.clipper.core.domain.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * 系统剪贴板的平台无关视图。
  *
@@ -8,11 +10,15 @@ package com.qcmian.clipper.core.domain.model
  *
  * [types] 携带剪贴板声明的粘贴板类型标识，用于支持「忽略的剪贴板类型」偏好。
  */
+@Immutable
 data class ClipboardSnapshot(
     val text: String? = null,
     val image: ClipImage? = null,
     val files: List<String> = emptyList(),
     val types: List<String> = emptyList(),
+    /** 未被 [text] / [image] / [files] 单独建模的额外类型（HTML、RTF、PDF、URL 等）的原始字节。 */
+    val contents: List<ClipboardContent> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = text.isNullOrEmpty() && image == null && files.isEmpty()
+    val isEmpty: Boolean
+        get() = text.isNullOrEmpty() && image == null && files.isEmpty() && contents.isEmpty()
 }

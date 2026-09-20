@@ -91,14 +91,7 @@ fun ApplicationScope.ClipperWindow(
         onCloseRequest = { onCloseRequest() },
         visible = windowVisible,
         title = "Clipper",
-        // 任务栏图标：与打包的 ico、Android、iOS 同一份「炭火夜市」设计稿，直接矢量栅格化。
-        // 只在 Windows / Linux 设置——macOS 上 AWT 的 setIconImage 会反过来覆盖 Dock 图标，
-        // 把 bundle 里的 .icns 换成一张被系统缩进玻璃 squircle 的小图，四周多出一圈留白。
-        icon = if (System.getProperty("os.name").orEmpty().startsWith("Mac")) {
-            null
-        } else {
-            rememberVectorPainter(ClipperAppIcon)
-        },
+        icon =  rememberVectorPainter(ClipperAppIcon),
         // 隐藏系统标题栏（最大化 / 最小化 / 关闭按钮），让面板只显示内容本身。
         undecorated = true,
         transparent = true,

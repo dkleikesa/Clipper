@@ -84,9 +84,6 @@ data class AppSettings(
      * 条数**不设上限**：设置页只校验「正整数」，不设最大值——用户想留多少条就填多少条。
      */
     val historyMaxCount: Int = DEFAULT_HISTORY_MAX_COUNT,
-    val saveText: Boolean = true,
-    val saveImages: Boolean = true,
-    val saveFiles: Boolean = true,
     val sortBy: SortBy = SortBy.LAST_COPIED_AT,
 
     // 行为

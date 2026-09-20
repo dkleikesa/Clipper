@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,7 +34,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.ui.KeyShortcut
+import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.Popup
+import com.qcmian.clipper.core.ui.visibleShortcut
 
 /**
  * 历史列表与页脚共用的一种紧凑行。它只显示前置配件、
@@ -43,7 +46,8 @@ import com.qcmian.clipper.core.ui.Popup
 fun ListItemRow(
     isSelected: Boolean,
     modifier: Modifier = Modifier,
-    shortcut: KeyShortcut? = null,
+    shortcuts: List<KeyShortcut> = emptyList(),
+    flags: ModifierFlags = ModifierFlags(),
     /**
      * 行的**固定**高度。默认是文本行高 [Popup.itemHeight]；图片行必须把
      * `maxImageHeight + ImageRowPadding` 传进来，否则这里会把它压回文本行高，
@@ -97,7 +101,7 @@ fun ListItemRow(
         CompositionLocalProvider(LocalContentColor provides contentColor) {
             Box(Modifier.weight(1f)) { content() }
             Spacer(Modifier.width(5.dp))
-            if (shortcut != null) ShortcutView(shortcut)
+            ShortcutView(shortcuts, flags)
             Spacer(Modifier.width(10.dp))
         }
     }
@@ -128,15 +132,21 @@ fun RowTitle(text: String, modifier: Modifier = Modifier) {
 
 /** 按 `KeyboardShortcutView` 的方式渲染 `⌥⌘⌫`。 */
 @Composable
-private fun ShortcutView(shortcut: KeyShortcut) {
+private fun ShortcutView(shortcuts: List<KeyShortcut>, flags: ModifierFlags) {
+    // 把「当前修饰键」的读取圈在这个小组件里，并用 derivedStateOf 只在匹配到的变体真正
+    // 变化时才触发重组：按住 / 松开修饰键本身不再让整行（缩略图、标题）跟着重组。
+    val shortcut by remember(shortcuts) {
+        derivedStateOf { visibleShortcut(shortcuts, flags) }
+    }
+    val resolved = shortcut ?: return
     val color = LocalContentColor.current
     Row(
         modifier = Modifier.alpha(0.7f),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (shortcut.modifiers.isNotEmpty()) {
+        if (resolved.modifiers.isNotEmpty()) {
             Text(
-                text = shortcut.modifiers,
+                text = resolved.modifiers,
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
                 color = color,
@@ -144,7 +154,7 @@ private fun ShortcutView(shortcut: KeyShortcut) {
             )
         }
         Text(
-            text = shortcut.character,
+            text = resolved.character,
             fontSize = 12.sp,
             lineHeight = 16.sp,
             color = color,

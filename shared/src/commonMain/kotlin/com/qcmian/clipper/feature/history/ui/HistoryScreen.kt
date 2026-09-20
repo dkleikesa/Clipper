@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -50,7 +51,6 @@ import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.Popup
-import com.qcmian.clipper.core.ui.visibleShortcut
 import kotlinx.coroutines.flow.collect
 import com.qcmian.clipper.feature.history.ui.components.EmptyState
 import com.qcmian.clipper.feature.history.ui.components.FooterRows
@@ -112,10 +112,12 @@ fun HistoryScreen(
     /**
      * 最近一次指针按下期间按住的修饰键，这样 ⌥-点击会粘贴、⌘⇧-点击会不带格式粘贴，
      * 与 `HistoryItemView.performSelect` 完全一致。
+     *
+     * 刻意**不**用 Compose 状态：这些值只在点击闭包里、点击那一刻读取，不参与任何渲染，
+     * 若用 `mutableStateOf`，「按下鼠标」就会重组整棵界面（视觉零变化）。普通可变容器
+     * 写入不触发重组，点击时读到的仍是最新值。
      */
-    var pointerShift by remember { mutableStateOf(false) }
-    var pointerAlt by remember { mutableStateOf(false) }
-    var pointerMeta by remember { mutableStateOf(false) }
+    val pointerModifiers = remember { PointerModifiers() }
 
     // `focusRequestToken` 由宿主在请求显示面板时自增（`Popup.handleFirstKeyDown`）；首次组合时它
     // 为 0，这次请求顺带覆盖了「面板第一次打开」，因此不需要再单独起一个 `Unit` 副作用。
@@ -263,7 +265,8 @@ fun HistoryScreen(
         HistoryRow(
             item = item,
             ranges = indexed.value.ranges,
-            shortcut = visibleShortcut(shortcuts[item.id].orEmpty(), flags),
+            shortcuts = shortcuts[item.id].orEmpty(),
+            flags = flags,
             isSelected = state.isHistoryHighlighted && indexed.index == state.historySelection,
             highlight = settings.highlightMatch,
             showColorSwatch = settings.showHexColorSwatch,
@@ -277,9 +280,9 @@ fun HistoryScreen(
                 onUiAction(
                     ClipboardUiAction.Activate(
                         index = indexed.index,
-                        shift = pointerShift,
-                        alt = pointerAlt,
-                        meta = pointerMeta,
+                        shift = pointerModifiers.shift,
+                        alt = pointerModifiers.alt,
+                        meta = pointerModifiers.meta,
                     ),
                 )
             },
@@ -328,13 +331,6 @@ fun HistoryScreen(
     // 逐帧改窗口 bounds 的卡顿来源（停靠左侧时窗口原点每帧左移，已画好的内容每帧先右偏再被
     // 纠正，整块抖）。收起时卡片滑回列表后面、让出的区域变回透明，看起来就是窗口边缘在收拢。
     val previewOpen = state.previewOpen
-    val reveal by animateFloatAsState(
-        targetValue = if (previewOpen) 1f else 0f,
-        animationSpec = tween(Popup.previewRevealMillis, easing = EaseInOutCubic),
-        label = "previewReveal",
-    )
-    // 平移量按像素：graphicsLayer 的 translationX 是像素值。
-    val slideoutPx = with(density) { slideoutWidth.toPx() }
 
     // 主列表（内容区）宽度。两个来源，切换点是「用户是不是正在拖窗口边缘」：
     //
@@ -351,13 +347,6 @@ fun HistoryScreen(
     } else {
         contentWidth + (settings.previewWidth - previewWidth).dp
     }
-
-    // 预览卡在不在画面上：开着时当然在；**刚关上时**揭示动画还在往回收，卡片要留到动画走完
-    // （宿主同样等动画走完才把窗口缩回去，见 `WindowGeometryController`），否则卡片「啪」地
-    // 消失、只留一块背景慢慢收，同样是一次错位。
-    //
-    // 判据只读揭示进度，不额外记「正在收起」这类会残留的状态：动画归零时它自然为假。
-    val previewCardVisible = previewOpen || reveal > 0f
 
     Box(
         modifier
@@ -379,9 +368,9 @@ fun HistoryScreen(
                             // 于是悬停重新开始选择。
                             PointerEventType.Move -> onUiAction(ClipboardUiAction.PointerMoved)
                             PointerEventType.Press -> {
-                                pointerShift = event.keyboardModifiers.isShiftPressed
-                                pointerAlt = event.keyboardModifiers.isAltPressed
-                                pointerMeta = event.keyboardModifiers.isMetaPressed ||
+                                pointerModifiers.shift = event.keyboardModifiers.isShiftPressed
+                                pointerModifiers.alt = event.keyboardModifiers.isAltPressed
+                                pointerModifiers.meta = event.keyboardModifiers.isMetaPressed ||
                                     event.keyboardModifiers.isCtrlPressed
                             }
 
@@ -406,40 +395,28 @@ fun HistoryScreen(
         // 宽度必须用 `requiredWidth`：窗口还窄着时（刚显示）它大于父约束，`width` 会被夹成
         // 「窗口此刻多宽」，面板内容当场按那个宽度重排；卡片要的是「被窗口裁掉一部分」，而不是
         // 「被压扁」。超出窗口的那部分由根 `Box` 的圆角裁剪挡在外面，指针也到不了。
-        if (previewCardVisible) {
-            Box(
-                Modifier
-                    .requiredWidth(slideoutWidth)
-                    .align(
-                        if (previewHost.onLeft) Alignment.CenterStart else Alignment.CenterEnd,
-                    )
-                    .fillMaxHeight()
-                    // 往主列表那一侧平移「还没揭示的宽度」：reveal = 0 时整块卡在列表下面，
-                    // = 1 时归位。方向由停靠侧决定（左侧停靠往右平移，右侧停靠往左）。
-                    .graphicsLayer {
-                        val hidden = (1f - reveal) * slideoutPx
-                        translationX = if (previewHost.onLeft) hidden else -hidden
+        PreviewSlideoutHost(
+            previewOpen = previewOpen,
+            slideoutWidth = slideoutWidth,
+            onLeft = previewHost.onLeft,
+        ) {
+            PreviewSlideout(
+                item = state.selectedItem,
+                appIconBase64 = previewAppIcon,
+                previewWidth = previewWidth,
+                maxDragWidth = maxDragWidth,
+                onLeft = previewHost.onLeft,
+                onTogglePin = { onUiAction(ClipboardUiAction.TogglePinSelected) },
+                onDelete = { onUiAction(ClipboardUiAction.DeleteSelected) },
+                onCopyExtractedText = { onUiAction(ClipboardUiAction.CopyExtractedText) },
+                // 拖动中只改界面上的宽度（窗口不动），松手才把新宽度写回设置。
+                onWidthChange = { value -> draggedPreviewWidth = value },
+                onWidthChangeFinished = {
+                    draggedPreviewWidth?.let {
+                        onUiAction(ClipboardUiAction.SetPreviewWidth(it))
                     }
-                    .background(colors.background),
-            ) {
-                PreviewSlideout(
-                    item = state.selectedItem,
-                    appIconBase64 = previewAppIcon,
-                    previewWidth = previewWidth,
-                    maxDragWidth = maxDragWidth,
-                    onLeft = previewHost.onLeft,
-                    onTogglePin = { onUiAction(ClipboardUiAction.TogglePinSelected) },
-                    onDelete = { onUiAction(ClipboardUiAction.DeleteSelected) },
-                    onCopyExtractedText = { onUiAction(ClipboardUiAction.CopyExtractedText) },
-                    // 拖动中只改界面上的宽度（窗口不动），松手才把新宽度写回设置。
-                    onWidthChange = { value -> draggedPreviewWidth = value },
-                    onWidthChangeFinished = {
-                        draggedPreviewWidth?.let {
-                            onUiAction(ClipboardUiAction.SetPreviewWidth(it))
-                        }
-                    },
-                )
-            }
+                },
+            )
         }
 
         // 主窗口盖在卡片之上，因此**必须不透明**，否则卡片会透出来。
@@ -577,4 +554,52 @@ fun HistoryScreen(
         onAction = onUiAction,
         captureShortcutKey = captureShortcutKey,
     )
+}
+
+/** 指针按下期间按住的修饰键；普通可变容器，写入不触发重组（见 [HistoryScreen] 内注释）。 */
+private class PointerModifiers {
+    var shift = false
+    var alt = false
+    var meta = false
+}
+
+/**
+ * 预览卡的揭示动画容器。
+ *
+ * 揭示进度 [reveal] 是动画状态，展示 / 收起期间逐帧变化。把它圈在这个小组件里（而不是
+ * `HistoryScreen` 顶层），动画期间就只重组这个轻量的 `Box`——列表、度量、`fold` 都不会
+ * 跟着每帧重算；[content]（[PreviewSlideout]）的参数在动画期间不变，因此能整体跳过。
+ *
+ * 只有 graphicsLayer 的平移每帧读取 [reveal]（那是绘制阶段，本就只重绘不重组）。
+ */
+@Composable
+private fun BoxScope.PreviewSlideoutHost(
+    previewOpen: Boolean,
+    slideoutWidth: Dp,
+    onLeft: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val slideoutPx = with(LocalDensity.current) { slideoutWidth.toPx() }
+    val reveal by animateFloatAsState(
+        targetValue = if (previewOpen) 1f else 0f,
+        animationSpec = tween(Popup.previewRevealMillis, easing = EaseInOutCubic),
+        label = "previewReveal",
+    )
+    // 刚关上时卡片要留到动画走完（宿主同样等动画走完才缩窗口），归零后自然为假、整块消失。
+    if (!previewOpen && reveal <= 0f) return
+    Box(
+        Modifier
+            .requiredWidth(slideoutWidth)
+            .align(if (onLeft) Alignment.CenterStart else Alignment.CenterEnd)
+            .fillMaxHeight()
+            // 往主列表那一侧平移「还没揭示的宽度」：reveal = 0 时整块卡在列表下面，= 1 时归位。
+            .graphicsLayer {
+                val hidden = (1f - reveal) * slideoutPx
+                translationX = if (onLeft) hidden else -hidden
+            }
+            .background(colors.background),
+    ) {
+        content()
+    }
 }

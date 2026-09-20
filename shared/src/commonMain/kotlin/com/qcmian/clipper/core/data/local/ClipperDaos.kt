@@ -21,7 +21,7 @@ abstract class ClipHistoryDao {
 
     /** [load] 的轻量版：不读 image 列，用于 diff 对照与全量加载的差别只在 BLOB。 */
     @Query(
-        "SELECT id, text, files, firstCopiedAt, lastCopiedAt, numberOfCopies, " +
+        "SELECT id, text, files, contents, firstCopiedAt, lastCopiedAt, numberOfCopies, " +
             "pin, title, application FROM clip_history",
     )
     abstract suspend fun loadLite(): List<ClipItemLite>
@@ -55,6 +55,7 @@ data class ClipItemLite(
     val id: String,
     val text: String?,
     val files: String,
+    val contents: String,
     val firstCopiedAt: Long,
     val lastCopiedAt: Long,
     val numberOfCopies: Int,

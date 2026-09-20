@@ -1,17 +1,22 @@
 package com.qcmian.clipper.core.domain.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * 剪贴板历史中的单条记录。
  *
  * 保存系统剪贴板上找到的每一种表示（纯文本、图片和/或文件列表），
  * 以及用于去重和排序的记账字段。
  */
+@Immutable
 data class ClipItem(
     val id: String,
     val text: String? = null,
     /** 原始（PNG/JPEG）图片字节。 */
     val image: ClipImage? = null,
     val files: List<String> = emptyList(),
+    /** 未被 [text] / [image] / [files] 单独建模的额外类型（HTML、RTF、PDF、URL 等）的原始字节。 */
+    val contents: List<ClipboardContent> = emptyList(),
     val firstCopiedAt: Long = 0L,
     val lastCopiedAt: Long = 0L,
     val numberOfCopies: Int = 1,
@@ -42,7 +47,8 @@ data class ClipItem(
     val approximateSizeBytes: Long by lazy {
         (text?.utf8SizeBytes() ?: 0L) +
             (image?.size?.toLong() ?: 0L) +
-            files.sumOf { it.utf8SizeBytes() }
+            files.sumOf { it.utf8SizeBytes() } +
+            contents.sumOf { it.size.toLong() }
     }
 
     /**
@@ -68,11 +74,13 @@ data class ClipItem(
 
     /** 当本条目已包含 [other] 提供的全部内容时返回 `true`。 */
     fun supersedes(other: ClipItem): Boolean {
-        val hasContent = other.text != null || other.image != null || other.files.isNotEmpty()
+        val hasContent = other.text != null || other.image != null ||
+            other.files.isNotEmpty() || other.contents.isNotEmpty()
         if (!hasContent) return false
         return (other.text == null || text == other.text) &&
             (other.image == null || image == other.image) &&
-            (other.files.isEmpty() || files == other.files)
+            (other.files.isEmpty() || files == other.files) &&
+            (other.contents.isEmpty() || contents == other.contents)
     }
 
     /**

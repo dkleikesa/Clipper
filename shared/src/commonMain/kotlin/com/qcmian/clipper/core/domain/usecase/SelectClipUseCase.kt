@@ -71,6 +71,7 @@ class SelectClipUseCase(
                 text = item.text ?: if (item.image == null && item.files.isEmpty()) item.previewableText else null,
                 image = item.image,
                 files = item.files,
+                contents = item.contents,
             )
         }
 

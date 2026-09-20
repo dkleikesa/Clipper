@@ -29,16 +29,6 @@ class UpdateSettingsUseCase(private val repository: ClipboardRepository) {
                 if (fromContent) item.copy(title = item.generateTitle(updated.showSpecialSymbols)) else item
             }
         }
-        if (previous.saveText != updated.saveText ||
-            previous.saveImages != updated.saveImages ||
-            previous.saveFiles != updated.saveFiles
-        ) {
-            items = items.filterNot { item ->
-                (!updated.saveText && item.text != null && item.image == null && item.files.isEmpty()) ||
-                    (!updated.saveImages && item.image != null && item.text.isNullOrBlank() && item.files.isEmpty()) ||
-                    (!updated.saveFiles && item.files.isNotEmpty() && item.text.isNullOrBlank() && item.image == null)
-            }
-        }
 
         val layoutChanged = updated.historyMaxCount != previous.historyMaxCount ||
             updated.sortBy != previous.sortBy ||

@@ -1,6 +1,7 @@
 package com.qcmian.clipper.feature.history.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.input.key.KeyEvent
 import com.qcmian.clipper.core.ui.components.ConfirmDialog
 import com.qcmian.clipper.feature.history.state.ClipboardDialog
@@ -26,6 +27,27 @@ internal fun HistoryDialogs(
     onAction: (ClipboardUiAction) -> Unit,
     captureShortcutKey: (KeyEvent) -> Boolean,
 ) {
+    // `PreferencesActions` 的 7 个字段全是内联 lambda，若每次重组都重建，`PreferencesDialog`
+    // 会因为「actions 引用变了」而整体无法跳过——设置页任何一次 state 变化都会全量重组 7 个分区。
+    // 它只捕获 `onAction`（稳定的方法引用）与 `captureShortcutKey`，按这两个键缓存即可稳定。
+    val actions = remember(onAction, captureShortcutKey) {
+        PreferencesActions(
+            onSettingsChange = { transform -> onAction(ClipboardUiAction.UpdateSettings(transform)) },
+            onClearUnpinned = { onAction(ClipboardUiAction.RequestClear(all = false, hidePanel = false)) },
+            onClearAll = { onAction(ClipboardUiAction.RequestClear(all = true, hidePanel = false)) },
+            onDismiss = { onAction(ClipboardUiAction.DismissPreferences) },
+            // 录制期间宿主要停掉系统级热键，否则同一个组合会一边被录、一边触发原动作
+            // （见 `ClipboardUiState.shortcutRecording`）。
+            onStartShortcutRecording = { slot ->
+                onAction(ClipboardUiAction.StartShortcutRecording(slot))
+            },
+            // 对话框离开屏幕（关闭、重置、被确认框顶掉）时收回录制态：不收回的话宿主的
+            // 系统级热键会一直哑着。
+            onCancelShortcutRecording = { onAction(ClipboardUiAction.CancelShortcutRecording) },
+            onShortcutKeyEvent = captureShortcutKey,
+        )
+    }
+
     val settings = state.settings
     if (state.dialog == ClipboardDialog.PREFERENCES && state.confirmation == null) {
         PreferencesDialog(
@@ -38,21 +60,7 @@ internal fun HistoryDialogs(
                 supportsTextRecognition = state.supportsTextRecognition,
                 shortcutRecording = state.shortcutRecording,
             ),
-            actions = PreferencesActions(
-                onSettingsChange = { transform -> onAction(ClipboardUiAction.UpdateSettings(transform)) },
-                onClearUnpinned = { onAction(ClipboardUiAction.RequestClear(all = false, hidePanel = false)) },
-                onClearAll = { onAction(ClipboardUiAction.RequestClear(all = true, hidePanel = false)) },
-                onDismiss = { onAction(ClipboardUiAction.DismissPreferences) },
-                // 录制期间宿主要停掉系统级热键，否则同一个组合会一边被录、一边触发原动作
-                // （见 `ClipboardUiState.shortcutRecording`）。
-                onStartShortcutRecording = { slot ->
-                    onAction(ClipboardUiAction.StartShortcutRecording(slot))
-                },
-                // 对话框离开屏幕（关闭、重置、被确认框顶掉）时收回录制态：不收回的话宿主的
-                // 系统级热键会一直哑着。
-                onCancelShortcutRecording = { onAction(ClipboardUiAction.CancelShortcutRecording) },
-                onShortcutKeyEvent = captureShortcutKey,
-            ),
+            actions = actions,
         )
     }
 

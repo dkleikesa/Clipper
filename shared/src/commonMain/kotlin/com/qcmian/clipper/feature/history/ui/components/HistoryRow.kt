@@ -31,6 +31,7 @@ import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.isHexColor
 import com.qcmian.clipper.core.settings.HighlightMatch
 import com.qcmian.clipper.core.ui.KeyShortcut
+import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
 import com.qcmian.clipper.core.ui.hexToColor
@@ -67,7 +68,8 @@ internal fun historyRowHeight(item: ClipItem, imageMaxHeight: Dp): Dp =
 fun HistoryRow(
     item: ClipItem,
     ranges: List<IntRange>,
-    shortcut: KeyShortcut?,
+    shortcuts: List<KeyShortcut>,
+    flags: ModifierFlags,
     isSelected: Boolean,
     highlight: HighlightMatch,
     showColorSwatch: Boolean,
@@ -87,7 +89,8 @@ fun HistoryRow(
 
     ListItemRow(
         isSelected = isSelected,
-        shortcut = shortcut,
+        shortcuts = shortcuts,
+        flags = flags,
         // 行高与 `HistoryScreen` 推算窗口高度、滚动条内容总高时读的是同一个函数，因此不可能分叉。
         //
         // 判据只看 `item.image`（见 [historyRowHeight]），**不能**用 `thumbnail`：解码失败时
