@@ -93,10 +93,13 @@ data class ShortcutSpec(
 data class AppSettings(
     // 存储
     /**
-     * 未置顶历史内容的条数上限。超过后按当前排序丢弃最旧的记录；置顶项不受此限制，
-     * 也从不因超限被丢弃。
+     * 未置顶历史内容的条数上限。超过后按「最后一次复制」从新到旧保留这么多条，多出来的丢弃
+     * （与排序方式无关：用户设上限的意图是「只留最近的」）；置顶项不受此限制，也从不因超限
+     * 被丢弃。
      *
      * 条数**不设上限**：设置页只校验「正整数」，不设最大值——用户想留多少条就填多少条。
+     * 默认给到 1 万条，是因为拆表之后这个量级不再有代价：列表只加载窗口、排序与分页下推给
+     * SQL、图片与正文按需读取，常驻内存与历史总量无关。
      */
     val historyMaxCount: Int = DEFAULT_HISTORY_MAX_COUNT,
     val sortBy: SortBy = SortBy.LAST_COPIED_AT,
@@ -167,7 +170,7 @@ data class AppSettings(
 ) {
     companion object {
         /** [historyMaxCount] 的默认值。 */
-        const val DEFAULT_HISTORY_MAX_COUNT = 200
+        const val DEFAULT_HISTORY_MAX_COUNT = 10_000
 
         /**
          * [previewWidth] 的默认值。

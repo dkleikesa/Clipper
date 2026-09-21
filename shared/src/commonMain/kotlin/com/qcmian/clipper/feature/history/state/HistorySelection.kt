@@ -21,7 +21,7 @@ data class HistorySelection(
  * 全是置顶或列表为空时退回第一条（`coerceAtLeast` 让空列表也不会得到 `-1`）。
  */
 fun List<SearchResult>.defaultSelectionIndex(): Int =
-    indexOfFirst { it.item.isUnpinned }.coerceAtLeast(0)
+    indexOfFirst { it.meta.isUnpinned }.coerceAtLeast(0)
 
 /**
  * 历史面板的高亮移动规则。

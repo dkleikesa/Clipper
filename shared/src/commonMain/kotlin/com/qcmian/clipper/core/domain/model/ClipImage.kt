@@ -6,9 +6,9 @@ import com.qcmian.clipper.core.util.fnv1a64
 /**
  * 剪贴板图片的原始字节（PNG 或 JPEG）。
  *
- * 刻意单独成一个类型，而不是直接用裸 `ByteArray`：`ClipItem` 是 data class，而数组的
- * 相等性按引用比较——直接把数组放进数据类，[ClipItem.supersedes] 的去重与列表的变更
- * 检测都会静默失效。这里用内容语义的 [equals] / [hashCode] 把它变成值对象。
+ * 刻意单独成一个类型，而不是直接用裸 `ByteArray`：`ClipPayload` 是 data class，而数组的
+ * 相等性按引用比较——直接把数组放进数据类，列表的变更检测会静默失效。这里用内容语义的
+ * [equals] / [hashCode] 把它变成值对象。
  *
  * 与落库使用的表示一致（Room 里就是一个 BLOB），因此内存与磁盘之间不再需要 base64
  * 编解码，也不再有 33% 的编码膨胀。

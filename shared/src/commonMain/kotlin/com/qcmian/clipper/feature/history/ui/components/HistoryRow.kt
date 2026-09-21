@@ -27,8 +27,11 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.domain.model.ClipImage
+import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.isHexColor
+import com.qcmian.clipper.core.domain.model.removingUnsafeTitleScalars
+import com.qcmian.clipper.core.domain.model.titleForDisplay
 import com.qcmian.clipper.core.settings.HighlightMatch
 import com.qcmian.clipper.core.ui.KeyShortcut
 import com.qcmian.clipper.core.ui.ModifierFlags
@@ -50,12 +53,12 @@ internal val ImageRowPadding = 10.dp
  * 这是行高的**唯一依据**：列表渲染（[HistoryRow]）、窗口高度与滚动条的内容总高
  * （`HistoryScreen` 的 `rowHeight`）都调用它，三处因此不可能各自推算出一套数来。
  *
- * 判定只看 `item.image` 是否为 `null`，不看位图能否解码出来：位图解码失败时行内改显示
- * 标题，但内容总高仍按图片行推算——两者一旦用不同的判据，滑块长度与拖拽落点就会和真实
- * 内容对不上（滑块很短、一拖就跳到底）。
+ * 判据只看 [ClipMeta.hasImage]，不看位图是否已经取回、能否解码：这一列随元数据一起来，
+ * 因此「图片还在路上」「解码失败」都不会让行高在加载前后变来变去——那会让滑块长度、
+ * 拖动落点与真实内容一起漂移。
  */
-internal fun historyRowHeight(item: ClipItem, imageMaxHeight: Dp): Dp =
-    if (item.image != null) imageMaxHeight + ImageRowPadding else Popup.itemHeight
+internal fun historyRowHeight(meta: ClipMeta, imageMaxHeight: Dp): Dp =
+    if (meta.hasImage) imageMaxHeight + ImageRowPadding else Popup.itemHeight
 
 /**
  *。一行要么是色块加标题，要么只有图片缩略图——
@@ -63,16 +66,23 @@ internal fun historyRowHeight(item: ClipItem, imageMaxHeight: Dp): Dp =
  *
  * 行高是**确定性**的，由 [historyRowHeight] 给出。窗口高度与滚动条都按同一函数推算整份内容的
  * 高度，因此两处都必须是固定高度（见 `ListItemRow` 与下方 `ContentScale.Inside`）。
+ *
+ * @param image 该条目的图片。字节在载荷里，由界面在行进入组合时按需取回（见
+ *   `ClipboardUiAction.RequestImage`），因此它可能是 `null`——此时这一行会显示标题而不是缩略图，
+ *   但行高仍然按图片行算（判据见 [historyRowHeight]）。
  */
 @Composable
 fun HistoryRow(
-    item: ClipItem,
+    meta: ClipMeta,
+    image: ClipImage?,
     ranges: List<IntRange>,
     shortcuts: List<KeyShortcut>,
     flags: ModifierFlags,
     isSelected: Boolean,
     highlight: HighlightMatch,
     showColorSwatch: Boolean,
+    /** 标题里的空格 / 换行 / 制表符是否显示为 `·` / `⏎` / `⇥`。 */
+    showSpecialSymbols: Boolean,
     /** 图片行的高度上限，也是图片槽位的固定高度。 */
     maxImageHeight: Dp,
     /** 来源应用图标的 base64 PNG；图标关闭或未知时为 `null`。 */
@@ -84,8 +94,8 @@ fun HistoryRow(
     val appIcon = rememberImageBitmap(appIconBase64)
     // 色块要求标题以十六进制颜色开头，且必须带 `#` 前缀，
     // 以免普通的三个字母的单词被误认成十六进制颜色。
-    val swatch = if (showColorSwatch && isHexColor(item.title)) hexToColor(item.title) else null
-    val thumbnail = rememberImageBitmap(item.image)
+    val swatch = if (showColorSwatch && isHexColor(meta.title)) hexToColor(meta.title) else null
+    val thumbnail = rememberImageBitmap(image)
 
     ListItemRow(
         isSelected = isSelected,
@@ -93,10 +103,11 @@ fun HistoryRow(
         flags = flags,
         // 行高与 `HistoryScreen` 推算窗口高度、滚动条内容总高时读的是同一个函数，因此不可能分叉。
         //
-        // 判据只看 `item.image`（见 [historyRowHeight]），**不能**用 `thumbnail`：解码失败时
-        // 行内会退回标题文本，但行高仍留出图片槽位，只是多一段留白；若改用 `thumbnail`，
-        // 那一行的真实高度就与滚动条前缀和差出一截，滑块长度、位置与拖动落点会一起漂移。
-        height = historyRowHeight(item, maxImageHeight),
+        // 判据只看 `meta.hasImage`（见 [historyRowHeight]），**不能**用 `thumbnail`：图片还没取回
+        // 或解码失败时行内会退回标题文本，但行高仍留出图片槽位，只是多一段留白；若改用
+        // `thumbnail`，那一行的真实高度就与滚动条前缀和差出一截，滑块长度、位置与拖动落点
+        // 会一起漂移。
+        height = historyRowHeight(meta, maxImageHeight),
         onClick = onClick,
         onHover = onHover,
         appIcon = appIcon?.let {
@@ -128,12 +139,36 @@ fun HistoryRow(
                     .clip(RoundedCornerShape(2.dp)),
             )
         } else {
-            // 图片文字识别的标题是识别原文、带真换行（复制时要还原原文），单行展示时压平。
-            // `\n` 换成等长的空格，因此不会让搜索高亮的偏移错位；文本条目的标题本来就没有换行。
-            RowTitle(highlightedTitle(item.title.replace('\n', ' '), ranges, highlight, isSelected, colors))
+            RowTitle(
+                highlightedTitle(
+                    displayTitle(meta, showSpecialSymbols),
+                    ranges,
+                    highlight,
+                    isSelected,
+                    colors,
+                ),
+            )
         }
     }
 }
+
+/**
+ * 列表里那一行要渲染的标题。
+ *
+ * 库里存的是**原文**（见 `ClipItem.toMeta`），这里才做显示用的变形：
+ *
+ * - 图片文字识别的结果带真换行（「复制图片文字」要还原原文），单行展示时只压平成空格，
+ *   不套 `·` / `⏎` / `⇥` ——那些符号会被当成识别内容的一部分。
+ * - 其余标题按「特殊符号」偏好替换首尾空格与换行 / 制表符。
+ *
+ * `\n` 一律换成等长的空格，因此不会让搜索高亮的偏移错位。
+ */
+private fun displayTitle(meta: ClipMeta, showSpecialSymbols: Boolean): String =
+    if (meta.hasRecognizedText) {
+        meta.title.removingUnsafeTitleScalars().replace('\n', ' ')
+    } else {
+        meta.title.titleForDisplay(showSpecialSymbols).replace('\n', ' ')
+    }
 
 @Composable
 private fun ColorSwatch(color: Color) {

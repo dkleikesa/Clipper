@@ -1,6 +1,6 @@
 package com.qcmian.clipper.feature.history.state
 
-import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.ShortcutSlot
@@ -59,7 +59,15 @@ sealed interface ClipboardUiAction {
     data object CopyExtractedText : ClipboardUiAction
     data class SetPreviewWidth(val width: Int) : ClipboardUiAction
 
-    data class TogglePin(val item: ClipItem) : ClipboardUiAction
+    data class TogglePin(val meta: ClipMeta) : ClipboardUiAction
+
+    /**
+     * 有图片的行进入组合：请求把这一条的图片取回来。
+     *
+     * `LazyColumn` 只组合可见项，因此这个动作天然只对视口内的行触发——列表里有多少张图片
+     * 都不会一次性全进内存。
+     */
+    data class RequestImage(val id: String) : ClipboardUiAction
 
     // ------------------------------------------------------------------ 偏好设置
     data class UpdateSettings(val transform: (AppSettings) -> AppSettings) : ClipboardUiAction

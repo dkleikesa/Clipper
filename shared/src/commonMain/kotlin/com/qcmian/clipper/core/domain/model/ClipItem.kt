@@ -37,7 +37,6 @@ data class ClipItem(
     val application: SourceApplication? = null,
 ) {
     val isPinned: Boolean get() = pin != null
-    val isUnpinned: Boolean get() = pin == null
 
     /**
      * 该条目占用的近似字节数：图片是精确值，文本与文件路径按 UTF-8 计。
@@ -87,24 +86,6 @@ data class ClipItem(
             else -> ClipFilterType.TEXT
         }
 
-    /** 当本条目已包含 [other] 提供的全部内容时返回 `true`。 */
-    fun supersedes(other: ClipItem): Boolean {
-        val hasContent = other.text != null || other.image != null ||
-            other.files.isNotEmpty() || other.contents.isNotEmpty()
-        if (!hasContent) return false
-        return (other.text == null || text == other.text) &&
-            (other.image == null || image == other.image) &&
-            (other.files.isEmpty() || files == other.files) &&
-            (other.contents.isEmpty() || contents == other.contents)
-    }
-
-    /**
-     * 构建列表显示的单行标题，包含 `showSpecialSymbols`
-     * 偏好：开启时首尾空格显示为 `·`，换行与制表符显示为 `⏎`/`⇥`。
-     */
-    fun generateTitle(showSpecialSymbols: Boolean = true): String =
-        previewableText.titleForDisplay(showSpecialSymbols)
-
     companion object {
         const val MAX_TITLE_LENGTH = 1_000
 
@@ -132,7 +113,7 @@ fun String.removingUnsafeTitleScalars(): String =
  * 把一段「代表条目自身的文本」格式化成列表显示用的单行标题。
  *
  * 图片文字识别的原文带着真换行存进 `title`（复制时要还原原文），由渲染方自行压平，
- * 因此不经过这里——本函数只服务 [ClipItem.generateTitle]。
+ * 因此不经过这里——它只服务「标题由正文 / 文件路径派生」的那些条目（见 `HistoryRow`）。
  */
 fun String.titleForDisplay(showSpecialSymbols: Boolean = true): String {
     val raw = take(ClipItem.MAX_TITLE_LENGTH).removingUnsafeTitleScalars()

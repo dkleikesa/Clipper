@@ -6,13 +6,19 @@ import androidx.room3.RoomDatabase
 import androidx.room3.RoomDatabaseConstructor
 
 /**
- * 应用唯一的 Room 数据库：一张表存剪贴板历史，一张表存偏好设置。
+ * 应用唯一的 Room 数据库：历史拆成「元数据 + 载荷」两张表，另有一张表存偏好设置。
  * Android、iOS 与桌面端都打开同一份 schema；只有文件位置与 SQLite 驱动不同，
  * 而这两者由各自的平台源集提供。
+ *
+ * 历史为什么拆表见 [ClipMetaEntity] 的说明——一句话：SQLite 的 `UPDATE` 会重写整条记录，
+ * 高频改写的窄字段不能和大 BLOB 同行，否则每次「复制次数 + 1」都要重写一遍图片。
+ *
+ * 版本号从 `1` 开始：应用尚未发布，schema 在开发期几经推翻（单表 → 双表 → 列类型与编码
+ * 的调整），没有必要为一版都没发出去的结构留下版本历史。首次发布之后再按正常迁移递增。
  */
 @Database(
-    entities = [ClipItemEntity::class, AppSettingsEntity::class],
-    version = 3,
+    entities = [ClipMetaEntity::class, ClipPayloadEntity::class, AppSettingsEntity::class],
+    version = 1,
 )
 @ConstructedBy(ClipperDatabaseConstructor::class)
 abstract class ClipperDatabase : RoomDatabase() {

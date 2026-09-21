@@ -66,3 +66,18 @@ compose.desktop {
         }
     }
 }
+
+/**
+ * 开发用：往真实数据库里灌一批测试数据，见 `SeedData.kt`。
+ *
+ * 走应用自己的存储层而不是手工 SQL——手工拼的 INSERT 绕开了 Room 的 identity hash 校验，
+ * 下次启动会被 `fallbackToDestructiveMigration` 当成旧库整个清掉。
+ *
+ * **会先清空现有历史。**
+ */
+tasks.register<JavaExec>("seedData") {
+    group = "application"
+    description = "向 ~/.clipper/clipper.db 写入 20000 条历史（含 50 张图片），并清空原有数据"
+    mainClass.set("com.qcmian.clipper.desktop.SeedDataKt")
+    classpath = sourceSets["main"].runtimeClasspath
+}

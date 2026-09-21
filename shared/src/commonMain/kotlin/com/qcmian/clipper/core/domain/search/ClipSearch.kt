@@ -1,12 +1,23 @@
 package com.qcmian.clipper.core.domain.search
 
-import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.SearchMode
+import com.qcmian.clipper.core.util.currentTimeMillis
 
-/**。 */
+/**
+ * 在当前窗口的元数据上执行一次查询。
+ *
+ * 搜索目标是 [ClipMeta.title]，**不触碰载荷**——这也是窗口可以只装元数据的原因：
+ * 模糊匹配要读入每条标题，如果标题需要先把图片和正文反序列化出来，这个函数就没法在
+ * 「内存里只有元数据」的前提下工作。
+ *
+ * 这个函数是**纯 CPU 计算，成本与历史条数成正比**（模糊模式是 O(查询长 × 标题长) 的编辑距离），
+ * 因此调用方必须把它放在后台线程上跑，并且允许连续输入时取消上一次——见
+ * `ClipboardViewModel.refresh`。
+ */
 object ClipSearch {
-    fun search(query: String, items: List<ClipItem>, mode: SearchMode): List<SearchResult> {
+    fun search(query: String, items: List<ClipMeta>, mode: SearchMode): List<SearchResult> {
         if (query.isEmpty()) return items.map { SearchResult(it) }
 
         return when (mode) {
@@ -25,39 +36,57 @@ object ClipSearch {
         }
     }
 
-    private fun exact(query: String, items: List<ClipItem>): List<SearchResult> =
-        items.mapNotNull { item ->
-            val index = item.title.indexOf(query, ignoreCase = true)
+    private fun exact(query: String, items: List<ClipMeta>): List<SearchResult> =
+        items.mapNotNull { meta ->
+            val index = meta.title.indexOf(query, ignoreCase = true)
             if (index < 0) {
                 null
             } else {
-                SearchResult(item, listOf(index until index + query.length))
+                SearchResult(meta, listOf(index until index + query.length))
             }
         }
 
-    /** 区分大小写。 */
-    private fun regexp(query: String, items: List<ClipItem>): List<SearchResult> {
+    /**
+     * 区分大小写。
+     *
+     * 用户输入的正则可能触发灾难性回溯（`(a+)+b` 这类），因此这里有两层保护：参与匹配的
+     * 标题截断到 [REGEX_SEARCH_LIMIT]，以及一个挂在 `charAt` 上的软超时
+     * （见 [DeadlineSequence]）。
+     *
+     * 预算用完时**返回已经拿到的结果**而不是清空——搜索框里的内容永远是用户自己敲的，
+     * 让它突然全空比少几条更糟。
+     */
+    private fun regexp(query: String, items: List<ClipMeta>): List<SearchResult> {
         val regex = runCatching { Regex(query) }.getOrNull() ?: return emptyList()
-        return items.mapNotNull { item ->
-            val ranges = regex.findAll(item.title).map { it.range }.toList()
-            if (ranges.isEmpty()) null else SearchResult(item, ranges)
+        val deadline = currentTimeMillis() + REGEX_BUDGET_MILLIS
+        val results = mutableListOf<SearchResult>()
+
+        for (meta in items) {
+            if (currentTimeMillis() > deadline) break
+            val title = meta.title.take(REGEX_SEARCH_LIMIT)
+            // 某一条回溯跑飞时只跳过它自己，不影响其余的条目。
+            val ranges = runCatching {
+                regex.findAll(DeadlineSequence(title, deadline)).map { it.range }.toList()
+            }.getOrNull() ?: continue
+            if (ranges.isNotEmpty()) results += SearchResult(meta, ranges)
         }
+        return results
     }
 
     /**
- * 模糊匹配的打分公式：
+     * 模糊匹配的打分公式：
      * `score = errors / pattern.length`，超过 `0.7` 阈值的直接拒绝。这里用近似的子串编辑距离
      * 复现同一度量，使命中的集合与排序与 `Fuse(threshold: 0.7)` 一致。
      */
-    private fun fuzzy(query: String, items: List<ClipItem>): List<SearchResult> {
+    private fun fuzzy(query: String, items: List<ClipMeta>): List<SearchResult> {
         val needle = query.lowercase()
         if (needle.isEmpty()) return emptyList()
 
         return items
-            .mapNotNull { item ->
-                val haystack = item.title.take(FUZZY_SEARCH_LIMIT).lowercase()
+            .mapNotNull { meta ->
+                val haystack = meta.title.take(FUZZY_SEARCH_LIMIT).lowercase()
                 fuzzyMatch(needle, haystack)?.let { match ->
-                    ScoredResult(SearchResult(item, match.ranges), match.score)
+                    ScoredResult(SearchResult(meta, match.ranges), match.score)
                 }
             }
             .sortedBy { it.score }
@@ -156,9 +185,50 @@ object ClipSearch {
 
     private data class ScoredResult(val result: SearchResult, val score: Double)
 
- /**。 */
     private const val FUZZY_SEARCH_LIMIT = 5_000
 
- /**。 */
     private const val FUZZY_THRESHOLD = 0.7
+
+    /** 参与正则匹配的标题长度上限。 */
+    private const val REGEX_SEARCH_LIMIT = 4_096
+
+    /** 一次正则搜索的总时间预算；用完就带上已有结果收工。 */
+    private const val REGEX_BUDGET_MILLIS = 150L
 }
+
+/**
+ * 给正则执行加一个软超时。
+ *
+ * Java 的正则引擎在匹配与回溯时反复通过 `charAt` 读取输入，因此把输入包一层、在其中定期
+ * 检查时限，就能在灾难性回溯跑飞之前把它掐掉。代价是每读 [CHECK_INTERVAL] 个字符多一次
+ * 时钟查询——相对于回溯本身的开销可以忽略。
+ *
+ * 超时抛出 [RegexTimeoutException]，由调用方按「这一条不匹配」处理。
+ */
+private class DeadlineSequence(
+    private val source: CharSequence,
+    private val deadlineMillis: Long,
+) : CharSequence {
+    private var ticks = 0
+
+    override val length: Int get() = source.length
+
+    override fun get(index: Int): Char {
+        if (++ticks >= CHECK_INTERVAL) {
+            ticks = 0
+            if (currentTimeMillis() > deadlineMillis) throw RegexTimeoutException()
+        }
+        return source[index]
+    }
+
+    override fun subSequence(startIndex: Int, endIndex: Int): CharSequence =
+        DeadlineSequence(source.subSequence(startIndex, endIndex), deadlineMillis)
+
+    private companion object {
+        /** 每读这么多个字符检查一次时限。 */
+        const val CHECK_INTERVAL = 512
+    }
+}
+
+/** [DeadlineSequence] 用它在回溯中途打断匹配；不需要堆栈（禁掉可以少一次分配）。 */
+private class RegexTimeoutException : RuntimeException(null, null, false, false)

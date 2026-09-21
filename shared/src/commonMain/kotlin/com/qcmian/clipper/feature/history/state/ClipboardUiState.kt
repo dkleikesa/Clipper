@@ -1,7 +1,9 @@
 package com.qcmian.clipper.feature.history.state
 
 import androidx.compose.runtime.Immutable
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.feature.preferences.state.ShortcutRecording
@@ -22,16 +24,34 @@ data class ClearConfirmation(
  *
  * UI 只渲染这个对象，除此之外什么都不读；每一次用户交互都以 [ClipboardUiAction] 的形式回传。
  * 它是该界面的唯一数据源，由 `ClipboardViewModel` 生成。
+ *
+ * **注意这里装的是「全部元数据」而不是完整条目**：[results] 是按当前排序的全量元数据，
+ * 图片字节在 [images] 里按视口懒加载，完整正文在 [previewItem] 里按选中项懒加载。因此
+ * 历史有 10 万条还是 200 条，这个对象的大小差别只在元数据（每条几百字节）。
  */
 @Immutable
 data class ClipboardUiState(
     val settings: AppSettings = AppSettings(),
     /** 用户输入的内容，每敲一个键就更新。 */
     val query: String = "",
- /** 实际应用到历史上的查询词，按 节流。 */
+    /** 实际应用到历史上的查询词，按 节流。 */
     val appliedQuery: String = "",
-    /** 按 [appliedQuery] 过滤后的历史，已按显示顺序排列。 */
+    /** 按 [appliedQuery] 过滤后的内容，已按显示顺序排列。 */
     val results: List<SearchResult> = emptyList(),
+    /**
+     * 已经取回来的图片，键是条目 id。
+     *
+     * 只在有图片的行**进入组合**时才装填（`LazyColumn` 只组合可见项），并随窗口一起清理，
+     * 因此它的大小与视口相关，与历史里的图片总数无关。
+     */
+    val images: Map<String, ClipImage> = emptyMap(),
+    /**
+     * 当前选中条目的完整内容（含载荷）。
+     *
+     * [selectedMeta] 只有元数据，渲染预览面板需要真正的正文 / 图片，因此由状态持有者按 id
+     * 异步补齐。条目还在路上（或本来就没有载荷）时为 `null`。
+     */
+    val previewItem: ClipItem? = null,
     val historySelection: Int = 0,
     /** 由历史列表持有高亮时为 `-1`。 */
     val footerSelection: Int = -1,
@@ -78,17 +98,18 @@ data class ClipboardUiState(
      * （拖动窗口尺寸时每帧都会发生）反复读它也只付一次 O(n) 的代价，调用方不必自己 `remember`。
      */
     val pinnedEntries: List<IndexedValue<SearchResult>> by lazy {
-        results.withIndex().filter { it.value.item.isPinned }
+        results.withIndex().filter { it.value.meta.isPinned }
     }
 
     /** 置顶区块下方（或上方）可滚动的历史。缓存方式同 [pinnedEntries]。 */
     val unpinnedEntries: List<IndexedValue<SearchResult>> by lazy {
-        results.withIndex().filterNot { it.value.item.isPinned }
+        results.withIndex().filterNot { it.value.meta.isPinned }
     }
 
     val selectedResult: SearchResult? get() = results.getOrNull(historySelection)
 
-    val selectedItem: ClipItem? get() = selectedResult?.item
+    /** 当前选中条目的元数据；置顶 / 删除 / 激活都按 id 作用在它上面。 */
+    val selectedMeta: ClipMeta? get() = selectedResult?.meta
 
     val isHistoryHighlighted: Boolean get() = footerSelection < 0
 

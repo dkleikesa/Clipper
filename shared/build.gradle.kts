@@ -27,6 +27,9 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
             implementation(libs.kotlinx.serialization.json)
+            // 附加表示（HTML / RTF / PDF）以 CBOR 存进 BLOB 列：JSON 只能把 ByteArray 编成
+            // 数字数组（膨胀约 3.6 倍），CBOR 是二进制，原样落盘。
+            implementation(libs.kotlinx.serialization.cbor)
             // Room：唯一持久化层。
             implementation(libs.androidx.room3.runtime)
             implementation(libs.androidx.sqlite)

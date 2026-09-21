@@ -112,7 +112,7 @@ fun resolveKeyActions(
             val selectable = action != ClipAction.UNKNOWN && action != ClipAction.DEFAULT
             val index = if (character != null && selectable) {
                 state.results.indexOfFirst { result ->
-                    shortcuts[result.item.id]?.any { it.character == character } == true
+                    shortcuts[result.meta.id]?.any { it.character == character } == true
                 }
             } else {
                 -1

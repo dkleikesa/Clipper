@@ -172,7 +172,11 @@ fun HistoryScreen(
     }
 
     val pinsAtTop = settings.pinTo == PinPosition.TOP
-    val pinsSeparator = pinnedEntries.isNotEmpty() && unpinnedEntries.isNotEmpty()
+    // 只要置顶区有内容就画分隔线。
+    //
+    // 从前还要求内容区非空，但内容区为空时那里并不是「什么都没有」——它是一个空状态区块
+    // （「没有匹配的项目」）。两块内容之间没有分界，看起来像置顶区把下面的区域吞掉了。
+    val pinsSeparator = pinnedEntries.isNotEmpty()
 
     // 条目高度是**精确值**，不是估算：文本行恒为 `Popup.itemHeight`，图片行恒为
     // `imageMaxHeight` 加 `ImageRowPadding`。两个高度都由 `historyRowHeight` 一处给出，
@@ -180,7 +184,7 @@ fun HistoryScreen(
     // 窗口高度与滚动条三者共用的唯一依据，因此不可能各自推算出一套数来。
     // 这些都是**固定高度而非下限**，任何让行长高的内容都会让它们一起算少。
     val rowHeight: (SearchResult) -> Dp = { result ->
-        historyRowHeight(result.item, settings.imageMaxHeight.dp)
+        historyRowHeight(result.meta, settings.imageMaxHeight.dp)
     }
 
     // 滚动条所需的逐条高度。与窗口高度共用同一个 [rowHeight]：两个消费者读同一个函数，
@@ -263,18 +267,28 @@ fun HistoryScreen(
 
     /** 单条历史行，供固定的置顶区块与可滚动的未置顶列表共用。 */
     val entryRow: @Composable (IndexedValue<SearchResult>) -> Unit = { indexed ->
-        val item = indexed.value.item
+        val meta = indexed.value.meta
+        val image = state.images[meta.id]
+
+        // 有图片的行**进入组合**时才去取它的字节：`LazyColumn` 只组合可见项，因此这个副作用
+        // 天然只对视口内的行触发，历史里有多少张图都不会一次性进内存。
+        if (meta.hasImage && image == null) {
+            LaunchedEffect(meta.id) { onUiAction(ClipboardUiAction.RequestImage(meta.id)) }
+        }
+
         HistoryRow(
-            item = item,
+            meta = meta,
+            image = image,
             ranges = indexed.value.ranges,
-            shortcuts = shortcuts[item.id].orEmpty(),
+            shortcuts = shortcuts[meta.id].orEmpty(),
             flags = flags,
             isSelected = state.isHistoryHighlighted && indexed.index == state.historySelection,
             highlight = settings.highlightMatch,
             showColorSwatch = settings.showHexColorSwatch,
+            showSpecialSymbols = settings.showSpecialSymbols,
             maxImageHeight = settings.imageMaxHeight.dp,
             appIconBase64 = if (settings.showApplicationIcons) {
-                rememberApplicationIcon(applicationIcon, item.application?.bundleId)
+                rememberApplicationIcon(applicationIcon, meta.application?.bundleId)
             } else {
                 null
             },
@@ -295,7 +309,7 @@ fun HistoryScreen(
     // 每个选中项只解析一次，且不在组合线程上。
     val previewAppIcon = rememberApplicationIcon(
         load = applicationIcon,
-        bundleId = state.selectedItem?.application?.bundleId,
+        bundleId = state.selectedMeta?.application?.bundleId,
     )
 
     // 实测的窗口宽度。两个用途：分隔条的拖动上限（见 `maxDragWidth`）与用户拖窗口边缘期间的
@@ -403,7 +417,9 @@ fun HistoryScreen(
             onLeft = previewHost.onLeft,
         ) {
             PreviewSlideout(
-                item = state.selectedItem,
+                // 预览要的是**完整条目**（含正文 / 图片），由状态持有者按选中 id 异步补齐；
+                // 列表里流动的元数据里没有这些。
+                item = state.previewItem,
                 appIconBase64 = previewAppIcon,
                 previewWidth = previewWidth,
                 maxDragWidth = maxDragWidth,
@@ -480,7 +496,12 @@ fun HistoryScreen(
                         )
                     }
 
-                    // 筛选栏放在内容区（未置顶列表）上方，且只作用于内容区：置顶项不受筛选影响。
+                    // 筛选栏紧贴内容区上方（也就是置顶区之下）：它只作用于内容区。
+                    //
+                    // 位置之所以稳定，不是因为把它挪到了别处，而是因为**置顶区不参与筛选与搜索**
+                    // （见 `ClipboardViewModel.matchResults`）——置顶项数量恒定，上面那块的高度
+                    // 就不会变，它也就不会跟着跳。
+                    //
                     // 开关关闭时整块隐藏；外层 Box 始终存在，让 filterHeight 能跟着归零。
                     Box(
                         Modifier
@@ -506,7 +527,9 @@ fun HistoryScreen(
                     }
 
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                        if (results.isEmpty()) {
+                        // 判据是**内容区**是否为空，而不是整个 `results`：置顶区不参与筛选与
+                        // 搜索，它会一直有内容，按 `results` 判断就永远显示不出空状态。
+                        if (unpinnedEntries.isEmpty()) {
                             EmptyState(searching = state.query.isNotEmpty())
                         } else {
                             LazyColumn(
@@ -519,7 +542,7 @@ fun HistoryScreen(
                                     bottom = metrics.listBottomPadding,
                                 ),
                             ) {
-                                items(unpinnedEntries, key = { it.value.item.id }) { indexed ->
+                                items(unpinnedEntries, key = { it.value.meta.id }) { indexed ->
                                     entryRow(indexed)
                                 }
                             }

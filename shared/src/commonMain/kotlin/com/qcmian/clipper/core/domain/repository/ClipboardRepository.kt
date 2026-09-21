@@ -2,6 +2,8 @@ package com.qcmian.clipper.core.domain.repository
 
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.domain.model.ClipMeta
+import com.qcmian.clipper.core.domain.model.ClipPayload
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.SourceApplication
 import com.qcmian.clipper.core.settings.AppSettings
@@ -11,13 +13,29 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * 剪贴板历史与用户偏好的唯一数据源。
  *
- * 这是数据层中用于*读写历史*的入口：它负责持久化，并以 [StateFlow] 暴露内存中的状态。
+ * **内存里只有元数据，载荷按需。** 它被拆成两层暴露：
+ *
+ * - [pinned] / [unpinned]：全部元数据（[ClipMeta]——id、标题、类型、时间戳与计数，
+ *   **不含图片字节、正文与富文本**），已按当前排序排好、一次取回。
+ * - [payload]：载荷按 id 单条取，只有预览面板与「写回剪贴板」会用到。
+ *
+ * 这样历史的常驻内存只与「条数 × 每条几百字节」成正比（一万条约 6 MB），而真正的量级
+ * ——图片与长正文——永远不进内存；同时排序下推给了 SQL（见 `ClipHistoryDao`），
+ * 不再有「每次复制都全量重排十万条」。
+ *
  * 宿主能力——写系统剪贴板、解析应用图标、文字识别——放在 [ClipboardPlatform] 中，
  * 这样使用方只需依赖自己实际用到的那一半。它刻意不包含任何 UI 状态，也不依赖 Compose。
  */
 interface ClipboardRepository {
-    /** 历史记录，已按当前的排序 / 置顶偏好排好序。 */
-    val items: StateFlow<List<ClipItem>>
+
+    /** 已加载的置顶条目。置顶是用户的显式选择、数量少，因此一次取全、不参与分页。 */
+    val pinned: StateFlow<List<ClipMeta>>
+
+    /** 已加载的未置顶条目：按当前排序，**从第一条开始的连续前缀**。 */
+    val unpinned: StateFlow<List<ClipMeta>>
+
+    /** 未置顶条目总数。界面用它判断还有没有下一批。 */
+    val totalUnpinned: StateFlow<Int>
 
     /** 用户偏好。 */
     val settings: StateFlow<AppSettings>
@@ -37,7 +55,7 @@ interface ClipboardRepository {
     /** 停止监听系统剪贴板。 */
     fun stop()
 
-    /** 立即把待写状态写入存储，而不等待防抖。 */
+    /** 把待写的偏好落盘，而不等待防抖。历史条目本身就是即时落盘的。 */
     fun flush()
 
     /**
@@ -47,14 +65,10 @@ interface ClipboardRepository {
     suspend fun flushNow()
 
     /**
-     * 落盘当前状态并关闭底层存储。SQLite 会在最后一个连接关闭时把 WAL 合并回主库，
-     * 并删除 `-wal` / `-shm` 临时文件。进程退出路径应优先用本方法而非 [flushNow]；
-     * 关闭后的读写会被安全忽略，宿主后续的 [flush] 不需要感知。
+     * 把待写状态落盘并关闭底层存储。SQLite 会在最后一个连接关闭时把 `-wal` / `-shm`
+     * 合并回主库并删除它们，下次启动不再需要恢复。进程退出路径应优先用本方法。
      */
     suspend fun close()
-
-    /** 替换整份历史；列表在持久化前会重新排序并按上限裁剪。 */
-    fun setItems(items: List<ClipItem>)
 
     /** 替换偏好设置，并把平台侧设置同步下去。 */
     fun setSettings(settings: AppSettings)
@@ -62,21 +76,52 @@ interface ClipboardRepository {
     /** 显示（或清除）临时状态消息。 */
     fun setStatusMessage(message: String?)
 
-    /**
-     * 存储占用可能已经变化（回收 / 压紧完成）时自增。
-     *
-     * 「存储文件大小」是每次现读的，因此界面需要这样一个信号才会重新读一次——否则 `VACUUM`
-     * 之后设置页里的数字会停在旧值上。
-     */
-    val storageRevision: StateFlow<Int>
+    // -----------------------------------------------------------------------------------
+    // 载荷
+    // -----------------------------------------------------------------------------------
+
+    /** 按 id 取载荷；条目不存在或本来就没有载荷时为 `null`。 */
+    suspend fun payload(id: String): ClipPayload?
+
+    /** 按 id 取完整条目（元数据 + 载荷）；条目不存在时为 `null`。 */
+    suspend fun item(id: String): ClipItem?
+
+    // -----------------------------------------------------------------------------------
+    // 按 id 的细粒度写操作
+    // -----------------------------------------------------------------------------------
+
+    /** 写入一条新历史。元数据与载荷在同一事务里落盘。 */
+    suspend fun insert(meta: ClipMeta, payload: ClipPayload?)
+
+    /** 重复复制：只更新统计列，不重写标题、更不碰载荷。 */
+    suspend fun updateStats(id: String, numberOfCopies: Int, lastCopiedAt: Long)
+
+    /** 改写标题；[fromRecognition] 表示这次改写是否来自图片文字识别。 */
+    suspend fun updateTitle(id: String, title: String, fromRecognition: Boolean)
+
+    /** 单条元数据；条目不存在时为 `null`。 */
+    suspend fun meta(id: String): ClipMeta?
+
+    /** 内容摘要相同的条目 id；把去重从「扫描整份历史」降成一次等值查询。 */
+    suspend fun findByContentKey(contentKey: String): String?
+
+    /** 历史里最大的 `lastCopiedAt`；没有任何条目时为 `0`。 */
+    suspend fun latestLastCopiedAt(): Long
+
+    suspend fun setPinned(id: String, pinned: Boolean)
+
+    suspend fun delete(ids: List<String>)
+
+    /** [all] 为 `true` 时连置顶项一起清空；否则只清未置顶项。 */
+    suspend fun clear(all: Boolean)
 
     /**
-     * 彻底压紧数据库文件（SQLite `VACUUM`）：空闲页与页内碎片一起回收。
+     * 存储占用可能已经变化（空闲页回收完成）时自增。
      *
-     * 非阻塞：真正的工作在 IO 上跑，同一时刻只会有一个，重复调用会被合并。用在「用户刚清掉
-     * 一批数据」与「进程即将退出」这两个时机。
+     * 「存储文件大小」是每次现读的，因此界面需要这样一个信号才会重新读一次——否则回收之后
+     * 设置页里的数字会停在旧值上。
      */
-    fun compactStorage()
+    val storageRevision: StateFlow<Int>
 
     /**
      * 空闲页够多时才真正回收（`PRAGMA incremental_vacuum`）。

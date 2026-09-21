@@ -23,8 +23,8 @@ internal fun shortcutMap(
     var counter = 1
     results.forEach { result ->
         // 数字键只发给置顶项，且最多九个。
-        if (!result.item.isPinned || counter > 9) return@forEach
-        map[result.item.id] = keyShortcuts((counter++).toString(), pasteByDefault)
+        if (!result.meta.isPinned || counter > 9) return@forEach
+        map[result.meta.id] = keyShortcuts((counter++).toString(), pasteByDefault)
     }
     return map
 }

@@ -21,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -126,6 +127,9 @@ fun PreviewPane(
                 val text = item.previewableText
                 val truncated = text.length > LARGE_TEXT_LIMIT
                 val textScrollState = rememberScrollState()
+                // 换了一条就该从顶部开始看：`rememberScrollState` 是跨条目复用的，不重置的话
+                // 新内容会停在上一条的滚动位置上，看起来像「内容没换」。
+                LaunchedEffect(item.id) { textScrollState.scrollTo(0) }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()

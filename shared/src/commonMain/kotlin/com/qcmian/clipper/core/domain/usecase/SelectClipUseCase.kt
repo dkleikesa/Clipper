@@ -28,6 +28,9 @@ enum class SelectResult {
  * 把某条记录写回系统剪贴板；当解析出的 [ClipAction]
  * 要求时，再把粘贴按键发送给此前聚焦的应用。
  *
+ * 接收的是**条目 id**而不是条目本身：写回剪贴板需要真正的载荷，而载荷只有在这一刻才
+ * 从存储里按 id 取出来（见 `ClipboardRepository.item`）。列表里流动的元数据不含它。
+ *
  * 延迟粘贴用挂起函数里的普通 [delay] 表达，因此由调用方决定它运行在哪个作用域
  * （也就决定了生命周期）。
  */
@@ -39,12 +42,15 @@ class SelectClipUseCase(
      * @param onHidePanel 在合成粘贴之前调用，让面板先让开，使按键能到达此前聚焦的应用。
      */
     suspend operator fun invoke(
-        item: ClipItem,
+        itemId: String,
         action: ClipAction,
         onHidePanel: () -> Unit,
     ): SelectResult {
         // 不支持的修饰键组合什么都不做。
         if (action == ClipAction.UNKNOWN) return SelectResult.IGNORED
+
+        // 条目可能在界面上停留期间被删掉；此时静默放弃，不要往剪贴板写一份空内容。
+        val item = repository.item(itemId) ?: return SelectResult.IGNORED
 
         val settings = repository.settings.value
         val removeFormatting = action.removesFormatting(settings)

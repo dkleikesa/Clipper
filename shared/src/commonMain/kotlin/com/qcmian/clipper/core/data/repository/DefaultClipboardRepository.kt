@@ -1,16 +1,17 @@
 package com.qcmian.clipper.core.data.repository
 
+import com.qcmian.clipper.core.data.local.toItem
 import com.qcmian.clipper.core.data.source.ClipStorageDataSource
 import com.qcmian.clipper.core.data.source.ClipboardDataSource
 import com.qcmian.clipper.core.data.source.NativeDataSource
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.domain.model.ClipMeta
+import com.qcmian.clipper.core.domain.model.ClipPayload
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.SourceApplication
-import com.qcmian.clipper.core.domain.model.removingUnsafeTitleScalars
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
-import com.qcmian.clipper.core.domain.sort.ClipSorter
 import com.qcmian.clipper.core.settings.AppSettings
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
@@ -23,16 +24,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
- * [ClipboardRepository] 的默认实现：以 [StateFlow] 在内存中持有历史，带防抖地镜像到平台存储，
- * 并把每一次剪贴板变化转发到 [snapshots]。
+ * [ClipboardRepository] 的默认实现。
  *
- * 所有业务规则（记录什么、如何合并重复项、激活时做什么）都在领域层；本类只负责搬运数据，
- * 并维护它自己负责的两条不变量：历史始终有序，且永不超过配置的上限。
+ * 与单表时代的最大区别：**内存里只有元数据**。排序、计数、去重判据全部下推给 SQL；
+ * 载荷只在被点开时按 id 取一次。写路径也从「改内存 → 全量 diff → 落盘」变成
+ * 「按 id 精确写一列」，因此不再需要防抖队列来掩盖全量重写的成本。
+ *
+ * 所有业务规则（记录什么、如何合并重复项、激活时做什么）仍在领域层；本类只负责搬运数据，
+ * 并维护它自己负责的两条不变量：元数据始终有序，且历史永不超过配置的上限。
  */
 class DefaultClipboardRepository(
     private val clipboard: ClipboardDataSource,
@@ -41,8 +45,14 @@ class DefaultClipboardRepository(
     private val scope: CoroutineScope,
 ) : ClipboardRepository, ClipboardPlatform {
 
-    private val _items = MutableStateFlow<List<ClipItem>>(emptyList())
-    override val items: StateFlow<List<ClipItem>> = _items.asStateFlow()
+    private val _pinned = MutableStateFlow<List<ClipMeta>>(emptyList())
+    override val pinned: StateFlow<List<ClipMeta>> = _pinned.asStateFlow()
+
+    private val _unpinned = MutableStateFlow<List<ClipMeta>>(emptyList())
+    override val unpinned: StateFlow<List<ClipMeta>> = _unpinned.asStateFlow()
+
+    private val _totalUnpinned = MutableStateFlow(0)
+    override val totalUnpinned: StateFlow<Int> = _totalUnpinned.asStateFlow()
 
     private val _settings = MutableStateFlow(AppSettings())
     override val settings: StateFlow<AppSettings> = _settings.asStateFlow()
@@ -52,8 +62,8 @@ class DefaultClipboardRepository(
     /**
      * 偏好已从存储读出后为 `true`：此前的 [settings] 是默认值，还不是用户真正的偏好。
      *
-     * 刻意不等历史加载完——历史里带图片（BLOB 反序列化），首次打开数据库还要几百毫秒，
-     * 而依赖它的只有「按真实偏好注册全局热键」这一类急事。
+     * 刻意不等窗口加载完——打开数据库（含 WAL 恢复）实测要几百毫秒，而依赖它的只有
+     * 「按真实偏好注册全局热键」这一类急事。
      */
     override val settingsLoaded: StateFlow<Boolean> = _settingsLoaded.asStateFlow()
 
@@ -66,6 +76,14 @@ class DefaultClipboardRepository(
     private val _snapshots = MutableSharedFlow<ClipboardSnapshot>(extraBufferCapacity = 32)
     override val snapshots: Flow<ClipboardSnapshot> = _snapshots.asSharedFlow()
 
+    /**
+     * 元数据的读改写全部串行化。
+     *
+     * 一次「刷新」与一次「按 id 写入」若交错执行，刷新可能读到半新半旧的一份元数据；
+     * 而它是唯一被界面直接渲染的东西，错一格就是可见的错行。
+     */
+    private val metadataLock = Mutex()
+
     private var started = false
 
     /** [load] 完成后为 `true`；防止 [flush] 覆盖掉已存储的状态。 */
@@ -73,14 +91,10 @@ class DefaultClipboardRepository(
     private var loaded = false
 
     private var startJob: Job? = null
-    private var itemsPersistJob: Job? = null
     private var settingsPersistJob: Job? = null
 
     /** 正在跑的存储维护（回收 / 压紧）；同一时刻只允许一个。 */
     private var maintenanceJob: Job? = null
-
-    /** 累计「丢掉的内容」的近似字节，只用来决定何时去查一次空闲页（见 [reclaimStorageIfNeeded]）。 */
-    private var droppedBytes = 0L
 
     override val storageBytes: Long? get() = storage.storageBytes()
     override val screenCount: Int get() = native.screenCount
@@ -110,104 +124,142 @@ class DefaultClipboardRepository(
     }
 
     override fun flush() {
-        itemsPersistJob?.cancel()
         settingsPersistJob?.cancel()
-        // 还没有加载任何数据：此时持久化会用空的内存状态覆盖已存历史。
+        // 还没有加载任何数据：此时持久化会用内存默认值覆盖已存偏好。
         if (!loaded) return
-        // 存储是挂起的（Room），因此最后一次写入改为在 [scope] 上派发，而不阻塞调用方。
-        // 不能容忍丢失的宿主请改用 [flushNow]。
-        val items = _items.value
         val settings = _settings.value
-        scope.launch {
-            storage.saveItems(items)
-            storage.saveSettings(settings)
-        }
+        scope.launch { storage.saveSettings(settings) }
     }
 
     override suspend fun flushNow() {
-        itemsPersistJob?.cancel()
         settingsPersistJob?.cancel()
         if (!loaded) return
-        storage.saveItems(_items.value)
         storage.saveSettings(_settings.value)
     }
 
     override suspend fun close() {
         flushNow()
-        // 退出前压紧一次。放到后台跑并只等 [QUIT_COMPACT_TIMEOUT_MILLIS]：库大时用户按了退出
-        // 不该等一次整库重写；等不到就放弃，下次启动的补检（见 [load]）会兜住那次空洞。
-        val compact = scope.launch {
-            try {
-                storage.compact()
-            } catch (cancellation: CancellationException) {
-                // 被上面的超时取消：以取消状态结束，退出流程不再等它。
-                throw cancellation
-            } catch (_: Exception) {
-                // 压紧失败（磁盘满、库已被关闭）不该拖住退出。
-            }
-        }
-        if (withTimeoutOrNull(QUIT_COMPACT_TIMEOUT_MILLIS) { compact.join() } == null) {
-            compact.cancel()
-        }
+        // 退出时不再压紧（`VACUUM`）：拆表之后载荷表只靠 `incremental_vacuum` 回收，元数据表
+        // 小到不必重写；而一个几 GB 的库做一次 `VACUUM` 要几十秒到几分钟，退出路径等不起。
+        // 这里只做一次便宜的空闲页回收。
+        runCatching { storage.reclaimFreePages(MIN_RECLAIM_BYTES) }
         storage.close()
     }
 
-    /** 加载已持久化的历史与偏好。运行在 [scope] 上，绝不在调用方线程上执行。 */
-    private suspend fun load() {
-        val settings = storage.loadSettings()
-        _settings.value = settings
-        // 偏好先行：热键注册、界面主题这些只依赖偏好的事情不该等历史加载完——
-        // Room 首次打开数据库（含 WAL 恢复）实测要几百毫秒。
-        // [loaded] 仍然等历史就绪才置位，保证 [flush] 不会用空历史覆盖已存数据。
-        _settingsLoaded.value = true
-        // 过滤不安全标量，并还原旧版图片标题，见 [sanitisedTitle]。
-        val restored = storage.loadItems().map { it.withSanitisedTitle() }
-        _items.value = normalise(restored, settings)
-        loaded = true
-        // 冷启动补一次回收：覆盖「上次会话删了但没回收」「退出时压紧超时被放弃」留下的空洞。
+    // ---------------------------------------------------------------------------------
+    // 元数据
+    // ---------------------------------------------------------------------------------
+
+    /**
+     * 从存储重建内存中的元数据。
+     *
+     * **上限内的元数据是一次性全部装进来的**，不分页。两个原因：
+     *
+     * - **滚动条按「每条一行」的前缀和定位**（见 `HistoryScrollbar` 的 `ListHeightModel`）。
+     *   只装前缀的话，内容总高按已加载条数算，滑块长度与拖动落点全都不对；而且「加载更多」
+     *   会让总高突增，滑块当场跳一下——正是之前看到的现象。
+     * - **类型筛选发生在内存里**（置顶项还豁免筛选）。要拿出一份「过滤后还剩多少条」的列表，
+     *   就必须知道每一行的类型，那已经是元数据本身了。
+     *
+     * 这一层很轻：一行只有 id、标题、类型、几个时间戳与计数，没有图片字节也没有正文
+     * （见 [ClipMeta]）。一万条约 6 MB；真正的量级来自图片与长正文，它们仍然只在被看到
+     * 或被复制时才读出来。
+     */
+    private suspend fun reloadMetadata() {
+        val current = _settings.value
+        val total = storage.countUnpinned()
+        _pinned.value = storage.loadPinned()
+        _unpinned.value = storage.loadUnpinned(current.sortBy, current.sortOrder, total, 0)
+        _totalUnpinned.value = total
+    }
+
+    // ---------------------------------------------------------------------------------
+    // 载荷
+    // ---------------------------------------------------------------------------------
+
+    override suspend fun payload(id: String): ClipPayload? = storage.loadPayload(id)
+
+    override suspend fun item(id: String): ClipItem? {
+        val meta = storage.loadMeta(id) ?: return null
+        return meta.toItem(storage.loadPayload(id))
+    }
+
+    // ---------------------------------------------------------------------------------
+    // 写
+    // ---------------------------------------------------------------------------------
+
+    override suspend fun insert(meta: ClipMeta, payload: ClipPayload?) {
+        metadataLock.withLock {
+            storage.insert(meta, payload)
+            trimOverflow()
+            reloadMetadata()
+        }
+    }
+
+    override suspend fun updateStats(id: String, numberOfCopies: Int, lastCopiedAt: Long) {
+        metadataLock.withLock {
+            storage.updateStats(id, numberOfCopies, lastCopiedAt)
+            // 统计变化会影响排序（「最后复制」「复制次数」两种排序下这一条都会挪位置）。
+            reloadMetadata()
+        }
+    }
+
+    override suspend fun updateTitle(id: String, title: String, fromRecognition: Boolean) {
+        metadataLock.withLock {
+            storage.updateTitle(id, title, fromRecognition)
+            reloadMetadata()
+        }
+    }
+
+    override suspend fun meta(id: String): ClipMeta? = storage.loadMeta(id)
+
+    override suspend fun findByContentKey(contentKey: String): String? =
+        storage.findIdByContentKey(contentKey)
+
+    override suspend fun latestLastCopiedAt(): Long = storage.maxLastCopiedAt()
+
+    override suspend fun setPinned(id: String, pinned: Boolean) {
+        metadataLock.withLock {
+            storage.updatePinned(id, pinned)
+            reloadMetadata()
+        }
+    }
+
+    override suspend fun delete(ids: List<String>) {
+        if (ids.isEmpty()) return
+        metadataLock.withLock {
+            storage.delete(ids)
+            reloadMetadata()
+        }
+        reclaimStorageIfNeeded()
+    }
+
+    override suspend fun clear(all: Boolean) {
+        metadataLock.withLock {
+            if (all) storage.deleteAll() else storage.deleteAllUnpinned()
+            reloadMetadata()
+        }
         reclaimStorageIfNeeded()
     }
 
     /**
-     * 修正单条已持久化历史的标题。
+     * 把超出上限的未置顶条目丢掉。
      *
-     * 做两件事：
-     * - 过滤会让 CoreText 在 macOS 26 上卡死的不安全标量；
-     * - 还原旧版本图片标题里的 `⏎` / `⇥`。早期实现把识别结果的换行、制表符替换成这两个符号
-     *   之后才存进 `title`，而 `title` 正是「复制图片文字」复制出去的内容，于是复制出来的
-     *   就成了符号。纯图片条目的标题只可能来自识别，因此这两个符号必然是当时格式化留下的。
+     * 口径是「按最后一次复制保留最近 N 条」，与排序方式无关——用户设上限的意图是「只留最近的」，
+     * 而不是「只留当前排序下的前 N」。
      */
-    private fun ClipItem.withSanitisedTitle(): ClipItem {
-        val cleaned = title.removingUnsafeTitleScalars()
-        val plainImage = image != null && text.isNullOrBlank() && files.isEmpty()
-        val restored = if (plainImage) {
-            cleaned.replace('\u23ce', '\n').replace('\u21e5', '\t')
-        } else {
-            cleaned
-        }
-        return if (restored == title) this else copy(title = restored)
+    private suspend fun trimOverflow() {
+        val maxCount = _settings.value.historyMaxCount
+        // 非正数视为「不裁剪」：设置页只允许正整数，这里防的是外部写入的异常值。
+        if (maxCount <= 0) return
+        val overflow = storage.overflowIds(maxCount)
+        if (overflow.isEmpty()) return
+        storage.delete(overflow)
     }
 
-    override fun setItems(items: List<ClipItem>) {
-        val normalised = normalise(items, _settings.value)
-        if (normalised == _items.value) return
-
-        // 记账只决定「什么时候去查一次空闲页」，不参与回收多少的判断：单条删除与裁剪丢弃都会
-        // 走到这里，热路径上只多一次整数加法（真正的判据是文件里的空闲页数）。
-        if (normalised.size < _items.value.size) {
-            val keptIds = normalised.mapTo(HashSet(normalised.size * 2)) { it.id }
-            droppedBytes += _items.value
-                .filterNot { it.id in keptIds }
-                .sumOf { it.approximateSizeBytes }
-            if (droppedBytes >= MIN_RECLAIM_BYTES) {
-                droppedBytes = 0
-                reclaimStorageIfNeeded()
-            }
-        }
-
-        _items.value = normalised
-        persistItems()
-    }
+    // ---------------------------------------------------------------------------------
+    // 偏好
+    // ---------------------------------------------------------------------------------
 
     override fun setSettings(settings: AppSettings) {
         if (settings == _settings.value) return
@@ -220,6 +272,20 @@ class DefaultClipboardRepository(
             applyPlatformSettings(settings)
         }
         persistSettings()
+
+        // 这四项决定窗口的内容与顺序，必须重读；其余偏好（主题、快捷键、预览宽度……）
+        // 与历史无关，重启一次数据库查询是浪费。
+        if (previous.sortBy != settings.sortBy ||
+            previous.sortOrder != settings.sortOrder ||
+            previous.historyMaxCount != settings.historyMaxCount
+        ) {
+            scope.launch {
+                metadataLock.withLock {
+                    if (settings.historyMaxCount > 0) trimOverflow()
+                    reloadMetadata()
+                }
+            }
+        }
     }
 
     override fun setStatusMessage(message: String?) {
@@ -227,39 +293,36 @@ class DefaultClipboardRepository(
     }
 
     // ---------------------------------------------------------------------------------
-    // 存储维护（空闲页回收 / 压紧）
+    // 存储维护
     // ---------------------------------------------------------------------------------
-
-    override fun compactStorage() {
-        runMaintenance { storage.compact() }
-    }
 
     override fun reclaimStorageIfNeeded() {
         runMaintenance { storage.reclaimFreePages(MIN_RECLAIM_BYTES) }
     }
 
     /**
-     * 存储维护的唯一入口：先落盘再动手，且同一时刻只跑一个。
+     * 存储维护的唯一入口：同一时刻只跑一个，完成后递增 [storageRevision]。
      *
-     * 先 [flushNow] 是必须的：刚删掉的内容可能还在防抖队列里，此时压紧会被随后的写入又撑大，
-     * 白压一次。维护期间到来的重复请求直接丢弃——压缩结果与调用次数无关。
-     *
-     * 完成后递增 [storageRevision]：「存储文件大小」每次现读，界面靠这个信号重读一次。
+     * 「存储文件大小」每次现读，界面靠这个信号重读一次，否则回收之后设置页里的数字
+     * 会停在旧值上。维护只在数据集上跑，因此不需要先 flush——条目是即时落盘的。
      */
     private fun runMaintenance(block: suspend () -> Unit) {
         if (maintenanceJob?.isActive == true) return
         maintenanceJob = scope.launch {
             try {
-                flushNow()
                 block()
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (_: Exception) {
                 // 维护失败（磁盘满、库已被关闭……）不该影响任何业务状态，等下一个时机再试。
             }
-            _storageRevision.update { it + 1 }
+            _storageRevision.value += 1
         }
     }
+
+    // ---------------------------------------------------------------------------------
+    // 平台
+    // ---------------------------------------------------------------------------------
 
     override fun writeClipboard(snapshot: ClipboardSnapshot): Boolean = clipboard.write(snapshot)
 
@@ -278,37 +341,28 @@ class DefaultClipboardRepository(
             null
         }
 
-    /** 上一次复制来源的应用；平台无法判断时为 `null`。 */
     override fun currentSourceApplication(): SourceApplication? {
         if (!native.supportsApplicationInfo) return null
         return runCatching { native.frontmostApplication() }.getOrNull()
     }
 
     // ---------------------------------------------------------------------------------
-    // 不变量
+    // 内部
     // ---------------------------------------------------------------------------------
 
-    /**
-     * 按当前偏好排序历史，并把未置顶条目裁剪到配置的条数上限。
-     *
-     * 从排序结果的开头数条数（即保留最靠前的条目），超出的全部丢弃；置顶项不占额度也不会被
-     * 丢弃。[AppSettings.historyMaxCount] 至少为 1，因此刚复制的内容不会被立刻清掉。
-     */
-    private fun normalise(items: List<ClipItem>, settings: AppSettings): List<ClipItem> {
-        val sorted = ClipSorter.sort(items, settings.sortBy, settings.sortOrder, settings.pinTo)
-        val maxCount = settings.historyMaxCount
-        // 非正数视为「不裁剪」：设置页只允许正整数，这里防的是外部写入的异常值。
-        if (maxCount <= 0) return sorted
-
-        var kept = 0
-        val overflow = mutableSetOf<String>()
-        for (item in sorted) {
-            if (item.isPinned) continue
-            kept++
-            if (kept > maxCount) overflow += item.id
-        }
-        if (overflow.isEmpty()) return sorted
-        return sorted.filterNot { it.id in overflow }
+    /** 加载已持久化的偏好与窗口。运行在 [scope] 上，绝不在调用方线程上执行。 */
+    private suspend fun load() {
+        val current = storage.loadSettings()
+        _settings.value = current
+        // 偏好先行：热键注册、界面主题这些只依赖偏好的事情不该等历史加载完。
+        // [loaded] 仍然等窗口就绪才置位，保证 [flush] 不会用默认偏好覆盖已存数据。
+        _settingsLoaded.value = true
+        // PRAGMA 与孤儿清理只做一次。
+        storage.initialise()
+        metadataLock.withLock { reloadMetadata() }
+        loaded = true
+        // 冷启动补一次回收：覆盖「上次会话删了但没回收」留下的空洞。
+        reclaimStorageIfNeeded()
     }
 
     /** 下发位于平台侧的设置（轮询间隔、开机自启项）。 */
@@ -316,14 +370,6 @@ class DefaultClipboardRepository(
         clipboard.pollIntervalMillis = value.clipboardCheckIntervalMillis.toLong().coerceAtLeast(50L)
         if (native.supportsLaunchAtLogin) {
             runCatching { native.setLaunchAtLogin(value.launchAtLogin) }
-        }
-    }
-
-    private fun persistItems() {
-        itemsPersistJob?.cancel()
-        itemsPersistJob = scope.launch {
-            delay(PERSIST_DEBOUNCE_MILLIS)
-            storage.saveItems(_items.value)
         }
     }
 
@@ -339,14 +385,10 @@ class DefaultClipboardRepository(
         const val PERSIST_DEBOUNCE_MILLIS = 300L
 
         /**
-         * 累计丢掉这么多内容，才值得去查一次文件里的空闲页并回收。
+         * 空闲页至少要这么多才值得去回收（`incremental_vacuum` 的代价与回收页数成正比）。
          *
-         * 这个阈值同时用于两处：这里是触发查询的记账阈值，数据层那边是「空闲页少于它就
-         * 不值得为它搬一次页」的回收阈值——两者一致，语义就是「删够 1 MB 才回收 1 MB」。
+         * 语义是「删够 1 MB 才回收 1 MB」。
          */
         const val MIN_RECLAIM_BYTES = 1L * 1024L * 1024L
-
-        /** 退出时最多等压紧多久；等不到就放弃，交给下次启动的补检。 */
-        const val QUIT_COMPACT_TIMEOUT_MILLIS = 1_500L
     }
 }
