@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import kotlin.math.roundToInt
 
 /**
@@ -125,7 +126,19 @@ class ClipboardViewModel(
                 repository.totalUnpinned,
             ) { _, _, _ -> Unit }.collect { refresh() }
         }
-        viewModelScope.launch { repository.settings.collect { refresh() } }
+        // 偏好变化分两类：筛选类型与置顶位置决定「结果集合与顺序」，必须重算匹配；其余偏好
+        // （主题、图片高度、快捷键、预览宽度……）与结果无关，重算一次全量匹配是白跑
+        // ——一万条要几十毫秒，而改这些设置时用户正瞪着界面等它变。
+        viewModelScope.launch {
+            repository.settings.collect { settings ->
+                val previous = _uiState.value.settings
+                if (previous.filterTypes != settings.filterTypes || previous.pinTo != settings.pinTo) {
+                    refresh()
+                } else {
+                    syncSettingsOnly()
+                }
+            }
+        }
         // 存储占用变了（空闲页回收完成）：重读一次，设置页里的「存储文件」才会跟着掉。
         viewModelScope.launch { repository.storageRevision.collect { refresh() } }
         viewModelScope.launch {
@@ -268,15 +281,18 @@ class ClipboardViewModel(
      * 在当前窗口上执行一次查询。
      *
      * 它总是被放到 [Dispatchers.Default] 上调用：这是纯 CPU 计算，成本与历史条数成正比
-     * ——模糊模式是 O(查询长 × 标题长) 的编辑距离，两万条长标题足够把主线程按住几百毫秒。
+     * ——每条都要对每个查询词做一次子串查找，没连续命中的还要再判一次子序列。
      *
-     * 排序已经在 SQL 里完成，这里只做拼接，所以结果顺序不可能与列表里看到的顺序不一致。
+     * 置顶区只拼接、不参与查询；未置顶部分**按匹配质量重排**，因此结果顺序不再等于
+     * SQL 给出的顺序（那是没有查询时的顺序）。
      */
     private fun matchResults(
         query: String,
         settings: AppSettings,
         pinned: List<ClipMeta>,
         unpinned: List<ClipMeta>,
+        /** 转发给 [ClipSearch.search]：这次查询是否已经被后一次输入取代。 */
+        isCancelled: () -> Boolean,
     ): List<SearchResult> {
         // 置顶区**不参与筛选，也不参与搜索**：它是用户钉住的常驻参考项。
         //
@@ -287,7 +303,7 @@ class ClipboardViewModel(
 
         // 空集表示用户取消了所有类型：未置顶内容一条都不显示。
         val types = settings.filterTypes
-        val searched = ClipSearch.search(query, unpinned.filter { it.kind in types }, settings.searchMode)
+        val searched = ClipSearch.search(query, unpinned.filter { it.kind in types }, isCancelled)
 
         return when (settings.pinTo) {
             PinPosition.TOP -> pinnedResults + searched
@@ -441,8 +457,12 @@ class ClipboardViewModel(
 
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
+            // 取消只在挂起点生效，而匹配是一整段同步 CPU 循环：把「这次任务还在不在」传进去，
+            // 让它在循环里自检（见 `ClipSearch.search`）。否则连续输入时，被取消的旧查询仍然
+            // 会把整段扫描跑完，白白占着一个线程。
+            val job = coroutineContext[Job]
             val results = withContext(Dispatchers.Default) {
-                matchResults(query, settings, pinned, unpinned)
+                matchResults(query, settings, pinned, unpinned) { job?.isActive == false }
             }
 
             val queryChanged = query != lastAppliedQuery
@@ -457,18 +477,20 @@ class ClipboardViewModel(
                     latest.images.filterKeys { it in visibleIds }
                 }
 
-                latest.copy(
-                    settings = settings,
-                    // 预览开关来自设置：它是持久化的用户选择，界面状态只是它的投影。
-                    previewOpen = settings.previewOpen,
+                latest.withSyncedFields(settings, total).copy(
                     results = results,
                     images = images,
-                    // 换了查询就把高亮落回第一条（清空搜索时落到内容区第一条，与面板打开时一致）；
+                    // 换了查询就把高亮落回**内容区第一条**（与面板打开时一致）。
+                    //
+                    // 不能写成字面量 `0`：列表顶部可能有置顶项，而置顶区在滚动列表之外。
+                    // 高亮落在置顶项上时，界面按它在滚动列表里找目标行会找不到，于是既不
+                    // 滚回顶部、高亮也没落在用户正在看的那一段上。
+                    //
                     // 其余刷新只做越界收敛，不打扰用户当前的选中位置。
-                    historySelection = when {
-                        queryChanged && query.isEmpty() -> results.defaultSelectionIndex()
-                        queryChanged -> 0
-                        else -> latest.historySelection.coerceIn(0, maxOf(0, results.lastIndex))
+                    historySelection = if (queryChanged) {
+                        results.defaultSelectionIndex()
+                    } else {
+                        latest.historySelection.coerceIn(0, maxOf(0, results.lastIndex))
                     },
                     footerSelection = if (queryChanged) -1 else latest.footerSelection,
                     // 历史内容真的变了（新条目 / 删除 / 换查询）才递增：让界面把选中项滚回可视区，
@@ -478,15 +500,39 @@ class ClipboardViewModel(
                     } else {
                         latest.historyScrollToken
                     },
-                    storageBytes = platform.storageBytes,
-                    historyCount = total,
-                    screenCount = platform.screenCount,
-                    supportsLaunchAtLogin = platform.supportsLaunchAtLogin,
-                    supportsTextRecognition = platform.supportsTextRecognition,
                 )
             }
         }
     }
+
+    /**
+     * 只把与结果无关的偏好写进界面状态，**不重算匹配**。
+     *
+     * 用于「改了设置但结果一模一样」的那些偏好（主题、图片高度、快捷键、预览宽度……）。
+     * 结果本身没变，因此选中位置、滚动位置也不该被碰。
+     */
+    private fun syncSettingsOnly() {
+        val settings = repository.settings.value
+        val total = repository.totalUnpinned.value
+        _uiState.update { latest -> latest.withSyncedFields(settings, total) }
+    }
+
+    /**
+     * 界面状态里与结果无关的那一份：偏好、存储占用、屏幕数、平台能力。
+     *
+     * 抽出来是因为有两条路径都要写它——[refresh]（重算完结果顺手补上）与 [syncSettingsOnly]
+     * （只写这一份）。两边共用同一个函数，才不会出现「改了某项设置但界面没反应」的漏项。
+     */
+    private fun ClipboardUiState.withSyncedFields(settings: AppSettings, historyCount: Int) = copy(
+        settings = settings,
+        // 预览开关来自设置：它是持久化的用户选择，界面状态只是它的投影。
+        previewOpen = settings.previewOpen,
+        storageBytes = platform.storageBytes,
+        historyCount = historyCount,
+        screenCount = platform.screenCount,
+        supportsLaunchAtLogin = platform.supportsLaunchAtLogin,
+        supportsTextRecognition = platform.supportsTextRecognition,
+    )
 
     /**
      * 写的是设置而不是界面状态：开关随设置持久化，因此面板关闭、应用重启都不会把它复位，

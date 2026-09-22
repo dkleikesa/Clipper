@@ -2,14 +2,6 @@ package com.qcmian.clipper.core.settings
 
 import kotlinx.serialization.Serializable
 
-/** 查询词与历史的匹配方式。。 */
-enum class SearchMode(val label: String) {
-    EXACT("精确"),
-    FUZZY("模糊"),
-    REGEXP("正则"),
-    MIXED("混合"),
-}
-
 /**。 */
 enum class SortBy(val label: String) {
     LAST_COPIED_AT("最后复制"),
@@ -129,8 +121,7 @@ data class AppSettings(
     val togglePreviewShortcut: ShortcutSpec? = ShortcutSlot.TOGGLE_PREVIEW.default,
 
     // 搜索
-    val searchMode: SearchMode = SearchMode.EXACT,
-    val highlightMatch: HighlightMatch = HighlightMatch.BOLD,
+    val highlightMatch: HighlightMatch = HighlightMatch.BACKGROUND,
     val showSearch: Boolean = true,
 
     // 外观
@@ -145,7 +136,7 @@ data class AppSettings(
     val showFilterBar: Boolean = false,
     val showApplicationIcons: Boolean = false,
     val imageMaxHeight: Int = 40,
-    val popupPosition: PopupPosition = PopupPosition.CURSOR,
+    val popupPosition: PopupPosition = PopupPosition.SCREEN_CENTER,
     /** 显示或隐藏菜单栏 / 托盘图标。 */
     val showInStatusBar: Boolean = true,
     /** 0 表示当前活动屏幕，1 及以上指向特定屏幕。 */

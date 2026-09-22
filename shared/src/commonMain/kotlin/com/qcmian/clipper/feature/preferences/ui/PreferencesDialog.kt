@@ -56,7 +56,6 @@ import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.HighlightMatch
 import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.settings.PopupPosition
-import com.qcmian.clipper.core.settings.SearchMode
 import com.qcmian.clipper.core.settings.ShortcutSlot
 import com.qcmian.clipper.core.settings.ThemeMode
 import com.qcmian.clipper.core.settings.shortcut
@@ -507,13 +506,6 @@ private fun SearchSection(data: PreferencesUiData, actions: PreferencesActions) 
     val settings = data.settings
     SectionCard("搜索") {
         SwitchSettings(settings, SearchSwitches, actions.onSettingsChange)
-        SegmentedBlock(
-            title = "搜索模式",
-            values = SearchMode.entries,
-            selected = settings.searchMode,
-            label = { it.label },
-            onSelect = { value -> actions.onSettingsChange { it.copy(searchMode = value) } },
-        )
         SegmentedBlock(
             title = "匹配高亮",
             values = HighlightMatch.entries,

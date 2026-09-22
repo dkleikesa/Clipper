@@ -105,26 +105,45 @@ private fun String.utf8SizeBytes(): Long = encodeToByteArray().size.toLong()
  */
 private val UNSAFE_TITLE_SCALARS = setOf('\uFFFC')
 
-/** 按标量逐个过滤。 */
+/** 按标量逐个过滤。**会改变长度**，只能用在写入路径上（见 [replacingUnsafeTitleScalars]）。 */
 fun String.removingUnsafeTitleScalars(): String =
     if (none { it in UNSAFE_TITLE_SCALARS }) this else filterNot { it in UNSAFE_TITLE_SCALARS }
+
+/**
+ * 按标量逐个替换成空格。**长度不变**，用在渲染路径上。
+ *
+ * 搜索返回的高亮区间是相对 `ClipMeta.title` 原文算出来的，渲染时删掉任何一个字符，它后面的
+ * 区间就会整体错位（已有历史里可能仍留着旧版本写进去的不安全标量，因此这里不能只是「信任写入
+ * 路径已经过滤过」）。
+ */
+fun String.replacingUnsafeTitleScalars(): String =
+    if (none { it in UNSAFE_TITLE_SCALARS }) this
+    else CharArray(length) { if (this[it] in UNSAFE_TITLE_SCALARS) ' ' else this[it] }.concatToString()
 
 /**
  * 把一段「代表条目自身的文本」格式化成列表显示用的单行标题。
  *
  * 图片文字识别的原文带着真换行存进 `title`（复制时要还原原文），由渲染方自行压平，
  * 因此不经过这里——它只服务「标题由正文 / 文件路径派生」的那些条目（见 `HistoryRow`）。
+ *
+ * **这里的每一步都必须等长**（`·` / `⏎` / `⇥` 都是逐字符替换）：调用方拿它算出来的字符串配上
+ * 相对原文的高亮区间，任何一个字符被删掉（曾经的 `trim()` 就是如此），后面的高亮就会错位。
+ * 关闭「特殊符号」时因此不裁剪首尾空白——它们在单行里本来也看不见。
  */
 fun String.titleForDisplay(showSpecialSymbols: Boolean = true): String {
-    val raw = take(ClipItem.MAX_TITLE_LENGTH).removingUnsafeTitleScalars()
-    if (!showSpecialSymbols) return raw.trim()
+    val raw = take(ClipItem.MAX_TITLE_LENGTH).replacingUnsafeTitleScalars()
+    if (!showSpecialSymbols) return raw
 
     return raw
-        .replace(Regex("^ +")) { "·".repeat(it.value.length) }
-        .replace(Regex(" +$")) { "·".repeat(it.value.length) }
+        .replace(LEADING_SPACES) { "·".repeat(it.value.length) }
+        .replace(TRAILING_SPACES) { "·".repeat(it.value.length) }
         .replace("\n", "\u23ce")
         .replace("\t", "\u21e5")
 }
+
+// 提为常量：`titleForDisplay` 在每一行的每次重组里都会被调用，就地构造正则相当于每行每帧都编译一次。
+private val LEADING_SPACES = Regex("^ +")
+private val TRAILING_SPACES = Regex(" +$")
 
 private val HEX_COLOR_PATTERN = Regex("^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 

@@ -10,7 +10,6 @@ import com.qcmian.clipper.core.domain.model.SourceApplication
 import com.qcmian.clipper.core.domain.model.contentKeyOf
 import com.qcmian.clipper.core.domain.search.ClipSearch
 import com.qcmian.clipper.core.settings.ClipFilterType
-import com.qcmian.clipper.core.settings.SearchMode
 import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.SortOrder
 import java.awt.Color
@@ -36,6 +35,20 @@ import kotlinx.coroutines.runBlocking
  */
 private const val TOTAL = 20_000
 private const val IMAGE_COUNT = 50
+
+/**
+ * 搜索基准用的查询词，各覆盖一个档位。
+ *
+ * 种子数据里这五类文本各自成批出现（每 6 条一轮），所以「首条」是可以目测校验的：
+ * 整词、大小写不同的整词、子序列缩写、中文整词、多词 AND。
+ */
+private val SEARCH_BENCHMARKS = listOf(
+    "SELECT",
+    "select",
+    "slct",
+    "会议纪要",
+    "会议 纪要",
+)
 
 private val APPS = listOf(
     SourceApplication("Safari", "com.apple.Safari"),
@@ -97,8 +110,8 @@ private fun seed() = runBlocking {
             )
         }
 
-        // 搜索基准：拿全部元数据跑一遍四种模式。这四个数字就是「全量搜索」的真实成本，
-        // 也是它必须放在后台线程的理由。
+        // 搜索基准：拿全部元数据跑一遍。耗时就是「一次按键」的真实成本，也是它必须放在
+        // 后台线程的理由；首条顺带验证效果——每一行都应当把它对应的那条排到最前面。
         val metas = storage.loadUnpinned(
             by = SortBy.LAST_COPIED_AT,
             order = SortOrder.DESCENDING,
@@ -106,15 +119,12 @@ private fun seed() = runBlocking {
             offset = 0,
         )
         println("搜索基准（${metas.size} 条元数据）：")
-        for (mode in SearchMode.entries) {
-            val query = when (mode) {
-                SearchMode.EXACT -> "SELECT"
-                SearchMode.REGEXP -> "(SELECT|select)"
-                SearchMode.FUZZY, SearchMode.MIXED -> "select"
-            }
+        for (query in SEARCH_BENCHMARKS) {
             val startedAt = System.currentTimeMillis()
-            val hits = ClipSearch.search(query, metas, mode)
-            println("  ${mode.label}('$query') → ${hits.size} 命中，${System.currentTimeMillis() - startedAt} ms")
+            val hits = ClipSearch.search(query, metas)
+            val elapsed = System.currentTimeMillis() - startedAt
+            val top = hits.firstOrNull()?.meta?.title?.replace('\n', ' ')?.take(48)
+            println("  '$query' → ${hits.size} 命中，${elapsed} ms；首条：$top")
         }
     } finally {
         storage.close()

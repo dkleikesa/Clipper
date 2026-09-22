@@ -215,8 +215,18 @@ fun HistoryScreen(
     // 后者随内容条数变化。宿主手动拖拽时用的下限就是这里报上去的值。
     LaunchedEffect(metrics.minimumHeight) { onMinimumHeightChange(metrics.minimumHeight) }
 
+    // 查询一变，结果列表就整份换掉了，滚动位置必须回到顶部：留在原处会让人看到「旧位置
+    // 附近的一批新结果」，与高亮落点（内容区第一条）也对不上。
+    //
+    // 用 `scrollToItem` 而不是 `animateScrollToItem`：连续输入时每次都要回到顶部，动画
+    // 会被下一次输入打断，看起来是在抖。
+    LaunchedEffect(state.appliedQuery) {
+        listState.scrollToItem(0)
+    }
+
     // `NavigationManager.scroll(to:)` 只会滚动未置顶列表；置顶区块始终可见。
-    // 目标行已经完整可见时不再滚动。
+    // 目标行已经完整可见时不再滚动——这条只服务于键盘导航：连续按方向键时，行已经在视野里
+    // 就不该再动，只有走出可视区才跟随。
     //
     // 只跟随 [ClipboardUiState.historyScrollToken]——它只在键盘导航、新查询结果、面板重新打开、
     // 历史内容变化时递增。悬停也会更新选中项但不递增令牌：鼠标划过列表时行只高亮、列表不动，

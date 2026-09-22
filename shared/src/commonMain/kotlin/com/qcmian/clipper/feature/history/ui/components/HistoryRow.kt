@@ -30,7 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.isHexColor
-import com.qcmian.clipper.core.domain.model.removingUnsafeTitleScalars
+import com.qcmian.clipper.core.domain.model.replacingUnsafeTitleScalars
 import com.qcmian.clipper.core.domain.model.titleForDisplay
 import com.qcmian.clipper.core.settings.HighlightMatch
 import com.qcmian.clipper.core.ui.KeyShortcut
@@ -161,11 +161,12 @@ fun HistoryRow(
  *   不套 `·` / `⏎` / `⇥` ——那些符号会被当成识别内容的一部分。
  * - 其余标题按「特殊符号」偏好替换首尾空格与换行 / 制表符。
  *
- * `\n` 一律换成等长的空格，因此不会让搜索高亮的偏移错位。
+ * `\n` 一律换成等长的空格，因此不会让搜索高亮的偏移错位——这里的每一步变换都**必须等长**
+ * （`titleForDisplay` 与 `replacingUnsafeTitleScalars` 都是逐字符替换），删字符会让区间整体错位。
  */
 private fun displayTitle(meta: ClipMeta, showSpecialSymbols: Boolean): String =
     if (meta.hasRecognizedText) {
-        meta.title.removingUnsafeTitleScalars().replace('\n', ' ')
+        meta.title.replacingUnsafeTitleScalars().replace('\n', ' ')
     } else {
         meta.title.titleForDisplay(showSpecialSymbols).replace('\n', ' ')
     }
@@ -217,9 +218,14 @@ private fun highlightedTitle(
         HighlightMatch.BOLD -> SpanStyle(fontWeight = FontWeight.Bold)
         HighlightMatch.ITALIC -> SpanStyle(fontStyle = FontStyle.Italic)
         HighlightMatch.UNDERLINE -> SpanStyle(textDecoration = TextDecoration.Underline)
+        // 背景高亮要盖住整段文字，不能靠半透明叠色：行的底色本身就分「选中（primary 蓝）」与
+        // 「未选中（surface）」两种，同一个 alpha 在两种底色上叠出两种深浅，其中一种必然偏淡、看不清。
+        // 因此用不透明的成对配色：未选中「蓝底白字」，选中行反过来「白底蓝字」——两边都是实色对撞，
+        // 且不依赖行的底色，深浅主题下都一样清楚。再加粗，让命中片段更跳。
         HighlightMatch.BACKGROUND -> SpanStyle(
-            background = if (isSelected) colors.onPrimary.copy(alpha = 0.30f) else colors.primary.copy(alpha = 0.30f),
-            color = if (isSelected) colors.onPrimary else colors.onSurface,
+            background = if (isSelected) colors.onPrimary else colors.primary,
+            color = if (isSelected) colors.primary else colors.onPrimary,
+            fontWeight = FontWeight.Bold,
         )
     }
 
