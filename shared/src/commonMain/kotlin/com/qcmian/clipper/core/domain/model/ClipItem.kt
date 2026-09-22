@@ -145,6 +145,19 @@ internal fun deriveTitle(
 }
 
 /**
+ * 把一段文字规范成「可以落库的标题」：过滤不安全标量，并按 [ClipItem.MAX_TITLE_LENGTH] 截断。
+ *
+ * 三条写入路径都必须走它：新条目（`toMeta`）、图片文字识别（`updateTitle`）、启动回填。
+ * 走漏任何一条，同一个字段就会因为来源不同而带上不同的长度上限，**搜索范围也跟着来源
+ * 浮动**——识别出来的标题能搜 5000 字符、正文只有 1000，用户完全无从预期。
+ *
+ * 过滤不安全标量（`\uFFFC` 是富文本内嵌附件的占位符）必须发生在**写入**时而不是渲染时：
+ * 搜索返回的高亮区间是相对这一份文本算出来的，渲染若再删字符，后面所有区间都会错位。
+ */
+internal fun String.toStoredTitle(): String =
+    removingUnsafeTitleScalars().take(ClipItem.MAX_TITLE_LENGTH)
+
+/**
  * 会让 CoreText 在 macOS 26 上做单行截断时卡死的 Unicode 标量 #1520。
  *
  * U+FFFC（对象替换字符）是内联附件的占位符，因此带内嵌图片的富文本，其纯文本表示中每个附件

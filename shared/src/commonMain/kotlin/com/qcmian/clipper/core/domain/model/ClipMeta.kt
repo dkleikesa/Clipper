@@ -87,10 +87,7 @@ fun contentKeyOf(
  */
 fun ClipItem.toMeta(): ClipMeta = ClipMeta(
     id = id,
-    // 过滤不安全标量（`\uFFFC` 是富文本内嵌附件的占位符）必须发生在**写入**时，
-    // 而不是渲染时：搜索返回的高亮区间是相对这一份文本算出来的，渲染若再删字符，
-    // 后面所有区间都会错位。过滤之后，渲染里只剩 `·` / `⏎` / `⇥` 这些等长替换。
-    title = previewableText.removingUnsafeTitleScalars().take(ClipItem.MAX_TITLE_LENGTH),
+    title = previewableText.toStoredTitle(),
     kind = clipType,
     files = files,
     application = application,

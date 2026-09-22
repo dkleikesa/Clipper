@@ -4,8 +4,8 @@ import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.contentKeyOf
-import com.qcmian.clipper.core.domain.model.removingUnsafeTitleScalars
 import com.qcmian.clipper.core.domain.model.toMeta
+import com.qcmian.clipper.core.domain.model.toStoredTitle
 import com.qcmian.clipper.core.domain.model.toPayload
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
@@ -164,10 +164,7 @@ class CaptureClipboardUseCase(
         // 标题存的是识别**原文**，不是列表显示用的单行串：这个字段同时是「复制图片文字」
         // 与搜索的数据源，换成 `⏎` / `·` 会把真换行一起复制出去（见 `copyExtractedText`）。
         // 需要单行显示的地方（历史列表、置顶项行）在渲染时自行压平。
-        val title = recognized
-            .take(MAX_RECOGNIZED_TEXT_LENGTH)
-            .removingUnsafeTitleScalars()
-            .trim()
+        val title = recognized.toStoredTitle().trim()
         if (title.isBlank()) return
 
         // 条目可能在识别期间被删掉（`updateTitle` 会安全地作用在 0 行上），也可能已经因为
@@ -176,15 +173,5 @@ class CaptureClipboardUseCase(
         if (current.hasRecognizedText) return
 
         repository.updateTitle(itemId, title, fromRecognition = true)
-    }
-
-    private companion object {
-        /**
-         * 识别原文的长度上限，与 `ClipSearch` 模糊匹配读入的长度一致。
-         *
-         * 不再套用标题的 [`ClipItem.MAX_TITLE_LENGTH`]：那个上限是按「列表里的一行」定的，
-         * 而这里的正文是要整段复制出去的。
-         */
-        const val MAX_RECOGNIZED_TEXT_LENGTH = 5_000
     }
 }

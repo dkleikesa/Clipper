@@ -12,7 +12,7 @@ import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.SourceApplication
 import com.qcmian.clipper.core.domain.model.deriveTitle
 import com.qcmian.clipper.core.domain.model.extractReadableText
-import com.qcmian.clipper.core.domain.model.removingUnsafeTitleScalars
+import com.qcmian.clipper.core.domain.model.toStoredTitle
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 import com.qcmian.clipper.core.settings.AppSettings
@@ -246,9 +246,7 @@ class DefaultClipboardRepository(
                 files = emptyList(),
                 title = "",
                 richText = extractReadableText(payload.contents),
-            )
-                .removingUnsafeTitleScalars()
-                .take(ClipItem.MAX_TITLE_LENGTH)
+            ).toStoredTitle()
             if (title.isBlank()) continue
 
             storage.updateTitle(id, title, fromRecognition = false)
