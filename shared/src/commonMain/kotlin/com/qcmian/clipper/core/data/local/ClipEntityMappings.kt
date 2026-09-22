@@ -98,6 +98,9 @@ internal fun ClipMeta.toItem(payload: ClipPayload?): ClipItem = ClipItem(
     numberOfCopies = numberOfCopies,
     pin = pin,
     title = title,
+    // 用存储里的真实标记，而不是让 `ClipItem` 按字段组合去猜：标题有四个来源，前三个
+    // （正文 / 文件路径 / 附加表示提取的文字）与「图片识别成功」在数据上长得一样。
+    hasRecognizedText = hasRecognizedText,
     application = application,
 )
 

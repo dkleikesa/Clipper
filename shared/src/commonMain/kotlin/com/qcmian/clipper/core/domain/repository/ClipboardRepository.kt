@@ -108,6 +108,15 @@ interface ClipboardRepository {
     /** 历史里最大的 `lastCopiedAt`；没有任何条目时为 `0`。 */
     suspend fun latestLastCopiedAt(): Long
 
+    /**
+     * 给历史遗留的空标题补上标题。
+     *
+     * `title` 是**写入时**派生好落盘的，因此新增的标题来源（从 HTML 附加表示里提取文字）
+     * 只对新复制生效——旧条目仍是空标题，在列表里是一行空白、搜什么都搜不到。启动时后台跑
+     * 一次即可：没有空标题时，它只是一次窄列全扫。
+     */
+    suspend fun backfillEmptyTitles()
+
     suspend fun setPinned(id: String, pinned: Boolean)
 
     suspend fun delete(ids: List<String>)

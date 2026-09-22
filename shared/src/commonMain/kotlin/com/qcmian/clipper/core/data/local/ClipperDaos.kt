@@ -167,6 +167,16 @@ abstract class ClipHistoryDao {
     @Query("SELECT MAX(lastCopiedAt) FROM clip_meta")
     abstract suspend fun maxLastCopiedAt(): Long?
 
+    /**
+     * 标题为空的条目 id。
+     *
+     * 只服务于启动时的**回填**：`title` 是写入时派生好落盘的，因此新增的标题来源（从 HTML
+     * 附加表示里提取文字）只对新复制生效，旧条目仍是空标题——它们在列表里是一行空白、
+     * 搜什么都搜不到。没有索引，但这是一次窄列全扫，且回填之后通常长期为空。
+     */
+    @Query("SELECT id FROM clip_meta WHERE title = ''")
+    abstract suspend fun idsWithEmptyTitle(): List<String>
+
     @Query("UPDATE clip_meta SET pinned = :pinned WHERE id = :id")
     abstract suspend fun updatePinned(id: String, pinned: Int)
 

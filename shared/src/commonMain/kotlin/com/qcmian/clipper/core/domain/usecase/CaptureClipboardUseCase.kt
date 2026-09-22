@@ -78,7 +78,19 @@ class CaptureClipboardUseCase(
             )
             // 上一次识别没能产出标题（标题仍为空）时再试一次：Vision 偶发失败不该让这张图
             // 永远搜不到。
-            if (existing != null && shouldRecognize(image, text, files, existing.title, settings)) {
+            if (
+                existing != null &&
+                shouldRecognize(
+                    image = image,
+                    text = text,
+                    files = files,
+                    // 走到这里说明这一条还没有标题；而附加表示能提出文字的话标题早就有值了，
+                    // 所以不必再判一次——没有标题就意味着可提取的文字也没有。
+                    hasRichText = false,
+                    currentTitle = existing.title,
+                    settings = settings,
+                )
+            ) {
                 scope.launch { recognizeImageText(existingId, image!!) }
             }
             return
@@ -100,15 +112,29 @@ class CaptureClipboardUseCase(
         // 图片的标题来自文字识别。识别放在自己的子协程里，
         // 以免阻塞下一份快照的处理。
         //
-        // 只有「本来就没有文本表示」的图片才识别：条目带着 `text` / `files` 时，标题由它们的
-        // 文本派生（见 `ClipItem.previewableText`），把识别结果写进去会把这部分文本从搜索里挤掉。
-        if (shouldRecognize(image, text, files, currentTitle = "", settings = settings)) {
+        // 只有「本来就没有可读文本」的图片才识别：条目带着 `text` / `files` / 可提取文字的
+        // 附加表示时，标题由它们派生（见 `ClipItem.previewableText`），把识别结果写进去
+        // 只会把这部分文字从标题里挤掉。
+        if (
+            shouldRecognize(
+                image = image,
+                text = text,
+                files = files,
+                hasRichText = base.hasReadableText,
+                currentTitle = "",
+                settings = settings,
+            )
+        ) {
             scope.launch { recognizeImageText(base.id, image!!) }
         }
     }
 
     /**
      * 是否该为这张图片跑一次文字识别。
+     *
+     * 判据是「这条本来就没有可读的文本表示」——[text]、[files] 与 [hasRichText] 三样都空。
+     * 任何一种存在时，标题都由它们派生（见 `ClipItem.previewableText`），识别结果写进去
+     * 只会把这部分文字从标题里挤掉。
      *
      * [currentTitle] 为空是必要条件：已经有标题（上一次的识别结果）就不再重跑 Vision——
      * 既省下一次识别，也不会把上一轮的结果覆盖回去。
@@ -117,11 +143,13 @@ class CaptureClipboardUseCase(
         image: ClipImage?,
         text: String?,
         files: List<String>,
+        hasRichText: Boolean,
         currentTitle: String,
         settings: AppSettings,
     ): Boolean = image != null &&
         text.isNullOrBlank() &&
         files.isEmpty() &&
+        !hasRichText &&
         currentTitle.isBlank() &&
         settings.recognizeText &&
         platform.supportsTextRecognition

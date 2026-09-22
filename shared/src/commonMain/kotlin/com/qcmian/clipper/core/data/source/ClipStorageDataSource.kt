@@ -48,6 +48,12 @@ interface ClipStorageDataSource {
     /** 历史里最大的 `lastCopiedAt`；没有任何条目时为 `0`。 */
     suspend fun maxLastCopiedAt(): Long
 
+    /**
+     * 标题为空的条目 id；启动时用它回填历史遗留的空标题（见
+     * `DefaultClipboardRepository.backfillEmptyTitles`）。
+     */
+    suspend fun emptyTitleIds(): List<String>
+
     /** 超出上限的未置顶 id，按「最后一次复制」从新到旧数。 */
     suspend fun overflowIds(maxCount: Int): List<String>
 

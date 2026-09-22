@@ -6,6 +6,7 @@ kotlin = "2.4.10"
 kotlinx-coroutines = "1.11.0"
 kotlinx-datetime = "0.7.1"
 kotlinx-serialization = "1.9.0"
+ksoup = "0.2.6"
 ksp = "2.3.12"
 material3 = "1.11.0-alpha07"
 room3 = "3.0.2"
@@ -24,6 +25,7 @@ kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-c
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 kotlinx-serialization-cbor = { module = "org.jetbrains.kotlinx:kotlinx-serialization-cbor", version.ref = "kotlinx-serialization" }
+ksoup = { module = "com.fleeksoft.ksoup:ksoup", version.ref = "ksoup" }
 jna-platform = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }
 androidx-room3-runtime = { module = "androidx.room3:room3-runtime", version.ref = "room3" }
 androidx-room3-compiler = { module = "androidx.room3:room3-compiler", version.ref = "room3" }

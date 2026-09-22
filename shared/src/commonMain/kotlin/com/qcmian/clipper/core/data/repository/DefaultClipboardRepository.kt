@@ -10,6 +10,9 @@ import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.ClipPayload
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.SourceApplication
+import com.qcmian.clipper.core.domain.model.deriveTitle
+import com.qcmian.clipper.core.domain.model.extractReadableText
+import com.qcmian.clipper.core.domain.model.removingUnsafeTitleScalars
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 import com.qcmian.clipper.core.settings.AppSettings
@@ -218,6 +221,43 @@ class DefaultClipboardRepository(
 
     override suspend fun latestLastCopiedAt(): Long = storage.maxLastCopiedAt()
 
+    /**
+     * 给历史遗留的空标题补标题。
+     *
+     * 只处理「标题为空、且载荷里确实能提取出文字」的条目，因此对正常条目零副作用；写完一次
+     * 之后这条查询长期返回空列表。
+     *
+     * 标题为空的条目必然没有文件路径（路径会参与派生标题），所以这里不必再读元数据的
+     * `files`，只按 id 取载荷就够。
+     */
+    override suspend fun backfillEmptyTitles() {
+        val ids = storage.emptyTitleIds()
+        if (ids.isEmpty()) return
+
+        var repaired = 0
+        for (id in ids) {
+            val payload = storage.loadPayload(id) ?: continue
+            if (payload.contents.isEmpty()) continue
+
+            // 与写入路径同口径：标题既进内存又进搜索，必须有长度上限。附加表示可能是几十 KB
+            // （一整页网页），不截断会把单条记录的常驻内存放大两个数量级。
+            val title = deriveTitle(
+                text = payload.text,
+                files = emptyList(),
+                title = "",
+                richText = extractReadableText(payload.contents),
+            )
+                .removingUnsafeTitleScalars()
+                .take(ClipItem.MAX_TITLE_LENGTH)
+            if (title.isBlank()) continue
+
+            storage.updateTitle(id, title, fromRecognition = false)
+            repaired++
+        }
+
+        if (repaired > 0) metadataLock.withLock { reloadMetadata() }
+    }
+
     override suspend fun setPinned(id: String, pinned: Boolean) {
         metadataLock.withLock {
             storage.updatePinned(id, pinned)
@@ -363,6 +403,16 @@ class DefaultClipboardRepository(
         loaded = true
         // 冷启动补一次回收：覆盖「上次会话删了但没回收」留下的空洞。
         reclaimStorageIfNeeded()
+        // 补历史遗留的空标题。它要按 id 读载荷，因此另起一次任务，不拖慢首屏。
+        scope.launch {
+            try {
+                backfillEmptyTitles()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // 回填失败（库已关闭、磁盘问题……）不影响任何业务状态，下次启动再试。
+            }
+        }
     }
 
     /** 下发位于平台侧的设置（轮询间隔、开机自启项）。 */

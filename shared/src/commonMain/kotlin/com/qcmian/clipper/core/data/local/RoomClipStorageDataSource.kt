@@ -97,6 +97,11 @@ internal class RoomClipStorageDataSource(
         return history.maxLastCopiedAt() ?: 0L
     }
 
+    override suspend fun emptyTitleIds(): List<String> {
+        if (closed) return emptyList()
+        return history.idsWithEmptyTitle()
+    }
+
     override suspend fun updateTitle(id: String, title: String, fromRecognition: Boolean) {
         if (closed) return
         history.updateTitle(id, title, fromRecognition)

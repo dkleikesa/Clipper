@@ -31,7 +31,19 @@ data class ClipItem(
     val pin: String? = null,
     val title: String = "",
     /**
- * 内容复制来源的应用。平台提供前台应用信息时填写；没有等价能力的
+     * [title] 是否来自图片文字识别。
+     *
+     * **显式存下来，不再靠字段组合推断。** 标题有四个来源——文件路径、正文、附加表示
+     * （HTML / RTF）提取的文字、图片识别结果——而前三者在数据上与「识别成功」完全无法
+     * 区分：都是「有图片、没有正文、标题非空」。猜错的后果是工具栏多出一个「复制图片
+     * 文字」按钮，点下去复制的却只是条目本来的正文。
+     *
+     * 落库列 `clip_meta.hasRecognizedText`：新条目一律 `false`，只有识别成功时由
+     * `updateTitle` 置位。
+     */
+    val hasRecognizedText: Boolean = false,
+    /**
+* 内容复制来源的应用。平台提供前台应用信息时填写；没有等价能力的
      * 平台保持 `null`，预览会隐藏「应用:」这一行。
      */
     val application: SourceApplication? = null,
@@ -52,25 +64,34 @@ data class ClipItem(
     }
 
     /**
-     * 用于预览和搜索的文本。图片没有文本表示，
-     * 因此在文字识别填入之前，其标题保持为空。
+     * 附加表示里提取出的可读文字；没有可提取的表示时为空串。
+     *
+     * 算一次就缓存：解析要走 Ksoup 处理整个片段，而 [previewableText] 与 [hasReadableText]
+     * 都读它、预览面板每次重组又在读 [previewableText]。
      */
-    val previewableText: String
-        get() = when {
-            files.isNotEmpty() -> files.joinToString("\n")
-            !text.isNullOrBlank() -> text
-            else -> title
-        }
+    private val richText: String by lazy { extractReadableText(contents) }
 
     /**
-     * [title] 是否真的来自图片文字识别。
+     * 用于预览和搜索的文本，也是列表标题与 `ClipMeta.title` 的来源。
      *
-     * 只有本身没有别的文本表示的纯图片条目，才会把识别结果写进 `title`（见 `CaptureClipboardUseCase`）。
-     * 条目一旦带着 [text] 或 [files]，标题就是由它们的文本派生出来的（见 [previewableText]），
-     * 此时 `title` 非空**不代表**图里有文字——用它当判据会让工具栏多出一个按钮。
+     * 依次尝试：文件路径 → 正文 → 图片识别结果 → 从附加表示（HTML / RTF）里提取的文字。
+     *
+     * 最后那一支是必要的：有些应用复制富文本时**只写 HTML、不写纯文本**，那种条目既没有
+     * [text] 也没有 [files]，标题会一直是空的——在列表里是一行空白，搜什么都搜不到。
+     *
+     * 它不在主构造器里，因此不参与 `equals` / `hashCode`。
      */
-    val hasRecognizedText: Boolean
-        get() = image != null && text.isNullOrBlank() && files.isEmpty() && title.isNotBlank()
+    val previewableText: String by lazy {
+        deriveTitle(text = text, files = files, title = title, richText = richText)
+    }
+
+    /**
+     * 附加表示里能不能提取出可读文字。
+     *
+     * 用于「要不要对图片做文字识别」：条目自带可读文本时不该覆盖它的标题——与 [text] /
+     * [files] 非空时的处理一致（见 `CaptureClipboardUseCase.shouldRecognize`）。
+     */
+    val hasReadableText: Boolean get() = richText.isNotEmpty()
 
     /**
      * 条目在筛选栏里归属的类型。
@@ -96,6 +117,32 @@ data class ClipItem(
 
 /** UTF-8 编码后的字节数，用于估算条目的存储占用。 */
 private fun String.utf8SizeBytes(): Long = encodeToByteArray().size.toLong()
+
+/**
+ * 从一次复制的各个表示派生出标题。
+ *
+ * 依次尝试：文件路径 → 正文 → 图片识别结果 → 从附加表示（HTML / RTF）里提取的文字。
+ *
+ * 单独抽出来是因为它有两个调用点：写入路径（`toMeta()` 经 [ClipItem.previewableText]）与
+ * **启动时的回填**（见 `DefaultClipboardRepository.backfillEmptyTitles`）——`title` 是派生好
+ * 落盘的，所以新增的标题来源只对新复制生效，历史遗留的空标题要靠同一个函数补一次。
+ * 两处共用一套规则，才不会出现「新条目这样、旧条目那样」。
+ *
+ * [richText] 由调用方算好传入而不是就地解析：`ClipItem` 要把它缓存下来复用（见
+ * [ClipItem.hasReadableText]），就地解析会算两遍。
+ */
+internal fun deriveTitle(
+    text: String?,
+    files: List<String>,
+    title: String,
+    richText: String,
+): String = when {
+    files.isNotEmpty() -> files.joinToString("\n")
+    !text.isNullOrBlank() -> text
+    // 最后一支是必要的：有些应用复制富文本时**只写 HTML、不写纯文本**，那种条目既没有
+    // `text` 也没有 `files`，标题会一直是空的——在列表里是一行空白，搜什么都搜不到。
+    else -> title.ifBlank { richText }
+}
 
 /**
  * 会让 CoreText 在 macOS 26 上做单行截断时卡死的 Unicode 标量 #1520。

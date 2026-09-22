@@ -121,10 +121,26 @@ fun PreviewPane(
                         .clip(RoundedCornerShape(5.dp)),
                 )
             } else {
+                val text = item.previewableText
+                // 没有可显示的文字：RTF / PDF 这类只带了二进制表示、又提不出文本的条目会落到
+                // 这里。给一句说明，别让用户对着一片空白猜自己是不是点错了。
+                if (text.isBlank()) {
+                    Text(
+                        text = if (item.image != null) {
+                            "图片无法显示。"
+                        } else {
+                            "${item.clipType.label}类型暂不支持预览。"
+                        },
+                        fontSize = 13.sp,
+                        color = colors.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                    return@Box
+                }
+
                 // 超过 `largeTextThreshold`
                 // 个字符时原生实现会改用专门的文本视图。Compose 没有只布局可视区域的文本
                 // 能力，因此这里直接截断尾部，而不是每帧去布局一个数兆字节的字符串。
-                val text = item.previewableText
                 val truncated = text.length > LARGE_TEXT_LIMIT
                 val textScrollState = rememberScrollState()
                 // 换了一条就该从顶部开始看：`rememberScrollState` 是跨条目复用的，不重置的话
@@ -164,6 +180,7 @@ fun PreviewPane(
         HorizontalDivider(color = colors.outline.copy(alpha = 0.5f))
         Spacer(Modifier.height(6.dp))
 
+        MetadataRow(label = "类型:", value = item.clipType.label)
         item.application?.let { application ->
             MetadataRow(
                 label = "应用:",

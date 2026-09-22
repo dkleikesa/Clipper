@@ -39,6 +39,9 @@ kotlin {
             implementation(libs.kotlinx.coroutinesSwing)
             implementation(libs.jna.platform)
             implementation(libs.androidx.sqlite.bundled)
+            // 从附加表示（HTML / RTF）里提取可读文字，见 `RichTextExtraction.jvm.kt`：
+            // HTML 用 Ksoup 解析；RTF 用 JDK 自带的 `RTFEditorKit`，不引入额外依赖。
+            implementation(libs.ksoup)
         }
     }
 }
