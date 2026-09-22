@@ -121,7 +121,8 @@ fun PreviewPane(
                         .clip(RoundedCornerShape(5.dp)),
                 )
             } else {
-                val text = item.previewableText
+                // OCR 条目给完整识别原文，其余走派生文本（见 `ClipItem.previewText`）。
+                val text = item.previewText
                 // 没有可显示的文字：RTF / PDF 这类只带了二进制表示、又提不出文本的条目会落到
                 // 这里。给一句说明，别让用户对着一片空白猜自己是不是点错了。
                 if (text.isBlank()) {

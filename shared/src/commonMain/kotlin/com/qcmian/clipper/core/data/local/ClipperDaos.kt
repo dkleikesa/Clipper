@@ -125,6 +125,21 @@ abstract class ClipHistoryDao {
     @Query("SELECT * FROM clip_payload WHERE id = :id")
     abstract suspend fun loadPayload(id: String): ClipPayloadEntity?
 
+    /**
+     * 一批条目的正文候选，供**全文搜索**使用。
+     *
+     * 只投影这三列：`image` 与 `contents` 可能是几 MB 的 BLOB，而全文搜索一个字节都用不到。
+     * 按批取（`IN` 一批几百个 id）而不是全表扫，是因为正文本来就要一批批读——调用方读完
+     * 一批立刻匹配、随即丢弃，峰值内存只与「一批的大小」成正比。
+     *
+     * 两段正文一起取：它们都算「用户能搜到的内容」，而对同一个 id 要取匹配得更好的那一段。
+     */
+    @Query(
+        "SELECT id, text, recognizedText FROM clip_payload " +
+            "WHERE id IN (:ids) AND (text IS NOT NULL OR recognizedText IS NOT NULL)",
+    )
+    abstract suspend fun loadPayloadTexts(ids: List<String>): List<PayloadTextRow>
+
     // -----------------------------------------------------------------------------------
     // 写
     // -----------------------------------------------------------------------------------
@@ -157,6 +172,22 @@ abstract class ClipHistoryDao {
      */
     @Query("UPDATE clip_meta SET title = :title, hasRecognizedText = :fromRecognition WHERE id = :id")
     abstract suspend fun updateTitle(id: String, title: String, fromRecognition: Boolean)
+
+    /** 仅供 [updateRecognizedText] 内部使用。 */
+    @Query("UPDATE clip_payload SET recognizedText = :text WHERE id = :id")
+    abstract suspend fun updatePayloadRecognizedText(id: String, text: String)
+
+    /**
+     * 图片文字识别完成：**完整原文**写进载荷，标题更新为它的前一段。
+     *
+     * 两处必须一起改，否则会出现「标题有、复制图片文字却拿不到」或反之。条目可能在识别期间
+     * 被删掉，那时两条 `UPDATE` 都作用在 0 行上，是安全的。
+     */
+    @Transaction
+    open suspend fun updateRecognizedText(id: String, fullText: String, title: String) {
+        updatePayloadRecognizedText(id, fullText)
+        updateTitle(id, title, fromRecognition = true)
+    }
 
     /**
      * 历史里最大的 `lastCopiedAt`；没有任何条目时为 `null`。
@@ -244,3 +275,14 @@ interface AppSettingsDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(row: AppSettingsEntity)
 }
+
+/**
+ * [ClipHistoryDao.loadPayloadTexts] 的一行：一个条目的两段正文字段。
+ *
+ * 只投影这三列——`image` 与 `contents` 可能是几 MB 的 BLOB，而全文搜索一个字节都用不到。
+ */
+data class PayloadTextRow(
+    val id: String,
+    val text: String?,
+    val recognizedText: String?,
+)

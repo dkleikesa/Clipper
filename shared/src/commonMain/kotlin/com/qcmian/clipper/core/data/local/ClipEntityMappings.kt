@@ -52,6 +52,7 @@ internal fun ClipPayload.toEntity(id: String): ClipPayloadEntity = ClipPayloadEn
     image = image?.toByteArray(),
     // 没有附加表示的条目（绝大多数）连 BLOB 都不写。
     contents = if (contents.isEmpty()) null else encodeCbor(contents),
+    recognizedText = recognizedText,
 )
 
 // ---------------------------------------------------------------------------------------
@@ -80,6 +81,7 @@ internal fun ClipPayloadEntity.toModel(): ClipPayload = ClipPayload(
     text = text,
     image = image?.let(::ClipImage),
     contents = decodeCborOrNull<List<ClipboardContent>>(contents).orEmpty(),
+    recognizedText = recognizedText,
 )
 
 // ---------------------------------------------------------------------------------------
@@ -101,6 +103,7 @@ internal fun ClipMeta.toItem(payload: ClipPayload?): ClipItem = ClipItem(
     // 用存储里的真实标记，而不是让 `ClipItem` 按字段组合去猜：标题有四个来源，前三个
     // （正文 / 文件路径 / 附加表示提取的文字）与「图片识别成功」在数据上长得一样。
     hasRecognizedText = hasRecognizedText,
+    recognizedText = payload?.recognizedText,
     application = application,
 )
 

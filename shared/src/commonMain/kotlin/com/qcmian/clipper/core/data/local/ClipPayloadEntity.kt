@@ -27,4 +27,11 @@ data class ClipPayloadEntity(
      * 原生支持字节数组，落盘即原样。
      */
     val contents: ByteArray?,
+    /**
+     * 图片文字识别的**完整原文**；没有识别或识别失败时为 `null`。
+     *
+     * 元数据里的 `title` 只是它的前一段（按列表显示的粒度截断），「复制图片文字」要的是
+     * 完整那一份，因此原文单独存这里。
+     */
+    val recognizedText: String?,
 )

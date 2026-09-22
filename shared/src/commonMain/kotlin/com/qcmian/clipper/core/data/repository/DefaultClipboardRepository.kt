@@ -9,6 +9,7 @@ import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.ClipPayload
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
+import com.qcmian.clipper.core.domain.model.ClipText
 import com.qcmian.clipper.core.domain.model.SourceApplication
 import com.qcmian.clipper.core.domain.model.deriveTitle
 import com.qcmian.clipper.core.domain.model.extractReadableText
@@ -182,6 +183,8 @@ class DefaultClipboardRepository(
 
     override suspend fun payload(id: String): ClipPayload? = storage.loadPayload(id)
 
+    override suspend fun texts(ids: List<String>): List<ClipText> = storage.loadTexts(ids)
+
     override suspend fun item(id: String): ClipItem? {
         val meta = storage.loadMeta(id) ?: return null
         return meta.toItem(storage.loadPayload(id))
@@ -207,9 +210,9 @@ class DefaultClipboardRepository(
         }
     }
 
-    override suspend fun updateTitle(id: String, title: String, fromRecognition: Boolean) {
+    override suspend fun updateRecognizedText(id: String, fullText: String, title: String) {
         metadataLock.withLock {
-            storage.updateTitle(id, title, fromRecognition)
+            storage.updateRecognizedText(id, fullText, title)
             reloadMetadata()
         }
     }

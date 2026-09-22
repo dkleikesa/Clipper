@@ -23,6 +23,13 @@ sealed interface ClipboardUiAction {
     data object ClearSearch : ClipboardUiAction
     data object CopySearchQuery : ClipboardUiAction
 
+    /**
+     * 对**正文**再搜一次当前查询（从库中分批读取）。
+     *
+     * 由滚动列表末尾的入口触发：默认搜索只覆盖标题，用户在那里表达「这些还不够」。
+     */
+    data object RunDeepSearch : ClipboardUiAction
+
     // ------------------------------------------------------------------ 导航
     /** `MouseMovedViewModifier`：鼠标移动会结束键盘导航。 */
     data object PointerMoved : ClipboardUiAction

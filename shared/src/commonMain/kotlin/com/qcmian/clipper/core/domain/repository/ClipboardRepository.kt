@@ -5,6 +5,7 @@ import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.ClipPayload
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
+import com.qcmian.clipper.core.domain.model.ClipText
 import com.qcmian.clipper.core.domain.model.SourceApplication
 import com.qcmian.clipper.core.settings.AppSettings
 import kotlinx.coroutines.flow.Flow
@@ -83,6 +84,15 @@ interface ClipboardRepository {
     /** 按 id 取载荷；条目不存在或本来就没有载荷时为 `null`。 */
     suspend fun payload(id: String): ClipPayload?
 
+    /**
+     * 一批条目的正文，供**全文搜索**使用。
+     *
+     * 正文刻意不进内存（长正文可能几十 KB，一万条就是几百 MB），因此这里做成「按批取、
+     * 用完即弃」，而不是再加一个 `StateFlow`。同一个 id 可能出现两次——用户复制的正文与
+     * 图片识别原文是两段独立的文本，原因见 `ClipText`。
+     */
+    suspend fun texts(ids: List<String>): List<ClipText>
+
     /** 按 id 取完整条目（元数据 + 载荷）；条目不存在时为 `null`。 */
     suspend fun item(id: String): ClipItem?
 
@@ -96,8 +106,13 @@ interface ClipboardRepository {
     /** 重复复制：只更新统计列，不重写标题、更不碰载荷。 */
     suspend fun updateStats(id: String, numberOfCopies: Int, lastCopiedAt: Long)
 
-    /** 改写标题；[fromRecognition] 表示这次改写是否来自图片文字识别。 */
-    suspend fun updateTitle(id: String, title: String, fromRecognition: Boolean)
+    /**
+     * 图片文字识别完成：**完整原文**写进载荷，标题更新为它的前一段。
+     *
+     * 分成两处存是因为它们要的长度不同：标题按「列表里的一行」截断（渲染 + 搜索），
+     * 而完整原文可能有好几万字符（滚动长截图），只给「复制图片文字」与预览用。
+     */
+    suspend fun updateRecognizedText(id: String, fullText: String, title: String)
 
     /** 单条元数据；条目不存在时为 `null`。 */
     suspend fun meta(id: String): ClipMeta?

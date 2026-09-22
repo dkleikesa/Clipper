@@ -19,8 +19,14 @@ import com.qcmian.clipper.core.util.fnv1a64
  * 构造器并非在所有 Kotlin 目标上都可用。
  */
 internal object ImageCache {
-    /** 大约两屏的行数；足以让往回滚动变得便宜。 */
-    private const val MAX_ENTRIES = 32
+    /**
+     * 位图占用的**总字节**上限（按 4 字节/像素计）。
+     *
+     * 按字节而不是按条数：这张表同时装着剪贴板图片与应用图标，两者体积差着几个数量级——
+     * 一个 16×16 图标几百字节，一张 1080p 图片解码后是 8 MB。按条数限制时，「32 条」的
+     * 实际占用能从几十 KB 一路飘到两百多 MB，等于没有上限。
+     */
+    private const val MAX_BYTES = 32L * 1024L * 1024L
 
     /**
      * 来源应用图标的键标记位。位图缓存同时容纳剪贴板图片与图标，两者都用 64 位哈希做键，
@@ -30,6 +36,9 @@ internal object ImageCache {
     private const val ICON_KEY_TAG = Long.MIN_VALUE
 
     private val entries = LinkedHashMap<Long, ImageBitmap>()
+
+    /** [entries] 里所有位图占用的字节数，与 [entries] 同步增减。 */
+    private var bytes = 0L
 
     /** 解码剪贴板图片的原始字节；图片的键空间不含标记位，这里把它清掉。 */
     fun decode(image: ClipImage): ImageBitmap? = cached(image.cacheKey and Long.MAX_VALUE) {
@@ -51,12 +60,18 @@ internal object ImageCache {
 
         val bitmap = decode() ?: return null
         entries[key] = bitmap
-        while (entries.size > MAX_ENTRIES) {
+        bytes += bitmap.byteSize()
+
+        // 至少留下刚放进去的那一张：单张就超过上限时，不能把自己也淘汰掉。
+        while (bytes > MAX_BYTES && entries.size > 1) {
             val oldest = entries.keys.firstOrNull() ?: break
-            entries.remove(oldest)
+            entries.remove(oldest)?.let { bytes -= it.byteSize() }
         }
         return bitmap
     }
+
+    /** 位图占用的近似字节数：Compose 的位图按 4 字节/像素（ARGB8888）算。 */
+    private fun ImageBitmap.byteSize(): Long = width.toLong() * height.toLong() * 4L
 
     /**
      * 图标的键：64 位 FNV-1a 哈希再混入长度，最后盖上标记位把它挪进图标那一半键空间。

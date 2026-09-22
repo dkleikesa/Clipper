@@ -43,6 +43,13 @@ data class ClipItem(
      */
     val hasRecognizedText: Boolean = false,
     /**
+     * 图片文字识别的**完整原文**（取自载荷）；没有识别时为 `null`。
+     *
+     * [title] 只是它的前一段——标题按「列表里的一行」截断过，滚动长截图的识别结果装不下。
+     * 因此「复制图片文字」与预览面板都读这一份，而不是标题。
+     */
+    val recognizedText: String? = null,
+    /**
 * 内容复制来源的应用。平台提供前台应用信息时填写；没有等价能力的
      * 平台保持 `null`，预览会隐藏「应用:」这一行。
      */
@@ -92,6 +99,15 @@ data class ClipItem(
      * [files] 非空时的处理一致（见 `CaptureClipboardUseCase.shouldRecognize`）。
      */
     val hasReadableText: Boolean get() = richText.isNotEmpty()
+
+    /**
+     * 预览面板要显示的文本。
+     *
+     * OCR 条目优先给**完整识别原文**：标题是它截断后的版本，用它会把长截图的后半段藏起来。
+     * 其余的条目没有这份数据，仍然走 [previewableText]。
+     */
+    val previewText: String
+        get() = recognizedText?.takeIf { it.isNotBlank() } ?: previewableText
 
     /**
      * 条目在筛选栏里归属的类型。

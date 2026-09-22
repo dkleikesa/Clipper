@@ -6,6 +6,7 @@ import androidx.room3.useWriterConnection
 import com.qcmian.clipper.core.data.source.ClipStorageDataSource
 import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.ClipPayload
+import com.qcmian.clipper.core.domain.model.ClipText
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.SortOrder
@@ -81,6 +82,16 @@ internal class RoomClipStorageDataSource(
         return history.loadPayload(id)?.toModel()
     }
 
+    override suspend fun loadTexts(ids: List<String>): List<ClipText> {
+        if (closed || ids.isEmpty()) return emptyList()
+        return history.loadPayloadTexts(ids).flatMap { row ->
+            listOfNotNull(
+                row.text?.takeIf { it.isNotEmpty() }?.let { ClipText(row.id, it) },
+                row.recognizedText?.takeIf { it.isNotEmpty() }?.let { ClipText(row.id, it) },
+            )
+        }
+    }
+
     override suspend fun insert(meta: ClipMeta, payload: ClipPayload?) {
         if (closed) return
         // 没有载荷的条目（例如只带文件路径）就不写载荷行，省一次插入。
@@ -105,6 +116,11 @@ internal class RoomClipStorageDataSource(
     override suspend fun updateTitle(id: String, title: String, fromRecognition: Boolean) {
         if (closed) return
         history.updateTitle(id, title, fromRecognition)
+    }
+
+    override suspend fun updateRecognizedText(id: String, fullText: String, title: String) {
+        if (closed) return
+        history.updateRecognizedText(id, fullText, title)
     }
 
     override suspend fun updatePinned(id: String, pinned: Boolean) {

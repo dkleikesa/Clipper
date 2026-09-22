@@ -1,6 +1,5 @@
 package com.qcmian.clipper.core.domain.usecase
 
-import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
@@ -30,11 +29,13 @@ fun ClipboardPlatform.copySearchQuery(query: String): Boolean {
 }
 
 /**
- * 把图片中识别出的文字（即条目标题）放回剪贴板。返回 `true` 表示确实写入了剪贴板。
+ * 把图片中识别出的**完整文字**放回剪贴板。返回 `true` 表示确实写入了剪贴板。
+ *
+ * 入参取的是载荷里的 `recognizedText`，而不是元数据的 `title`——后者按列表行宽截断过，
+ * 拿它去「复制图片文字」会把长截图的识别结果永久截掉后半段（那些字符没有别处可存）。
  */
-fun ClipboardPlatform.copyExtractedText(meta: ClipMeta): Boolean {
-    // 与工具栏按钮同源：只有标题确实来自图片文字识别时才复制，否则会把条目本来的正文
-    // 当成「图片里的文字」写回剪贴板。
-    if (!meta.hasRecognizedText) return false
-    return writeClipboard(ClipboardSnapshot(text = meta.title.trim()))
+fun ClipboardPlatform.copyExtractedText(recognizedText: String?): Boolean {
+    val text = recognizedText?.trim().orEmpty()
+    if (text.isEmpty()) return false
+    return writeClipboard(ClipboardSnapshot(text = text))
 }

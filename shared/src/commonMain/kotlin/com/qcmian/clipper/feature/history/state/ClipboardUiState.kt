@@ -11,6 +11,24 @@ import com.qcmian.clipper.feature.preferences.state.ShortcutRecording
 /** 当前屏幕上显示的是哪个模态框（如果有）。 */
 enum class ClipboardDialog { PREFERENCES }
 
+/**
+ * 「全文搜索」的状态机。它只在**有查询**时才有意义——没有查询词就没有要找的东西。
+ *
+ * 列表默认只搜标题（那在元数据里、已在内存），而正文留在库里、只能一批批读出来。因此它是
+ * 用户显式触发的第二次搜索，入口固定在滚动列表的末尾：用户滚到那儿，本身就是「这些还不够」
+ * 的表达。
+ */
+enum class DeepSearchState {
+    /** 还没搜过：列表末尾显示触发入口。 */
+    AVAILABLE,
+
+    /** 正在分批读取正文并匹配。 */
+    RUNNING,
+
+    /** 搜完了（或到了预算上限）：入口换成结果说明。 */
+    DONE,
+}
+
 /** 「清除历史」的二次确认，包含将要清除的内容。 */
 data class ClearConfirmation(
     val message: String,
@@ -36,6 +54,17 @@ data class ClipboardUiState(
     val query: String = "",
     /** 实际应用到历史上的查询词，按 节流。 */
     val appliedQuery: String = "",
+    /**
+     * 全文搜索的状态，以及它**此刻在列表里**补了多少条。
+     *
+     * 两条一起看：前者决定末尾那个入口显示什么，后者决定它说什么。它们只由
+     * `ClipboardViewModel` 维护，界面只渲染——入口不自己记「点过没有」。
+     *
+     * 条数是「实际多出来的行数」，不是「搜索当时的命中数」：其后的删除或筛选变化会让两者
+     * 不等，而入口上写着的数字必须与列表对得上。
+     */
+    val deepSearch: DeepSearchState = DeepSearchState.AVAILABLE,
+    val deepSearchHits: Int = 0,
     /** 按 [appliedQuery] 过滤后的内容，已按显示顺序排列。 */
     val results: List<SearchResult> = emptyList(),
     /**

@@ -52,6 +52,8 @@ import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.Popup
 import kotlinx.coroutines.flow.collect
+import com.qcmian.clipper.feature.history.ui.components.DeepSearchFooter
+import com.qcmian.clipper.feature.history.ui.components.DeepSearchFooterHeight
 import com.qcmian.clipper.feature.history.ui.components.EmptyState
 import com.qcmian.clipper.feature.history.ui.components.FooterRows
 import com.qcmian.clipper.feature.history.ui.components.HistoryHeader
@@ -187,17 +189,28 @@ fun HistoryScreen(
         historyRowHeight(result.meta, settings.imageMaxHeight.dp)
     }
 
+    // 全文搜索的入口只在有查询词时才出现：没有查询就没有要找的东西。
+    val deepSearchVisible = state.appliedQuery.isNotEmpty()
+    val deepSearchHeight = if (deepSearchVisible) DeepSearchFooterHeight else 0.dp
+
     // 滚动条所需的逐条高度。与窗口高度共用同一个 [rowHeight]：两个消费者读同一个函数，
-    // 「窗口为什么这么高」与「滑块为什么这么长」就不可能对不上。
-    val scrollHeights = remember(unpinnedEntries, settings.imageMaxHeight, density) {
-        FloatArray(unpinnedEntries.size) { index ->
-            with(density) { rowHeight(unpinnedEntries[index].value).toPx() }
+    // 「窗口为什么这么高」与「滑块为什么这么长」就不可能对不上。末尾那一格是全文搜索入口，
+    // 它也是列表里的一行（空状态时它在列表之外，但高度照算，两处口径保持一致）。
+    val scrollHeights = remember(unpinnedEntries, settings.imageMaxHeight, density, deepSearchHeight) {
+        val heights = FloatArray(unpinnedEntries.size + if (deepSearchVisible) 1 else 0)
+        for (index in unpinnedEntries.indices) {
+            heights[index] = with(density) { rowHeight(unpinnedEntries[index].value).toPx() }
         }
+        if (deepSearchVisible) {
+            heights[unpinnedEntries.size] = with(density) { deepSearchHeight.toPx() }
+        }
+        heights
     }
 
     // 窗口高度是内容的纯函数，推导见 [historyHeightMetrics]。
     val metrics = historyHeightMetrics(
-        itemsHeight = unpinnedEntries.fold(0.dp) { total, entry -> total + rowHeight(entry.value) },
+        itemsHeight = unpinnedEntries.fold(0.dp) { total, entry -> total + rowHeight(entry.value) } +
+            deepSearchHeight,
         headerHeight = headerHeight,
         filterHeight = filterHeight,
         topPinsHeight = topPinsHeight,
@@ -541,6 +554,17 @@ fun HistoryScreen(
                         // 搜索，它会一直有内容，按 `results` 判断就永远显示不出空状态。
                         if (unpinnedEntries.isEmpty()) {
                             EmptyState(searching = state.query.isNotEmpty())
+                            // 空状态时入口照样出现，而且最该出现：标题一条都没命中，正是
+                            // 「去正文里找找」最可能有用的时刻。它浮在空状态之上，不改变那里
+                            // 原有的居中布局。
+                            if (deepSearchVisible) {
+                                DeepSearchFooter(
+                                    state = state.deepSearch,
+                                    hits = state.deepSearchHits,
+                                    onRun = { onUiAction(ClipboardUiAction.RunDeepSearch) },
+                                    modifier = Modifier.align(Alignment.BottomCenter),
+                                )
+                            }
                         } else {
                             LazyColumn(
                                 state = listState,
@@ -554,6 +578,17 @@ fun HistoryScreen(
                             ) {
                                 items(unpinnedEntries, key = { it.value.meta.id }) { indexed ->
                                     entryRow(indexed)
+                                }
+                                // 入口固定在内容末尾：用户滚到这儿本身就是「这些还不够」的
+                                // 表达，因此它不需要额外的提示，也不该悬在界面上方随时可见。
+                                if (deepSearchVisible) {
+                                    item {
+                                        DeepSearchFooter(
+                                            state = state.deepSearch,
+                                            hits = state.deepSearchHits,
+                                            onRun = { onUiAction(ClipboardUiAction.RunDeepSearch) },
+                                        )
+                                    }
                                 }
                             }
                             HistoryScrollbar(

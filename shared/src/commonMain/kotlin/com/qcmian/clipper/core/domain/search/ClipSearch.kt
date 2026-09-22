@@ -76,6 +76,52 @@ object ClipSearch {
         return scored.map { it.result }
     }
 
+    /**
+     * 在一批**正文**上跑同一次查询，返回命中的那些（带上它们在该批里的下标）。
+     *
+     * 与 [search] 共用同一套拆词、折叠、档位与细节分，因此正文命中的分数与标题命中的**可以
+     * 放在一起比较**——否则「全文搜索找到的结果」就说不清该排在标题命中之前还是之后。
+     *
+     * 为什么返回下标而不是 [SearchResult]：正文命中最终同样要占列表里的一行（用它自己的
+     * 元数据），而元数据在上层手里（全量在内存），这里只回答「这一批里的第几段命中了、得多少
+     * 分、高亮哪些区间」。同一个 id 的两段正文因此天然是两个候选，由上层按 id 取更好的那条。
+     *
+     * @param isCancelled 语义与 [search] 完全一致：整个匹配是一段同步循环，协程取消拦不住它。
+     */
+    fun searchTexts(
+        query: String,
+        texts: List<String>,
+        isCancelled: () -> Boolean = { false },
+    ): List<TextMatch> {
+        if (texts.isEmpty()) return emptyList()
+        // 空查询在这里返回空集，而不是像 [search] 那样返回全部：全文搜索是「去别处再找一批」，
+        // 没有查询词就没有要找的东西。
+        val terms = parseTerms(query)
+        if (terms.isEmpty()) return emptyList()
+
+        // 每个词都要命中，因此正文短于最长的词就不可能命中。
+        val longestTerm = terms.maxOf { it.folded.size }
+        val buffer = FoldBuffer()
+        val hits = ArrayList<TextMatch>()
+
+        var scanned = 0
+        for (index in texts.indices) {
+            if (scanned++ % CANCELLATION_CHECK_INTERVAL == 0 && isCancelled()) {
+                throw CancellationException("search cancelled")
+            }
+
+            val text = texts[index]
+            if (text.length < longestTerm) continue
+
+            buffer.ensure(text.length)
+            val folded = buffer.fold(text)
+            val match = match(text, folded, terms) ?: continue
+            hits += TextMatch(index, match.score, match.ranges)
+        }
+
+        return hits.sortedByDescending { it.score }
+    }
+
     // ---------------------------------------------------------------------------------
     // 单条匹配
     // ---------------------------------------------------------------------------------
@@ -342,6 +388,14 @@ object ClipSearch {
     }
 
     private class TitleMatch(val score: Int, val ranges: List<IntRange>)
+
+    /**
+     * 正文里的一处命中；[index] 是它在那批文本里的下标。
+     *
+     * [SearchResult] 装不下它：这里的高亮区间是相对**正文**算的，而那一行渲染的是元数据里的
+     * 标题——两者不是同一份文本，区间不能直接拿来高亮。
+     */
+    class TextMatch(val index: Int, val score: Int, val ranges: List<IntRange>)
 
     private class ScoredResult(val result: SearchResult, val score: Int)
 

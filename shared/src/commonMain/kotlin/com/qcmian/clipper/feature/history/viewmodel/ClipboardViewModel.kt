@@ -7,6 +7,7 @@ import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.domain.search.ClipSearch
 import com.qcmian.clipper.core.settings.AppSettings
+import com.qcmian.clipper.core.settings.ClipFilterType
 import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.core.ui.Popup
@@ -24,6 +25,7 @@ import com.qcmian.clipper.feature.history.state.ClearConfirmation
 import com.qcmian.clipper.feature.history.state.ClipboardDialog
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.state.ClipboardUiState
+import com.qcmian.clipper.feature.history.state.DeepSearchState
 import com.qcmian.clipper.feature.history.state.defaultSelectionIndex
 import com.qcmian.clipper.feature.preferences.viewmodel.ShortcutRecorder
 import kotlinx.coroutines.CoroutineStart
@@ -37,6 +39,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
@@ -113,6 +116,26 @@ class ClipboardViewModel(
 
     /** 上一次算 [ClipboardUiState.results] 用的查询词，用来判断「是不是换了查询」。 */
     private var lastAppliedQuery: String? = null
+
+    /** 正在跑的全文搜索；查询变化或再次触发都会取消它。 */
+    private var deepSearchJob: Job? = null
+
+    /**
+     * 全文搜索从正文里找到的结果，**追加**在标题命中之后。
+     *
+     * 它不参与 [refresh] 的全量重排：追加结果若插进列表中间，用户会当场丢失浏览位置，而他们
+     * 点那个入口时人就在列表末尾，期待的是「在下面补上更多」。
+     */
+    private var deepResults: List<SearchResult> = emptyList()
+
+    /**
+     * 上一次全文搜索所属的条件：查询词与筛选类型。`null` 表示还没搜过。
+     *
+     * 两者各自变化都要让上次的结果作废——旧查询从正文里捞出的条目、或不再属于当前类型筛选的
+     * 条目，都不该继续挂在新结果后面。
+     */
+    private var deepQuery: String? = null
+    private var deepTypes: Set<ClipFilterType>? = null
 
     /** 正在取图的条目 id；防止同一行在重组中反复发起请求。 */
     private val imageRequests = mutableSetOf<String>()
@@ -191,6 +214,7 @@ class ClipboardViewModel(
             ClipboardUiAction.CopySearchQuery -> {
                 if (platform.copySearchQuery(_uiState.value.query)) search.clearSearch()
             }
+            ClipboardUiAction.RunDeepSearch -> runDeepSearch()
 
             ClipboardUiAction.PointerMoved -> navigation.onPointerMoved()
             is ClipboardUiAction.HoverHistory -> navigation.hoverHistory(action.index)
@@ -226,7 +250,11 @@ class ClipboardViewModel(
             ClipboardUiAction.TogglePreview -> togglePreview()
             ClipboardUiAction.ToggleRecordingPause -> toggleRecordingPause()
             ClipboardUiAction.CopyExtractedText -> _uiState.value.selectedMeta?.let { meta ->
-                if (platform.copyExtractedText(meta)) search.clearSearch()
+                // 完整识别原文在载荷里（元数据的标题是截断过的），因此要按 id 取一次。
+                viewModelScope.launch {
+                    val recognized = repository.payload(meta.id)?.recognizedText
+                    if (platform.copyExtractedText(recognized)) search.clearSearch()
+                }
             }
 
             is ClipboardUiAction.SetPreviewWidth -> setPreviewWidth(action.width)
@@ -305,9 +333,32 @@ class ClipboardViewModel(
         val types = settings.filterTypes
         val searched = ClipSearch.search(query, unpinned.filter { it.kind in types }, isCancelled)
 
+        // 正文命中**不在这里拼**（见 [deepExtras]）：它可能正好在这次后台计算期间落地，
+        // 拼进这份快照就等于丢掉它。
         return when (settings.pinTo) {
             PinPosition.TOP -> pinnedResults + searched
             PinPosition.BOTTOM -> searched + pinnedResults
+        }
+    }
+
+    /**
+     * 把全文搜索从正文里找到的结果接到标题命中之后。
+     *
+     * 两件事都必须在**读取的那一刻**现做，而不是更早：
+     *
+     * - **现读 [deepResults]**：一次 [runDeepSearch] 可能正好在标题匹配的后台计算期间落地，
+     *   若把它拼进那份更早算好的快照，结果就是「入口写着找到 N 条、列表里却没有」。
+     * - **逐条确认那一项还在**：正文命中是那一次搜索留下的快照，其间的删除（或筛选变化）
+     *   会让它变成列表里点不开、也删不掉的幽灵条目。
+     */
+    private fun deepExtras(titleHits: List<SearchResult>, types: Set<ClipFilterType>): List<SearchResult> {
+        if (deepResults.isEmpty()) return emptyList()
+        val live = repository.unpinned.value.associateBy { it.id }
+        val shown = titleHits.mapTo(HashSet(titleHits.size)) { it.meta.id }
+        return deepResults.mapNotNull { result ->
+            val meta = live[result.meta.id] ?: return@mapNotNull null
+            // 类型不再匹配、或标题也命中的条目都不该再补一行。
+            if (meta.kind !in types || meta.id in shown) null else SearchResult(meta)
         }
     }
 
@@ -455,6 +506,16 @@ class ClipboardViewModel(
         val unpinned = repository.unpinned.value
         val total = repository.totalUnpinned.value
 
+        // 全文搜索的结果属于**它那一次的条件**：查询词或筛选类型一变它就作废，正在跑的那次也
+        // 一并停掉。否则旧查询从正文里捞出的条目会挂在新结果后面。
+        val types = settings.filterTypes
+        val deepSearchStale = query != deepQuery || types != deepTypes
+        if (deepSearchStale) {
+            deepSearchJob?.cancel()
+            deepResults = emptyList()
+            deepQuery = query
+            deepTypes = types
+        }
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             // 取消只在挂起点生效，而匹配是一整段同步 CPU 循环：把「这次任务还在不在」传进去，
@@ -469,8 +530,13 @@ class ClipboardViewModel(
             lastAppliedQuery = query
 
             _uiState.update { latest ->
+                // 正文命中在这里现读现拼：一次 `runDeepSearch` 可能正好在这次后台计算期间落地，
+                // 把它拼进上面那份更早的结果就等于丢掉它——表现为「入口写着找到 N 条、
+                // 列表里却没有」。
+                val extras = deepExtras(results, types)
+                val merged = results + extras
                 // 窗口外的图片立即释放：它们只服务视口内的渲染，留着就退化成「图片全量常驻」。
-                val visibleIds = results.mapTo(HashSet(results.size)) { it.meta.id }
+                val visibleIds = merged.mapTo(HashSet(merged.size)) { it.meta.id }
                 val images = if (latest.images.isEmpty()) {
                     latest.images
                 } else {
@@ -478,7 +544,7 @@ class ClipboardViewModel(
                 }
 
                 latest.withSyncedFields(settings, total).copy(
-                    results = results,
+                    results = merged,
                     images = images,
                     // 换了查询就把高亮落回**内容区第一条**（与面板打开时一致）。
                     //
@@ -488,20 +554,98 @@ class ClipboardViewModel(
                     //
                     // 其余刷新只做越界收敛，不打扰用户当前的选中位置。
                     historySelection = if (queryChanged) {
-                        results.defaultSelectionIndex()
+                        merged.defaultSelectionIndex()
                     } else {
-                        latest.historySelection.coerceIn(0, maxOf(0, results.lastIndex))
+                        latest.historySelection.coerceIn(0, maxOf(0, merged.lastIndex))
                     },
                     footerSelection = if (queryChanged) -1 else latest.footerSelection,
                     // 历史内容真的变了（新条目 / 删除 / 换查询）才递增：让界面把选中项滚回可视区，
                     // 普通的设置刷新不应打扰用户当前的滚动位置。
-                    historyScrollToken = if (queryChanged || results != latest.results) {
+                    historyScrollToken = if (queryChanged || merged != latest.results) {
                         latest.historyScrollToken + 1
                     } else {
                         latest.historyScrollToken
                     },
+                    // 条件变了，上一次的全文搜索结果就不再作数；没变则原样保留——列表因新复制
+                    // 而刷新时，用户刚搜出来的那些正文命中不该消失。
+                    deepSearch = if (deepSearchStale) DeepSearchState.AVAILABLE else latest.deepSearch,
+                    // 报**实际显示**的那几条，而不是搜索当时的命中数：其后的删除或筛选变化会让
+                    // 两者不等，而入口上写着的数字必须与列表里多出来的行数一致。
+                    deepSearchHits = if (deepSearchStale) 0 else extras.size,
                 )
             }
+        }
+    }
+
+    /**
+     * 对**正文**再搜一次当前查询。
+     *
+     * 正文留在库里（它就是「标题之外的那部分」，一条可能几十 KB，不可能常驻内存），因此这里
+     * **分批**读：每批几百个 id，读出来立刻匹配、只留下命中的分数与区间，正文随即丢弃。于是
+     * 峰值内存只与「一批的大小」成正比，与历史总量无关。
+     *
+     * 与 [refresh] 一样跑在后台，并允许被后一次输入取消——但取消点不同：这里的每一批都经过
+     * `repository.texts` 的挂起点，协程取消天然生效，不需要像标题匹配那样在循环里自检。
+     *
+     * 已经匹配过标题的条目直接跳过：它们就在列表里，再扫一遍正文没有意义。
+     */
+    private fun runDeepSearch() {
+        val query = _uiState.value.appliedQuery
+        if (query.isEmpty()) return
+
+        val types = _uiState.value.settings.filterTypes
+        val unpinned = repository.unpinned.value
+        val alreadyShown = _uiState.value.results.mapTo(HashSet()) { it.meta.id }
+        // 元数据全量在内存，所以「要搜哪些 id」这个集合问题在这里就能定下来，不必让数据库去
+        // 回答它——数据库只负责把正文送过来。
+        val pending = unpinned
+            .filter { it.kind in types && it.id !in alreadyShown }
+            .map { it.id }
+
+        deepSearchJob?.cancel()
+        deepResults = emptyList()
+        _uiState.update { it.copy(deepSearch = DeepSearchState.RUNNING, deepSearchHits = 0) }
+
+        deepSearchJob = viewModelScope.launch {
+            val metaById = unpinned.associateBy { it.id }
+            val found = ArrayList<SearchResult>()
+            val seen = HashSet<String>()
+            var scannedChars = 0L
+
+            for (chunk in pending.chunked(DEEP_SEARCH_BATCH)) {
+                if (!isActive) return@launch
+
+                val texts = repository.texts(chunk)
+                if (texts.isEmpty()) continue
+
+                scannedChars += texts.sumOf { it.text.length.toLong() }
+                val hits = withContext(Dispatchers.Default) {
+                    ClipSearch.searchTexts(query, texts.map { it.text }) { !isActive }
+                }
+                for (hit in hits) {
+                    if (found.size >= DEEP_SEARCH_MAX_HITS) break
+                    val text = texts[hit.index]
+                    val meta = metaById[text.id] ?: continue
+                    // 同一个条目的两段正文是两条候选，只留匹配更好的那条：命中已按分数降序，
+                    // 所以第一次见到的就是最好的。
+                    if (!seen.add(text.id)) continue
+                    // 不带高亮区间：命中区间是相对**正文**算的，而这一行渲染的是标题，
+                    // 两者不是同一份文本，区间不能直接用。
+                    found += SearchResult(meta)
+                }
+
+                // 两道闸门：结果够多，或正文读得够多。后者防的是一条超长正文（或一个很大的库）
+                // 把一次点击拖成几秒——用户要的是「再看看有没有」，不是把整个库读完。
+                if (found.size >= DEEP_SEARCH_MAX_HITS || scannedChars >= DEEP_SEARCH_MAX_CHARS) break
+            }
+
+            if (!isActive) return@launch
+            deepResults = found
+            _uiState.update { it.copy(deepSearch = DeepSearchState.DONE, deepSearchHits = found.size) }
+            // 交给 [refresh] 这条统一路径去拼结果：它会在**写入状态的那一刻**逐条校验是否还在
+            // （搜索期间可能被删掉），也顺带处理与标题命中的重复。这里自己拼一份则绕开了那些
+            // 校验，还多出一次「谁后落地」的竞态。
+            refresh()
         }
     }
 
@@ -586,6 +730,25 @@ class ClipboardViewModel(
 
     private companion object {
         const val STATUS_DURATION_MILLIS = 1_600L
+
+        /**
+         * 全文搜索每批取多少条正文。
+         *
+         * 一批就是一次 `IN` 查询的规模。几百条让往返次数可接受，又保证单批的正文（哪怕都是
+         * 长文本）只占几 MB——这就是「不全读进内存」的落点。
+         */
+        const val DEEP_SEARCH_BATCH = 200
+
+        /** 全文搜索最多从正文里补多少条：用户要的是「再看看有没有」，不是一份新列表。 */
+        const val DEEP_SEARCH_MAX_HITS = 200
+
+        /**
+         * 全文搜索最多读多少字符的正文。
+         *
+         * 上一条限的是**结果数**，这一条限的是**工作量**：正文里没有命中时结果数永远不涨，
+         * 只有字符预算能拦住它把整个库读完。
+         */
+        const val DEEP_SEARCH_MAX_CHARS = 16L * 1024 * 1024
 
         /**
          * 预览内容的加载防抖。

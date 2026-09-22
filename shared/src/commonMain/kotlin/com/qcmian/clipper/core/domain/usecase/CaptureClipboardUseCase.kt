@@ -154,24 +154,26 @@ class CaptureClipboardUseCase(
         settings.recognizeText &&
         platform.supportsTextRecognition
 
-    /** 在后台运行 Vision / ML Kit，并把结果提升为条目标题。 */
+    /** 在后台运行 Vision / ML Kit，并把结果拆成「完整原文 + 前一段标题」两处存下来。 */
     private suspend fun recognizeImageText(itemId: String, image: ClipImage) {
         val recognized = platform.recognizeText(image) ?: return
         // 空白判定必须发生在格式化之前：格式化会把换行换成 `⏎`，那之后 `isBlank()` 就再也
         // 认不出「只有空白」的识别结果，垃圾标题会连同工具栏按钮一起冒出来。
         if (recognized.isBlank()) return
 
-        // 标题存的是识别**原文**，不是列表显示用的单行串：这个字段同时是「复制图片文字」
-        // 与搜索的数据源，换成 `⏎` / `·` 会把真换行一起复制出去（见 `copyExtractedText`）。
-        // 需要单行显示的地方（历史列表、置顶项行）在渲染时自行压平。
+        // 标题是给列表看的一行：过滤不安全标量、按行宽截断，并压掉首尾空白。
         val title = recognized.toStoredTitle().trim()
         if (title.isBlank()) return
 
-        // 条目可能在识别期间被删掉（`updateTitle` 会安全地作用在 0 行上），也可能已经因为
-        // 重复复制而有了别的标题；两种情况都不该把这里的旧结果写回去。
+        // 条目可能在识别期间被删掉（那两条 `UPDATE` 都会安全地作用在 0 行上），也可能已经
+        // 因为重复复制而有了别的标题；两种情况都不该把这里的旧结果写回去。
         val current = repository.meta(itemId) ?: return
         if (current.hasRecognizedText) return
 
-        repository.updateTitle(itemId, title, fromRecognition = true)
+        // 完整原文进载荷（「复制图片文字」与预览读它），标题进元数据（列表与搜索读它）。
+        //
+        // 原文**不设长度上限**：它比同一张图的原图 BLOB 小两个数量级（几十 KB 对几 MB），
+        // 又待在载荷里、不占常驻内存；单独掐它，只会把最需要完整保存的滚动长截图砍掉。
+        repository.updateRecognizedText(id = itemId, fullText = recognized, title = title)
     }
 }

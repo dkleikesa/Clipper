@@ -2,6 +2,7 @@ package com.qcmian.clipper.core.data.source
 
 import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.ClipPayload
+import com.qcmian.clipper.core.domain.model.ClipText
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.SortOrder
@@ -64,6 +65,21 @@ interface ClipStorageDataSource {
     /** 单条载荷；条目不存在或本来就没有载荷时为 `null`。 */
     suspend fun loadPayload(id: String): ClipPayload?
 
+    /**
+     * 一批条目的正文，供**全文搜索**使用。
+     *
+     * 与 [loadPayload] 有三点不同，每一点都是为「扫过整份历史」这个场景定的：
+     *
+     * - **按批取**。正文可能几十 KB，一次装进来会把常驻内存推到几百 MB；调用方读一批、
+     *   匹配一批、丢掉一批。
+     * - **不投影图片与附加表示**。那两样是全文搜索完全用不到的 BLOB，多读一次就是白花
+     *   几 MB 的 IO。
+     * - **同一个 `id` 可能出现两次**。用户复制的正文与图片识别出的原文是两段独立的文本，
+     *   各有各的匹配分数与高亮区间；合并成一个串会同时污染位置分和高亮。由调用方按 id
+     *   取更好的那一条。
+     */
+    suspend fun loadTexts(ids: List<String>): List<ClipText>
+
     // -----------------------------------------------------------------------------------
     // 写
     // -----------------------------------------------------------------------------------
@@ -76,6 +92,14 @@ interface ClipStorageDataSource {
 
     /** 改写标题；[fromRecognition] 表示这次改写是否来自图片文字识别。 */
     suspend fun updateTitle(id: String, title: String, fromRecognition: Boolean)
+
+    /**
+     * 图片文字识别完成：**完整原文**写进载荷，标题更新为它的前一段。
+     *
+     * 两件事一起做：标题供列表渲染与搜索（按行宽截断），完整原文供「复制图片文字」。
+     * 它和 [updateTitle] 的区别是前者会连带把「标题来自识别」这一标记置位。
+     */
+    suspend fun updateRecognizedText(id: String, fullText: String, title: String)
 
     suspend fun updatePinned(id: String, pinned: Boolean)
 

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "6a33c59a3bebb6f8f8a485cde2df136b",
+    "identityHash": "87d8015ea3a6c0856d6731bbead51174",
     "entities": [
       {
         "tableName": "clip_meta",
@@ -160,7 +160,7 @@
       },
       {
         "tableName": "clip_payload",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `text` TEXT, `image` BLOB, `contents` BLOB, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `text` TEXT, `image` BLOB, `contents` BLOB, `recognizedText` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -182,6 +182,11 @@
             "fieldPath": "contents",
             "columnName": "contents",
             "affinity": "BLOB"
+          },
+          {
+            "fieldPath": "recognizedText",
+            "columnName": "recognizedText",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -218,7 +223,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6a33c59a3bebb6f8f8a485cde2df136b')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '87d8015ea3a6c0856d6731bbead51174')"
     ]
   }
 }
