@@ -79,20 +79,13 @@ data class ClipItem(
     private val richText: String by lazy { extractReadableText(contents) }
 
     /**
-     * 条目的**完整文本**：文件路径 → 正文 → 从附加表示（HTML / RTF）解析出的**全部**文字。
+     * 条目的**完整文本**：文件路径 → 正文 → 从附加表示（HTML / RTF）解析出的全部文字。
      *
-     * 预览面板与「多条复制」读它，所以它必须是全文——刻意**不**复用 [deriveTitle]：那个函数
-     * 产出的是落库用的**标题**（要短、会被 `toStoredTitle()` 截断到 1000 字符），而这里最后
-     * 一档取的是未截断的 [richText]。
+     * 预览与「多条复制」读它，所以必须是全文——刻意不复用 [deriveTitle]（那个产出的是落库用的
+     * **标题**，会被 `toStoredTitle()` 截断到 1000 字符）。最后那一档也是必要的：有些应用复制
+     * 富文本时**只写 HTML、不写纯文本**，没有它会是一片空白。
      *
-     * 最后一档也是必要的：有些应用复制富文本时**只写 HTML、不写纯文本**，那种条目既没有
-     * [text] 也没有 [files]，没有它就会是一片空白。
-     *
-     * 两条规则只在「既没有正文也没有文件」时才碰面，而那时 `title` 本来就由 [richText] 派生，
-     * 因此 `toMeta()` 经 `previewableText.toStoredTitle()` 得到的标题不受这次改动影响。
-     *
-     * 图片识别出的原文不在这里：它在载荷里，由 [previewText] 另行取 `recognizedText`（那才是全文）。
-     *
+     * 图片识别出的原文不在这里，由 [previewText] 另行取载荷里的 `recognizedText`；
      * 它不在主构造器里，因此不参与 `equals` / `hashCode`。
      */
     val previewableText: String by lazy {

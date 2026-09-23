@@ -149,12 +149,7 @@ object MacKeyboard {
      */
     fun sendCommandKey(keyCode: Int = KEY_CODE_V): Boolean = sendKey(keyCode, command = true)
 
-    /**
-     * 合成一次**不带领事键**的回车。
-     *
-     * 连续粘贴用它：目标端多半要有一次「提交 / 换行」才会腾出下一处落点（终端执行命令、
-     * 聊天框发送、Excel 下移一格）。带 `⌘` 就完全是另一回事了，所以这里必须是不带修饰键的按键。
-     */
+    /** 合成一次**不带领事键**的回车（连续粘贴用：让目标端提交上一条、腾出下一处落点）。 */
     fun sendReturn(): Boolean = sendKey(KEY_CODE_RETURN, command = false)
 
     /**

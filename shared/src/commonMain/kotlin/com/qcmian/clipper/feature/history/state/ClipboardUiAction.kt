@@ -36,9 +36,8 @@ sealed interface ClipboardUiAction {
     /**
      * 鼠标划到某一行上。
      *
-     * [selectionModifierHeld] 是「此刻按住 `⌘` 或 `⇧`」：按住时划过的行**不能改写选中集**，
-     * 否则 `⌘` 点击的基准会被鼠标自己换掉——用户想「先选第 9 条，再 `⌘` 点第 13 条」，
-     * 结果鼠标一进第 13 行，选中集就变成了「第 13 条」，那一次 `⌘` 点击成了空操作。
+     * [selectionModifierHeld] 是「此刻按住 `⌘` 或 `⇧`」：按住时划过的行不能改写选中集，
+     * 否则那一次点击的基准会被鼠标自己换掉，变成空操作。
      */
     data class HoverHistory(
         val index: Int,
@@ -70,8 +69,7 @@ sealed interface ClipboardUiAction {
     /**
      * 回车：对**当前选中集**执行动作；由修饰键决定实际的 [ClipAction]。
      *
-     * 不带下标：多条一起选时，作用对象是那一整批（见 `SelectClipUseCase`），
-     * 而「哪一条」由 `ClipboardUiState.selectedIds` 唯一决定。
+     * 不带下标：作用对象由 `ClipboardUiState.selectedIds` 唯一决定。
      */
     data class Activate(
         val shift: Boolean = false,
@@ -85,9 +83,8 @@ sealed interface ClipboardUiAction {
     /**
      * 复制选中集（右键菜单里的「复制」）。
      *
-     * 单独一个动作，而不是复用 `Activate(...)`：`Activate` 表达的是「用户按了哪个修饰键」，
-     * 含义交给 `defaultAction` 解析——而**自动粘贴开着时键盘上根本没有「复制」这个组合**
-     * （所有组合都指向粘贴的各个变体），菜单里这一项却必须永远是复制。
+     * 不复用 `Activate(...)`：那个动作表达的是「按了哪个修饰键」，含义交给 `defaultAction`
+     * 解析；而菜单这一项必须**永远是复制**，与当前偏好下键盘有没有对应组合无关。
      */
     data object CopySelection : ClipboardUiAction
 

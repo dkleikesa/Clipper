@@ -82,11 +82,8 @@ interface ClipboardRepository {
     // -----------------------------------------------------------------------------------
 
     /**
-     * 本应用正在**自己写回**剪贴板（激活条目、批量连续粘贴期间）。
-     *
-     * 值为 `true` 时，[snapshots] 上观察到的每一次变化都是自己造成的：`CaptureClipboardUseCase`
-     * 据此丢弃它们。否则一次 N 条的连续粘贴会被当成 N 次新复制——历史被重排 N 次、
-     * 计数被多记 N 次。写回的那几条由调用方在完成后**统一记账**（见 [recordBatchCopy]）。
+     * 本应用正在**自己写回**剪贴板。为真时 [snapshots] 上的变化都是自己造成的，
+     * `CaptureClipboardUseCase` 据此丢弃它们；写回的那几条由调用方在完成后统一记账。
      */
     val isWritingClipboard: StateFlow<Boolean>
 
@@ -94,18 +91,12 @@ interface ClipboardRepository {
     suspend fun <T> withoutCapturing(block: suspend () -> T): T
 
     /**
-     * 剪贴板监听轮询一次的间隔（毫秒）。
-     *
-     * 写回剪贴板之后要等满它再多一点，自己造成的那一次变化才会被监视器读走（读走即丢弃）；
-     * 否则它会在抑制解除之后才被发现，那一条就被记成两次（见 `SelectClipUseCase` 的收尾等待）。
+     * 剪贴板监听轮询一次的间隔。写回之后要等满它多一点，自己造成的那次变化才会被监视器读走；
+     * 否则它会在抑制解除后被发现，那一条就被记两次（见 `SelectClipUseCase`）。
      */
     val clipboardPollIntervalMillis: Int
 
-    /**
-     * 写回完成后统一记一次账：这些条目各自算作「被复制了一次」，时间戳按 [ids] 的顺序前移。
-     *
-     * 与逐条调用 [updateStats] 的差别只在「重读元数据的次数」：连续粘贴十条不该触发十次全量重排。
-     */
+    /** 写回完成后统一记账：这些条目各算一次「被复制」，时间戳按 [ids] 顺序前移、只重排一次列表。 */
     suspend fun recordBatchCopy(ids: List<String>)
 
     // -----------------------------------------------------------------------------------
@@ -163,12 +154,7 @@ interface ClipboardRepository {
      */
     suspend fun backfillEmptyTitles()
 
-    /**
-     * 把 [ids] 统一设为 [pinned]。
-     *
-     * 批量而不是逐条：置顶会改变排序（置顶项单独成区），而每次改一条都重读一遍全量元数据
-     * 在「整批置顶 20 条」时就是 20 次全量重排——这里只锁一次、重排一次。
-     */
+    /** 把 [ids] 统一设为 [pinned]。批量：只锁一次、只重排一次列表。 */
     suspend fun setPinned(ids: List<String>, pinned: Boolean)
 
     suspend fun delete(ids: List<String>)

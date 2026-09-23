@@ -3,6 +3,8 @@ package com.qcmian.clipper.feature.history.viewmodel
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.qcmian.clipper.core.domain.model.ClipImage
+import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.domain.search.ClipSearch
@@ -142,6 +144,29 @@ class ClipboardViewModel(
 
     /** 正在取图的条目 id；防止同一行在重组中反复发起请求。 */
     private val imageRequests = mutableSetOf<String>()
+
+    /**
+     * 正文缓存：最近看过的那些**完整条目**，按访问顺序排列（最旧的在最前）。
+     *
+     * 预览是来回看的操作（`A → B → A`），单槽会让每次回头都重新读库；命中它就直接投影进
+     * [ClipboardUiState.previewItem]，连防抖都不用等。上限见 [PREVIEW_CACHE_ITEMS]。
+     */
+    private val previewCache = LinkedHashMap<String, ClipItem>()
+
+    /** [previewCache] 占用的近似字节数（见 `ClipItem.approximateSizeBytes`），与它同步增减。 */
+    private var previewBytes = 0L
+
+    /**
+     * 已取回的图片字节，**按访问顺序**排列（最旧的在最前）。界面读到的是
+     * [ClipboardUiState.images] 那份快照，这里才是决定「装哪几条」的地方。
+     *
+     * 用 `LinkedHashMap` 加手动前移，而不是 `java.util` 的访问顺序构造器：后者并非在所有
+     * Kotlin 目标上都可用（同 `ImageCache`）。
+     */
+    private val imageCache = LinkedHashMap<String, ClipImage>()
+
+    /** [imageCache] 里所有图片占用的字节数，与它同步增减。 */
+    private var imageBytes = 0L
 
     init {
         // 窗口的任一部分变化都要重新投影一次结果（搜索是窗口的纯函数）。
@@ -379,21 +404,28 @@ class ClipboardViewModel(
     }
 
     /**
-     * 有图片的行进入组合时取回它的图片。
+     * 有图片的行进入组合时取回它的图片，缓存在 [imageCache] 里。
      *
-     * `LazyColumn` 只组合可见项，因此这个函数天然只对视口内的行生效；配合 [refresh] 里对
-     * 窗口外图片的清理，[ClipboardUiState.images] 的规模与视口相关，与历史里的图片总数无关。
+     * 命中也算一次访问：行滚回视野时会再调一次这里，把该条挪到最新端，于是反复看到的图片
+     * 不会被淘汰。
      */
     private fun loadImage(id: String) {
-        if (_uiState.value.images.containsKey(id)) return
+        // 命中就挪到最新端：界面只是读 Map、回写不了顺序，「用过了」这个信号只能在这里收。
+        imageCache.remove(id)?.let { cached ->
+            imageCache[id] = cached
+            return
+        }
+
         // 同一个 id 只请求一次：行会在重组中反复调用这里。
         if (!imageRequests.add(id)) return
         viewModelScope.launch {
             try {
-                val image = repository.payload(id)?.image
-                if (image != null) {
-                    _uiState.update { it.copy(images = it.images + (id to image)) }
-                }
+                val image = repository.payload(id)?.image ?: return@launch
+                imageCache[id] = image
+                imageBytes += image.size
+                trimImageCache()
+                // 顺序对界面没有意义（它只按 id 取），给一份快照是为了让状态保持不可变。
+                _uiState.update { it.copy(images = imageCache.toMap()) }
             } finally {
                 imageRequests.remove(id)
             }
@@ -401,13 +433,23 @@ class ClipboardViewModel(
     }
 
     /**
-     * 把 [meta] 的完整内容取回来。
+     * 淘汰最久没用到的图片，直到回到上限之内。
      *
-     * [ClipboardUiState.previewItem] 是预览面板与「复制图片文字」唯一的数据来源：列表里流动的
-     * 元数据不含正文与图片字节，它们只有在这一刻才按 id 取一次。
+     * 按字节而不是条数：一张 1080p 截图能到几 MB、一个小图标只有几百字节，按条数限制等于
+     * 没有上限。至少留下刚放进去的那一张。
+     */
+    private fun trimImageCache() {
+        while (imageBytes > MAX_IMAGE_CACHE_BYTES && imageCache.size > 1) {
+            val oldest = imageCache.keys.firstOrNull() ?: break
+            imageCache.remove(oldest)?.let { imageBytes -= it.size }
+        }
+    }
+
+    /**
+     * 把 [meta] 的完整内容取回来给预览面板（列表里流动的元数据不含正文与图片字节）。
      *
-     * 带 [PREVIEW_DEBOUNCE_MILLIS] 的防抖：鼠标划过列表时每一行都会短暂成为「选中项」，
-     * 不防抖的话每一行都要读一次库，预览会一路闪过去。
+     * 命中 [previewCache] 就不读库。防抖对两条路径都保留：鼠标划过列表时每一行都会短暂成为
+     * 「选中项」，把中间那些压掉，预览才不会一路闪过去。
      */
     private fun syncPreview(meta: ClipMeta?) {
         if (meta == null) {
@@ -422,9 +464,40 @@ class ClipboardViewModel(
         previewJob?.cancel()
         previewJob = viewModelScope.launch {
             delay(PREVIEW_DEBOUNCE_MILLIS)
-            val item = repository.item(meta.id)
+            val item = cachedPreview(meta) ?: repository.item(meta.id)?.also(::cachePreview)
             // 加载期间选中项可能又变了：只在仍然是同一条时落地。
             _uiState.update { if (it.selectedMeta?.id == meta.id) it.copy(previewItem = item) else it }
+        }
+    }
+
+    /** 缓存里那一份还能用就返回它（顺带挪到最新端）；不可用时返回 `null`，由调用方去读库。 */
+    private fun cachedPreview(meta: ClipMeta): ClipItem? {
+        val cached = previewCache.remove(meta.id) ?: return null
+        // 库里的条目被改写过时缓存已过期——典型是图片识别刚补上原文，而缓存里还是那份
+        // 「没有识别文字」的旧快照（界面会少一个「复制图片文字」按钮）。
+        if (cached.hasRecognizedText != meta.hasRecognizedText) return null
+        previewCache[meta.id] = cached
+        return cached
+    }
+
+    private fun cachePreview(item: ClipItem) {
+        previewCache[item.id] = item
+        previewBytes += item.approximateSizeBytes
+        trimPreviewCache()
+    }
+
+    /**
+     * 淘汰最久没看到的条目，直到回到条数与字节上限之内。
+     *
+     * 条数上限是主要的（50 条足够覆盖来回翻看），字节上限是保险：`ClipItem` 是**完整载荷**，
+     * 图片字节也在里面，一条大图条目能到几 MB。
+     */
+    private fun trimPreviewCache() {
+        while (previewCache.size > PREVIEW_CACHE_ITEMS ||
+            (previewBytes > PREVIEW_CACHE_BYTES && previewCache.size > 1)
+        ) {
+            val oldest = previewCache.keys.firstOrNull() ?: break
+            previewCache.remove(oldest)?.let { previewBytes -= it.approximateSizeBytes }
         }
     }
 
@@ -436,10 +509,8 @@ class ClipboardViewModel(
         defaultAction(_uiState.value.settings, shift, alt, meta)
 
     /**
-     * 激活**当前选中集**：一条就是原来的行为，多条就是连续粘贴（见 [SelectClipUseCase]）。
-     *
-     * 上一次还没粘完就来了新的一次（用户又呼出面板选了别的）：旧的当场取消，
-     * 已经写出去的那几条会在用例里补记一次复制。
+     * 激活**当前选中集**。上一次还没粘完就来了新的一次：旧的当场取消，已经写出去的那几条
+     * 会在用例里补记一次复制。
      */
     private fun activate(action: ClipAction) {
         if (action == ClipAction.UNKNOWN) return
@@ -457,10 +528,8 @@ class ClipboardViewModel(
     }
 
     /**
-     * 整批置顶 / 取消置顶。
-     *
-     * 方向按**整批的当前状态**定：只要有一条没置顶，就整批置顶；全都置顶了才整批取消。
-     * 不能让每条各自取反——混合选中时那会把一半翻上去、一半翻下来，等于白点一次。
+     * 整批置顶 / 取消置顶：只要有一条没置顶就整批置顶，全都置顶了才整批取消。
+     * 不能让每条各自取反——混合选中时那会把一半翻上去、一半翻下来。
      */
     private fun togglePinSelected() {
         val entries = _uiState.value.selectedEntries
@@ -585,13 +654,9 @@ class ClipboardViewModel(
                 // 列表里却没有」。
                 val extras = deepExtras(results, types)
                 val merged = results + extras
-                // 窗口外的图片立即释放：它们只服务视口内的渲染，留着就退化成「图片全量常驻」。
+                // 结果 id 集合：选中集在它上面剪枝。图片缓存不在这里裁剪——它有自己的按字节
+                // 上限（见 `loadImage`），按结果集裁只会让滚回去时重新读库。
                 val visibleIds = merged.mapTo(HashSet(merged.size)) { it.meta.id }
-                val images = if (latest.images.isEmpty()) {
-                    latest.images
-                } else {
-                    latest.images.filterKeys { it in visibleIds }
-                }
 
                 // 换了查询就把高亮落回**内容区第一条**（与面板打开时一致）。
                 //
@@ -611,7 +676,6 @@ class ClipboardViewModel(
 
                 latest.withSyncedFields(settings, total).copy(
                     results = merged,
-                    images = images,
                     historySelection = if (queryChanged) defaultIndex else latest.historySelection.coerceIn(0, maxOf(0, merged.lastIndex)),
                     footerSelection = if (queryChanged) -1 else latest.footerSelection,
                     selectionAnchor = if (queryChanged) defaultIndex else latest.selectionAnchor.coerceIn(0, maxOf(0, merged.lastIndex)),
@@ -814,5 +878,14 @@ class ClipboardViewModel(
          * 预览面板会跟着一闪一闪。40 ms 低于人的感知阈值，又足以把中间那些行压掉。
          */
         const val PREVIEW_DEBOUNCE_MILLIS = 40L
+
+        /** 正文缓存的条数上限：预览是来回看的操作，单槽会让每次回头都重新读库。 */
+        const val PREVIEW_CACHE_ITEMS = 50
+
+        /** 正文缓存的字节上限（`ClipItem` 是完整载荷，图片字节也在里面）。 */
+        const val PREVIEW_CACHE_BYTES = 16L * 1024L * 1024L
+
+        /** 图片字节缓存的上限。与 `ImageCache`（解码后的位图，同样 32 MB）构成两级缓存。 */
+        const val MAX_IMAGE_CACHE_BYTES = 32L * 1024L * 1024L
     }
 }
