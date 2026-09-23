@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  # 推送 vX.Y.Z 形式的 tag 时自动发布
+  push:
+    tags:
+      - "v*.*.*"
+  # 也允许手动指定 tag 补发
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要发布的 tag（必须形如 v1.0.0）
+        required: true
+        type: string
+
+# 同一 tag 的并发发布只保留最新一次
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 构建并发布 macOS 安装包
+    # 打包目标为 .dmg，必须在 macOS 上执行
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 解析并校验版本号
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${INPUT_TAG:-}" ]; then
+            tag="$INPUT_TAG"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+
+          # Compose Desktop 的 packageVersion 只接受 x.y.z，各段必须是数字
+          version="${tag#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '$tag' 不是 vX.Y.Z 形式，无法作为包版本"
+            exit 1
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "tag=${tag}，packageVersion=${version}"
+
+      - name: 配置 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 打包 DMG
+        run: |
+          ./gradlew :desktopApp:packageReleaseDmg \
+            -PappVersion=${{ steps.version.outputs.version }} \
+            --stacktrace
+
+      - name: 生成 SHA-256 校验和
+        run: |
+          set -euo pipefail
+          cd desktopApp/build/compose/binaries/main-release/dmg
+          shasum -a 256 ./*.dmg > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: 发布到 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          body: |
+            ## 安装
+
+            1. 下载下方的 `Clipper-${{ steps.version.outputs.version }}.dmg`
+            2. 打开 DMG，将 Clipper 拖入「应用程序」
+            3. 首次启动若提示「无法验证开发者」，右键点击图标选择「打开」，或在终端执行：
+
+               ```bash
+               xattr -dr com.apple.quarantine /Applications/Clipper.app
+               ```
+
+            > 当前构建未做代码签名与公证，上述提示属预期行为。
+
+            首次使用需要在「系统设置 → 隐私与安全性 → 辅助功能」中授权，否则全局热键与自动粘贴不会生效。
+
+            ## 校验
+
+            下载后可用附件中的 `SHA256SUMS.txt` 校验完整性：
+
+            ```bash
+            shasum -a 256 -c SHA256SUMS.txt
+            ```
+          files: |
+            desktopApp/build/compose/binaries/main-release/dmg/*.dmg
+            desktopApp/build/compose/binaries/main-release/dmg/SHA256SUMS.txt
+          fail_on_unmatched_files: true
