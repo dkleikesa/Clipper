@@ -17,6 +17,7 @@ import com.qcmian.clipper.core.domain.model.toStoredTitle
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 import com.qcmian.clipper.core.settings.AppSettings
+import com.qcmian.clipper.core.util.currentTimeMillis
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -80,6 +81,9 @@ class DefaultClipboardRepository(
     private val _snapshots = MutableSharedFlow<ClipboardSnapshot>(extraBufferCapacity = 32)
     override val snapshots: Flow<ClipboardSnapshot> = _snapshots.asSharedFlow()
 
+    private val _isWritingClipboard = MutableStateFlow(false)
+    override val isWritingClipboard: StateFlow<Boolean> = _isWritingClipboard.asStateFlow()
+
     /**
      * 元数据的读改写全部串行化。
      *
@@ -105,6 +109,7 @@ class DefaultClipboardRepository(
     override val supportsLaunchAtLogin: Boolean get() = native.supportsLaunchAtLogin
     override val supportsApplicationInfo: Boolean get() = native.supportsApplicationInfo
     override val supportsTextRecognition: Boolean get() = native.supportsTextRecognition
+    override val clipboardPollIntervalMillis: Int get() = clipboard.pollIntervalMillis.toInt()
 
     override fun start() {
         if (started) return
@@ -210,6 +215,31 @@ class DefaultClipboardRepository(
         }
     }
 
+    override suspend fun <T> withoutCapturing(block: suspend () -> T): T {
+        _isWritingClipboard.value = true
+        return try {
+            block()
+        } finally {
+            // 取消、异常也必须复位：否则监听会一直哑着，之后用户手动复制什么都不再记录。
+            _isWritingClipboard.value = false
+        }
+    }
+
+    override suspend fun recordBatchCopy(ids: List<String>) {
+        if (ids.isEmpty()) return
+        metadataLock.withLock {
+            // 时间戳按顺序递增：粘贴顺序就是「最后复制」的先后顺序（先粘的排在后面）。
+            // 墙钟精度只有毫秒，不足以保持严格顺序，因此让它越过历史里最大的那一个。
+            var now = maxOf(currentTimeMillis(), storage.maxLastCopiedAt() + 1L)
+            for (id in ids) {
+                val meta = storage.loadMeta(id) ?: continue
+                storage.updateStats(id, meta.numberOfCopies + 1, now)
+                now += 1L
+            }
+            reloadMetadata()
+        }
+    }
+
     override suspend fun updateRecognizedText(id: String, fullText: String, title: String) {
         metadataLock.withLock {
             storage.updateRecognizedText(id, fullText, title)
@@ -259,9 +289,11 @@ class DefaultClipboardRepository(
         if (repaired > 0) metadataLock.withLock { reloadMetadata() }
     }
 
-    override suspend fun setPinned(id: String, pinned: Boolean) {
+    override suspend fun setPinned(ids: List<String>, pinned: Boolean) {
+        if (ids.isEmpty()) return
         metadataLock.withLock {
-            storage.updatePinned(id, pinned)
+            // 一次锁、一次重排：置顶会改变排序（置顶项单独成区），但不必每条都重读全量元数据。
+            ids.forEach { storage.updatePinned(it, pinned) }
             reloadMetadata()
         }
     }
@@ -368,6 +400,8 @@ class DefaultClipboardRepository(
     override fun writeClipboard(snapshot: ClipboardSnapshot): Boolean = clipboard.write(snapshot)
 
     override fun paste(): Boolean = clipboard.paste()
+
+    override fun pressReturn(): Boolean = clipboard.pressReturn()
 
     override fun applicationIcon(bundleId: String?): String? =
         runCatching { native.applicationIcon(bundleId) }.getOrNull()

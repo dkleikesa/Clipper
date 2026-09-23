@@ -3,14 +3,21 @@ package com.qcmian.clipper.feature.history.ui
 import androidx.compose.animation.core.EaseInOutCubic
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -19,7 +26,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,9 +41,13 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -41,17 +55,23 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.isAltPressed
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.Popup
 import kotlinx.coroutines.flow.collect
+import kotlin.math.roundToInt
 import com.qcmian.clipper.feature.history.ui.components.DeepSearchFooter
 import com.qcmian.clipper.feature.history.ui.components.DeepSearchFooterHeight
 import com.qcmian.clipper.feature.history.ui.components.EmptyState
@@ -113,8 +133,8 @@ fun HistoryScreen(
     var composing by remember { mutableStateOf(false) }
 
     /**
-     * 最近一次指针按下期间按住的修饰键，这样 ⌥-点击会粘贴、⌘⇧-点击会不带格式粘贴，
-     * 与 `HistoryItemView.performSelect` 完全一致。
+     * 最近一次指针按下期间按住的修饰键；点击的分流全在这里——`⌘` 多选、`⇧` 连续选中、
+     * `⌥` 粘贴（`⌃` 仍按旧语义兼作 `⌘`）。
      *
      * 刻意**不**用 Compose 状态：这些值只在点击闭包里、点击那一刻读取，不参与任何渲染，
      * 若用 `mutableStateOf`，「按下鼠标」就会重组整棵界面（视觉零变化）。普通可变容器
@@ -122,10 +142,20 @@ fun HistoryScreen(
      */
     val pointerModifiers = remember { PointerModifiers() }
 
+    /**
+     * 右键菜单的弹出点（视口坐标）；`null` 表示菜单没开着。
+     *
+     * 它是纯界面状态，不进 `ClipboardUiState`：宿主与领域层都不关心一个菜单开在哪儿，
+     * 而它一旦进了状态，每次开关都要走一遍 `copy` + 重组整棵界面。
+     */
+    var contextMenuAt by remember { mutableStateOf<Offset?>(null) }
+
     // `focusRequestToken` 由宿主在请求显示面板时自增（`Popup.handleFirstKeyDown`）；首次组合时它
     // 为 0，这次请求顺带覆盖了「面板第一次打开」，因此不需要再单独起一个 `Unit` 副作用。
     // 重申焦点的理由见 [awaitSearchFocus]。
     LaunchedEffect(state.focusRequestToken) {
+        // 面板重新打开（或面板刚显示）：上一次留下的右键菜单不该飘在新一轮内容上。
+        contextMenuAt = null
         awaitSearchFocus(searchFocusRequester)
     }
 
@@ -266,13 +296,19 @@ fun HistoryScreen(
      */
     var swallowTypedCharacter by remember { mutableStateOf(false) }
 
-    val keyHandler: (KeyEvent) -> Boolean = { event ->
+    val keyHandler: (KeyEvent) -> Boolean = handler@{ event ->
         flags.update(event)
         if (event.type == KeyEventType.Unknown) {
             val swallow = swallowTypedCharacter
             swallowTypedCharacter = false
             swallow
         } else {
+            // 菜单开着时，任意按键先把它收掉；`Esc` 到此为止——那一下的语义是「关菜单」，
+            // 不该顺带清掉多选、更不该顺手把面板也关了。
+            if (contextMenuAt != null) {
+                contextMenuAt = null
+                if (event.key == Key.Escape) return@handler true
+            }
             val actions = resolveKeyActions(
                 event = event,
                 state = state,
@@ -305,7 +341,8 @@ fun HistoryScreen(
             ranges = indexed.value.ranges,
             shortcuts = shortcuts[meta.id].orEmpty(),
             flags = flags,
-            isSelected = state.isHistoryHighlighted && indexed.index == state.historySelection,
+            isSelected = state.isRowSelected(indexed.index),
+            isCursor = state.isHistoryHighlighted && indexed.index == state.historySelection,
             highlight = settings.highlightMatch,
             showColorSwatch = settings.showHexColorSwatch,
             showSpecialSymbols = settings.showSpecialSymbols,
@@ -316,16 +353,35 @@ fun HistoryScreen(
                 null
             },
             onClick = {
+                when {
+                    // ⌘：切换这一条的多选状态（点完不激活——用户是在攒要一起粘贴的那一批）。
+                    pointerModifiers.command -> onUiAction(ClipboardUiAction.ToggleSelection(indexed.index))
+                    // ⇧：从锚点连续选中到这一条。
+                    pointerModifiers.shift -> onUiAction(ClipboardUiAction.SelectRange(indexed.index))
+                    else -> {
+                        // 普通点击：先折叠为单选，再按修饰键决定复制 / 粘贴。拆成两个动作而不是一个，
+                        // 是因为 `Activate` 作用在**选中集**上，不先落单选的话这一次点击会把上一批
+                        // 选中项一起激活。
+                        onUiAction(ClipboardUiAction.SelectOnly(indexed.index))
+                        onUiAction(
+                            ClipboardUiAction.Activate(
+                                alt = pointerModifiers.alt,
+                                meta = pointerModifiers.control,
+                            ),
+                        )
+                    }
+                }
+            },
+            onHover = {
                 onUiAction(
-                    ClipboardUiAction.Activate(
+                    ClipboardUiAction.HoverHistory(
                         index = indexed.index,
-                        shift = pointerModifiers.shift,
-                        alt = pointerModifiers.alt,
-                        meta = pointerModifiers.meta,
+                        // 按住 `⌘` / `⇧` 时划过的行不改写选中集：那正是用户准备点击的时刻，
+                        // 鼠标先把基准换掉的话，那一次点击就成了空操作（见 `HoverHistory`）。
+                        selectionModifierHeld = flags.command || flags.shift,
                     ),
                 )
             },
-            onHover = { onUiAction(ClipboardUiAction.HoverHistory(indexed.index)) },
         )
     }
 
@@ -342,6 +398,9 @@ fun HistoryScreen(
     // lambda，而后者按引用比较 lambda、判定「内容变了」就重组整个槽位——拖动窗口尺寸时约束每帧
     // 都在变，等于每帧把整棵界面重组一遍。这里只记录一个数字，它的变化频率远低于每帧。
     var windowWidth by remember { mutableStateOf(0.dp) }
+
+    /** 实测的窗口高度：右键菜单靠它把自己夹在窗口内（`Popup` 不会自己躲开窗口边缘）。 */
+    var windowHeight by remember { mutableStateOf(0.dp) }
 
     // 拖动分隔条期间的预览宽度：只作用于界面渲染，**不**写设置——设置一变，宿主就会按
     // 「内容区 + 预览」重算窗口宽度，于是「拖分隔条」变成了「拖整个窗口」。松手时才把新宽度
@@ -395,6 +454,7 @@ fun HistoryScreen(
             .safeDrawingPadding()
             .onSizeChanged { size ->
                 windowWidth = with(density) { size.width.toDp() }
+                windowHeight = with(density) { size.height.toDp() }
             }
             // 记录指针按下期间按住的修饰键，这样 ⌥-点击会粘贴、
             // ⌘⇧-点击会不带格式粘贴（`HistoryItemView.performSelect`）。
@@ -409,8 +469,23 @@ fun HistoryScreen(
                             PointerEventType.Press -> {
                                 pointerModifiers.shift = event.keyboardModifiers.isShiftPressed
                                 pointerModifiers.alt = event.keyboardModifiers.isAltPressed
-                                pointerModifiers.meta = event.keyboardModifiers.isMetaPressed ||
-                                    event.keyboardModifiers.isCtrlPressed
+                                pointerModifiers.command = event.keyboardModifiers.isMetaPressed
+                                pointerModifiers.control = event.keyboardModifiers.isCtrlPressed
+
+                                if (event.buttons.isSecondaryPressed) {
+                                    // 右键菜单作用于**当前选中集**，它自己不改变选择：想操作哪几条，
+                                    // 先用 `⌘` / `⇧` / 点击选好（这里也做不了行的命中测试）。
+                                    contextMenuAt = event.changes.last().position
+                                    // 就地消费：这一段跑在 `Initial` 阶段的最外层，消费之后行上的
+                                    // `clickable` 再也看不到这次按下，不会顺手把这一条激活
+                                    // （那会直接复制 / 粘贴并把面板收起来）。
+                                    event.changes.forEach { it.consume() }
+                                } else if (contextMenuAt != null) {
+                                    // 菜单开着时的第一下左键只负责「把它关掉」：不消费的话，这一下
+                                    // 还会顺手激活指针底下的那一行——用户只是想关个菜单。
+                                    contextMenuAt = null
+                                    event.changes.forEach { it.consume() }
+                                }
                             }
 
                             else -> Unit
@@ -504,6 +579,7 @@ fun HistoryScreen(
                         },
                     )
                 }
+
             }
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -637,6 +713,52 @@ fun HistoryScreen(
                 StatusToast(message)
             }
         }
+
+        // 选中集的右键菜单。弹出点只在打开的那一帧定一次，之后不跟鼠标走。
+        contextMenuAt?.let { at ->
+            // 两项各自与键盘上那个组合完全是一回事：按钮和快捷键提示读同一个判定，
+            // 两边不可能漂移。
+            val pasteModifier = !settings.pasteByDefault
+            SelectionContextMenu(
+                at = at,
+                selectionCount = state.selectionCount,
+                // 回车与 `⌥` 回车**互为镜像**：自动粘贴关着时 `↵` 复制、`⌥↵` 粘贴；开着时正好
+                // 反过来（`defaultAction` 里 `⌥` 那一支在开启时落到 `COPY`）。两项的提示因此
+                // 也互为镜像，两个方向读的都是同一个偏好。
+                copyHint = if (settings.pasteByDefault) "⌥↵" else "↵",
+                pasteHint = if (settings.pasteByDefault) "↵" else "⌥↵",
+                allPinned = state.isSelectionAllPinned,
+                // 这两项没有「必然可用」的提示：绑定被用户清除后就是没有快捷键，
+                // 那时菜单项仍然可点。
+                pinHint = settings.pinShortcut?.label,
+                deleteHint = settings.deleteShortcut?.label,
+                // 明确要复制，不走修饰键解析：自动粘贴开着时，键盘上没有任何组合能触发复制，
+                // 而菜单里这一项必须是复制（见 `ClipboardUiAction.CopySelection`）。
+                onCopy = {
+                    contextMenuAt = null
+                    onUiAction(ClipboardUiAction.CopySelection)
+                },
+                onPaste = {
+                    contextMenuAt = null
+                    onUiAction(ClipboardUiAction.Activate(alt = pasteModifier))
+                },
+                onTogglePin = {
+                    contextMenuAt = null
+                    onUiAction(ClipboardUiAction.TogglePinSelected)
+                },
+                onDelete = {
+                    contextMenuAt = null
+                    onUiAction(ClipboardUiAction.DeleteSelected)
+                },
+                onClearSelection = {
+                    contextMenuAt = null
+                    onUiAction(ClipboardUiAction.ClearSelection)
+                },
+                onDismiss = { contextMenuAt = null },
+                windowWidth = windowWidth,
+                windowHeight = windowHeight,
+            )
+        }
     }
 
     HistoryDialogs(
@@ -650,8 +772,174 @@ fun HistoryScreen(
 private class PointerModifiers {
     var shift = false
     var alt = false
-    var meta = false
+    var command = false
+    var control = false
 }
+
+/**
+ * 选中集的右键菜单。
+ *
+ * 弹出点由指针给，因此「菜单在哪儿」这件事对状态层完全透明——它不需要知道有一个菜单。
+ *
+ * 用 `Popup` 而不是 `DropdownMenu`：后者的偏移语义是「从锚点往下展开」，要让它落在指针处
+ * 得反过来推算；`Popup(TopStart + offset)` 就是「把左上角摆在这里」，且同样自带
+ * 「点菜单外面收掉」（`PopupProperties.dismissOnClickOutside` 默认为真）。
+ *
+ * 配色只取主题里**确实定义过**的那几个 token（`ClipperTheme` 只填了 `lightColorScheme` /
+ * `darkColorScheme` 的一部分）：`surfaceVariant` 比面板底色深一档（浅色）/ 浅一档（深色），
+ * 正好是「浮起来的一层」；`surfaceContainer*` 那一族没被指定，会退回 M3 基线色（带紫调），
+ * 和这套中性灰不是一家人。
+ *
+ * 尺寸由常量算出来（而不是量真实布局），所以打开之前就能把它夹进窗口——`Popup` 自己不会
+ * 躲开窗口边缘，超出去的部分会被窗口裁掉。
+ */
+@Composable
+private fun SelectionContextMenu(
+    at: Offset,
+    selectionCount: Int,
+    copyHint: String,
+    pasteHint: String,
+    allPinned: Boolean,
+    pinHint: String?,
+    deleteHint: String?,
+    onCopy: () -> Unit,
+    onPaste: () -> Unit,
+    onTogglePin: () -> Unit,
+    onDelete: () -> Unit,
+    onClearSelection: () -> Unit,
+    onDismiss: () -> Unit,
+    windowWidth: Dp,
+    windowHeight: Dp,
+) {
+    val colors = MaterialTheme.colorScheme
+    val multi = selectionCount > 1
+    // 「复制 / 粘贴 / 置顶 / 删除」四项，多选时再多一行「取消多选」；分隔线数量跟着走。
+    val itemCount = if (multi) 5 else 4
+    val separatorCount = if (multi) 2 else 1
+    val estimatedHeight = ContextMenuItemHeight * itemCount +
+        ContextMenuPadding * 2 +
+        ContextMenuSeparatorHeight * separatorCount
+    val suffix = if (multi) " $selectionCount 条" else ""
+    val offset = with(LocalDensity.current) {
+        val margin = ContextMenuMargin.toPx()
+        val maxX = (windowWidth.toPx() - ContextMenuWidth.toPx() - margin).coerceAtLeast(margin)
+        val maxY = (windowHeight.toPx() - estimatedHeight.toPx() - margin).coerceAtLeast(margin)
+        IntOffset(
+            x = at.x.coerceIn(margin, maxX).roundToInt(),
+            y = at.y.coerceIn(margin, maxY).roundToInt(),
+        )
+    }
+
+    Popup(
+        alignment = Alignment.TopStart,
+        offset = offset,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = colors.surfaceVariant,
+            contentColor = colors.onSurface,
+            border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.5f)),
+            shadowElevation = 12.dp,
+            modifier = Modifier.width(ContextMenuWidth),
+        ) {
+            Column(Modifier.padding(vertical = ContextMenuPadding)) {
+                ContextMenuItem(
+                    title = "复制$suffix",
+                    shortcut = copyHint,
+                    onClick = onCopy,
+                )
+                ContextMenuItem(
+                    title = if (multi) "逐条粘贴$suffix" else "粘贴",
+                    shortcut = pasteHint,
+                    onClick = onPaste,
+                )
+                ContextMenuDivider()
+                // 文案跟着 `allPinned` 走，点下去发生的一定就是它写的那件事（见
+                // `ClipboardViewModel.togglePinSelected`）。
+                ContextMenuItem(
+                    title = (if (allPinned) "取消置顶" else "置顶") + suffix,
+                    shortcut = pinHint,
+                    onClick = onTogglePin,
+                )
+                ContextMenuItem(
+                    title = "删除$suffix",
+                    shortcut = deleteHint,
+                    onClick = onDelete,
+                )
+                if (multi) {
+                    ContextMenuDivider()
+                    ContextMenuItem(
+                        title = "取消多选",
+                        shortcut = "Esc",
+                        onClick = onClearSelection,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 菜单里的分组线。 */
+@Composable
+private fun ContextMenuDivider() {
+    HorizontalDivider(
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+    )
+}
+
+/**
+ * 菜单里的一项：动作在左，它的快捷键提示在右。整行可点，悬停用主题色浅浅铺一层。
+ *
+ * [shortcut] 可以是 `null`：置顶 / 删除这两项绑的是**可录制**快捷键，用户把它们清除之后
+ * 就没有组合可写了——那一项仍然能点，只是没有提示。
+ */
+@Composable
+private fun ContextMenuItem(title: String, shortcut: String?, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(ContextMenuItemHeight)
+            .padding(horizontal = ContextMenuPadding)
+            .clip(RoundedCornerShape(5.dp))
+            .background(if (hovered) colors.primary.copy(alpha = 0.16f) else Color.Transparent)
+            .hoverable(interaction)
+            // 自带的水波纹 / 底色变化与这一行自绘的悬停态叠起来会很脏，因此不带 indication。
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 8.dp),
+    ) {
+        Text(
+            text = title,
+            fontSize = 12.sp,
+            color = colors.onSurface,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        if (shortcut != null) {
+            Text(
+                text = shortcut,
+                fontSize = 11.sp,
+                color = colors.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** 菜单的固定尺寸与行高：与 [SelectionContextMenu] 里那份高度估算必须是同一套数。 */
+private val ContextMenuWidth = 190.dp
+private val ContextMenuItemHeight = 28.dp
+private val ContextMenuPadding = 4.dp
+private val ContextMenuMargin = 6.dp
+
+/** 一条分组线占的高度：线本身 1dp，加上两侧各 3dp 的间距。 */
+private val ContextMenuSeparatorHeight = 7.dp
 
 /**
  * 预览卡的揭示动画容器。

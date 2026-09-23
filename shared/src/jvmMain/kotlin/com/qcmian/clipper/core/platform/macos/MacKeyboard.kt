@@ -36,6 +36,9 @@ object MacKeyboard {
     /** `kVK_ANSI_V`：字母 `V` 的键位码（物理位置，与键盘布局无关）。 */
     private const val KEY_CODE_V = 9
 
+    /** `kVK_Return`：主键盘回车。 */
+    private const val KEY_CODE_RETURN = 36
+
     /** `kCGEventFlagMaskCommand`。 */
     private const val FLAG_COMMAND = 1L shl 20
 
@@ -144,7 +147,20 @@ object MacKeyboard {
     /**
      * 合成一次 [keyCode] 的「⌘ + 该键」按下与抬起；成功投递返回 `true`。
      */
-    fun sendCommandKey(keyCode: Int = KEY_CODE_V): Boolean {
+    fun sendCommandKey(keyCode: Int = KEY_CODE_V): Boolean = sendKey(keyCode, command = true)
+
+    /**
+     * 合成一次**不带领事键**的回车。
+     *
+     * 连续粘贴用它：目标端多半要有一次「提交 / 换行」才会腾出下一处落点（终端执行命令、
+     * 聊天框发送、Excel 下移一格）。带 `⌘` 就完全是另一回事了，所以这里必须是不带修饰键的按键。
+     */
+    fun sendReturn(): Boolean = sendKey(KEY_CODE_RETURN, command = false)
+
+    /**
+     * 合成一次 [keyCode] 的按下与抬起；[command] 决定事件上写不写 `⌘`。成功投递返回 `true`。
+     */
+    fun sendKey(keyCode: Int, command: Boolean): Boolean {
         // 没授权时合成事件会被系统静默丢弃：与其让粘贴无声失败，不如当场弹授权提示。
         if (!accessibilityTrusted()) promptAccessibility()
         val create = createKeyboardEvent ?: return false
@@ -171,7 +187,8 @@ object MacKeyboard {
             return false
         }
 
-        val flags = FLAG_COMMAND or FLAG_NON_COALESCED
+        // 不带 `⌘` 时只留「非合并」标记：部分应用只认带该标记的合成事件。
+        val flags = (if (command) FLAG_COMMAND else 0L) or FLAG_NON_COALESCED
         val targetPid = pasteTargetPid
         val directPost = postToPid
         val posted = runCatching {

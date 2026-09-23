@@ -120,6 +120,9 @@ class ClipboardViewModel(
     /** 正在跑的全文搜索；查询变化或再次触发都会取消它。 */
     private var deepSearchJob: Job? = null
 
+    /** 正在跑的批量连续粘贴；用户再发起一次激活时取消旧的。 */
+    private var pasteJob: Job? = null
+
     /**
      * 全文搜索从正文里找到的结果，**追加**在标题命中之后。
      *
@@ -217,35 +220,44 @@ class ClipboardViewModel(
             ClipboardUiAction.RunDeepSearch -> runDeepSearch()
 
             ClipboardUiAction.PointerMoved -> navigation.onPointerMoved()
-            is ClipboardUiAction.HoverHistory -> navigation.hoverHistory(action.index)
+            is ClipboardUiAction.HoverHistory -> navigation.hoverHistory(action.index, action.selectionModifierHeld)
             is ClipboardUiAction.HoverFooter -> navigation.hoverFooter(action.index)
             is ClipboardUiAction.MoveNext -> navigation.moveNext(action.allowCycle)
             ClipboardUiAction.MovePrevious -> navigation.movePrevious()
             ClipboardUiAction.MoveToFirst -> navigation.selectHistory(0)
             ClipboardUiAction.MoveToLast -> navigation.moveToLast()
 
+            is ClipboardUiAction.SelectOnly -> navigation.selectHistory(action.index)
+            is ClipboardUiAction.SelectRange -> navigation.extendSelectionTo(action.index)
+            is ClipboardUiAction.ToggleSelection -> navigation.toggleSelection(action.index)
+            ClipboardUiAction.SelectAll -> navigation.selectAll()
+            ClipboardUiAction.ClearSelection -> navigation.clearSelection()
+
             is ClipboardUiAction.Activate ->
-                activate(action.index, resolveAction(action.shift, action.alt, action.meta))
-            is ClipboardUiAction.ActivateShortcut -> activate(action.index, action.action)
+                activate(resolveAction(action.shift, action.alt, action.meta))
+
+            // 数字键指向确定的某一条：先把它收成单选，再按该条目激活。
+            is ClipboardUiAction.ActivateShortcut -> {
+                navigation.selectHistory(action.index)
+                activate(action.action)
+            }
+
+            // 菜单里的「复制」：明确要复制，不经过修饰键解析（见 `ClipboardUiAction.CopySelection`）。
+            ClipboardUiAction.CopySelection -> activate(ClipAction.COPY)
+
             is ClipboardUiAction.RunFooter -> runFooter(action.action)
-            ClipboardUiAction.Escape ->
+
+            // 一次按键只做一件事：多选 → 搜索 → 关窗，逐级往后退。
+            ClipboardUiAction.Escape -> when {
+                _uiState.value.isMultiSelect -> navigation.clearSelection()
                 // 搜索状态下 `Esc` 只清空搜索（`KeyChord.clearSearch`）；搜索为空时才关闭面板
                 // （`KeyChord.close`）。
-                if (_uiState.value.query.isEmpty()) {
-                    onRequestHideWindow()
-                } else {
-                    search.clearSearch()
-                }
-
-            ClipboardUiAction.TogglePinSelected -> _uiState.value.selectedMeta?.let { meta ->
-                viewModelScope.launch { useCases.togglePin(meta) }
-                // 置顶之后总是会离开搜索状态。
-                search.clearSearch()
+                _uiState.value.query.isEmpty() -> onRequestHideWindow()
+                else -> search.clearSearch()
             }
 
-            ClipboardUiAction.DeleteSelected -> _uiState.value.selectedMeta?.let { meta ->
-                viewModelScope.launch { repository.deleteClip(meta.id) }
-            }
+            ClipboardUiAction.TogglePinSelected -> togglePinSelected()
+            ClipboardUiAction.DeleteSelected -> deleteSelected()
 
             ClipboardUiAction.TogglePreview -> togglePreview()
             ClipboardUiAction.ToggleRecordingPause -> toggleRecordingPause()
@@ -259,8 +271,12 @@ class ClipboardViewModel(
 
             is ClipboardUiAction.SetPreviewWidth -> setPreviewWidth(action.width)
 
+            // 预览面板上的按钮只针对当前这一条（它渲染的就是光标行）：明确给出目标状态，
+            // 不走「整批统一方向」那条路。
             is ClipboardUiAction.TogglePin ->
-                viewModelScope.launch { useCases.togglePin(action.meta) }
+                viewModelScope.launch {
+                    useCases.togglePin(listOf(action.meta.id), !action.meta.isPinned)
+                }
 
             is ClipboardUiAction.UpdateSettings -> useCases.updateSettings(action.transform)
 
@@ -419,17 +435,47 @@ class ClipboardViewModel(
     private fun resolveAction(shift: Boolean, alt: Boolean, meta: Boolean): ClipAction =
         defaultAction(_uiState.value.settings, shift, alt, meta)
 
-    private fun activate(index: Int, action: ClipAction) {
+    /**
+     * 激活**当前选中集**：一条就是原来的行为，多条就是连续粘贴（见 [SelectClipUseCase]）。
+     *
+     * 上一次还没粘完就来了新的一次（用户又呼出面板选了别的）：旧的当场取消，
+     * 已经写出去的那几条会在用例里补记一次复制。
+     */
+    private fun activate(action: ClipAction) {
         if (action == ClipAction.UNKNOWN) return
-        val meta = _uiState.value.results.getOrNull(index)?.meta ?: return
+        val ids = _uiState.value.selectedMetaIds
+        if (ids.isEmpty()) return
 
-        viewModelScope.launch {
+        pasteJob?.cancel()
+        pasteJob = viewModelScope.launch {
             // 载荷由用例按 id 取：写回剪贴板需要的正文 / 图片不在列表的元数据里。
-            val result = useCases.selectClip(meta.id, action) { onRequestHideWindow() }
+            val result = useCases.selectClip(ids, action) { onRequestHideWindow() }
             if (result == SelectResult.COPIED || result == SelectResult.PASTING) {
                 search.clearSearch()
             }
         }
+    }
+
+    /**
+     * 整批置顶 / 取消置顶。
+     *
+     * 方向按**整批的当前状态**定：只要有一条没置顶，就整批置顶；全都置顶了才整批取消。
+     * 不能让每条各自取反——混合选中时那会把一半翻上去、一半翻下来，等于白点一次。
+     */
+    private fun togglePinSelected() {
+        val entries = _uiState.value.selectedEntries
+        if (entries.isEmpty()) return
+        val pinned = entries.any { !it.meta.isPinned }
+        viewModelScope.launch { useCases.togglePin(entries.map { it.meta.id }, pinned) }
+        // 置顶之后总是会离开搜索状态。
+        search.clearSearch()
+    }
+
+    /** 删除整个选中集。删掉的 id 会在下一次 [refresh] 里被剪出选中集，界面随之收敛回单选。 */
+    private fun deleteSelected() {
+        val ids = _uiState.value.selectedMetaIds
+        if (ids.isEmpty()) return
+        viewModelScope.launch { repository.delete(ids) }
     }
 
     private fun runFooter(action: FooterAction) {
@@ -469,10 +515,14 @@ class ClipboardViewModel(
     private fun onOpened() {
         navigation.resetKeyboardNavigation()
         _uiState.update {
+            // 默认选中内容区（未置顶）第一条，而不是最顶上的置顶项（见 `defaultSelectionIndex`）。
+            // 上一次会话留下的多选在这里收敛回单选：面板每打开一次，都是一次全新的选择。
+            val index = it.results.defaultSelectionIndex()
             it.copy(
-                // 默认选中内容区（未置顶）第一条，而不是最顶上的置顶项（见 `defaultSelectionIndex`）。
-                historySelection = it.results.defaultSelectionIndex(),
+                historySelection = index,
                 footerSelection = -1,
+                selectionAnchor = index,
+                selectedIds = it.results.getOrNull(index)?.meta?.id?.let { id -> setOf(id) }.orEmpty(),
                 focusRequestToken = it.focusRequestToken + 1,
                 // 面板重新打开选中第一条：允许界面把它滚进可视区（回到列表顶部）。
                 historyScrollToken = it.historyScrollToken + 1,
@@ -484,7 +534,7 @@ class ClipboardViewModel(
     private fun onAccept() {
         val state = _uiState.value
         if (state.footerSelection < 0 && state.results.isNotEmpty()) {
-            activate(state.historySelection, ClipAction.DEFAULT)
+            activate(ClipAction.DEFAULT)
             onRequestHideWindow()
         }
     }
@@ -543,22 +593,29 @@ class ClipboardViewModel(
                     latest.images.filterKeys { it in visibleIds }
                 }
 
+                // 换了查询就把高亮落回**内容区第一条**（与面板打开时一致）。
+                //
+                // 不能写成字面量 `0`：列表顶部可能有置顶项，而置顶区在滚动列表之外。
+                // 高亮落在置顶项上时，界面按它在滚动列表里找目标行会找不到，于是既不
+                // 滚回顶部、高亮也没落在用户正在看的那一段上。
+                //
+                // 其余刷新只做越界收敛，不打扰用户当前的选中位置。
+                val defaultIndex = merged.defaultSelectionIndex()
+                // 选中集是**跨越刷新**的用户意图：新复制、排序变化都不该把它清掉，
+                // 因此这里只把已经不存在的条目剪掉（那可能来自删除，也可能来自筛选）。
+                val selectedIds = if (queryChanged) {
+                    merged.getOrNull(defaultIndex)?.meta?.id?.let { setOf(it) }.orEmpty()
+                } else {
+                    latest.selectedIds intersect visibleIds
+                }
+
                 latest.withSyncedFields(settings, total).copy(
                     results = merged,
                     images = images,
-                    // 换了查询就把高亮落回**内容区第一条**（与面板打开时一致）。
-                    //
-                    // 不能写成字面量 `0`：列表顶部可能有置顶项，而置顶区在滚动列表之外。
-                    // 高亮落在置顶项上时，界面按它在滚动列表里找目标行会找不到，于是既不
-                    // 滚回顶部、高亮也没落在用户正在看的那一段上。
-                    //
-                    // 其余刷新只做越界收敛，不打扰用户当前的选中位置。
-                    historySelection = if (queryChanged) {
-                        merged.defaultSelectionIndex()
-                    } else {
-                        latest.historySelection.coerceIn(0, maxOf(0, merged.lastIndex))
-                    },
+                    historySelection = if (queryChanged) defaultIndex else latest.historySelection.coerceIn(0, maxOf(0, merged.lastIndex)),
                     footerSelection = if (queryChanged) -1 else latest.footerSelection,
+                    selectionAnchor = if (queryChanged) defaultIndex else latest.selectionAnchor.coerceIn(0, maxOf(0, merged.lastIndex)),
+                    selectedIds = selectedIds,
                     // 历史内容真的变了（新条目 / 删除 / 换查询）才递增：让界面把选中项滚回可视区，
                     // 普通的设置刷新不应打扰用户当前的滚动位置。
                     historyScrollToken = if (queryChanged || merged != latest.results) {

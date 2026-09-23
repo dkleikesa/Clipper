@@ -398,6 +398,12 @@ private fun behaviorSwitches(data: PreferencesUiData) = listOf(
         description = "只保留纯文本。",
     ),
     BooleanSetting(
+        "连续粘贴后按回车",
+        { it.pressReturnAfterPaste },
+        { value -> copy(pressReturnAfterPaste = value) },
+        description = "多条逐条粘贴时，每条之后补一个回车，让终端 / 聊天框腾出下一处落点。",
+    ),
+    BooleanSetting(
         "开机时启动",
         { it.launchAtLogin },
         { value -> copy(launchAtLogin = value) },

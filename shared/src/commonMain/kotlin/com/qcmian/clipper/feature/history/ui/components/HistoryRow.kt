@@ -70,6 +70,8 @@ internal fun historyRowHeight(meta: ClipMeta, imageMaxHeight: Dp): Dp =
  * @param image 该条目的图片。字节在载荷里，由界面在行进入组合时按需取回（见
  *   `ClipboardUiAction.RequestImage`），因此它可能是 `null`——此时这一行会显示标题而不是缩略图，
  *   但行高仍然按图片行算（判据见 [historyRowHeight]）。
+ * @param isSelected 在多选选中集里；整批候选都会被回车激活。
+ * @param isCursor 光标所在的那一条，预览面板只跟它走（见 `ListItemRow`）。
  */
 @Composable
 fun HistoryRow(
@@ -79,6 +81,7 @@ fun HistoryRow(
     shortcuts: List<KeyShortcut>,
     flags: ModifierFlags,
     isSelected: Boolean,
+    isCursor: Boolean,
     highlight: HighlightMatch,
     showColorSwatch: Boolean,
     /** 标题里的空格 / 换行 / 制表符是否显示为 `·` / `⏎` / `⇥`。 */
@@ -99,6 +102,7 @@ fun HistoryRow(
 
     ListItemRow(
         isSelected = isSelected,
+        isCursor = isCursor,
         shortcuts = shortcuts,
         flags = flags,
         // 行高与 `HistoryScreen` 推算窗口高度、滚动条内容总高时读的是同一个函数，因此不可能分叉。

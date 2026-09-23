@@ -78,6 +78,37 @@ interface ClipboardRepository {
     fun setStatusMessage(message: String?)
 
     // -----------------------------------------------------------------------------------
+    // 写回剪贴板：区分「用户复制」与「本应用自己写」
+    // -----------------------------------------------------------------------------------
+
+    /**
+     * 本应用正在**自己写回**剪贴板（激活条目、批量连续粘贴期间）。
+     *
+     * 值为 `true` 时，[snapshots] 上观察到的每一次变化都是自己造成的：`CaptureClipboardUseCase`
+     * 据此丢弃它们。否则一次 N 条的连续粘贴会被当成 N 次新复制——历史被重排 N 次、
+     * 计数被多记 N 次。写回的那几条由调用方在完成后**统一记账**（见 [recordBatchCopy]）。
+     */
+    val isWritingClipboard: StateFlow<Boolean>
+
+    /** 在 [isWritingClipboard] 置位的情况下执行 [block]；正常结束、异常或取消时都会复位。 */
+    suspend fun <T> withoutCapturing(block: suspend () -> T): T
+
+    /**
+     * 剪贴板监听轮询一次的间隔（毫秒）。
+     *
+     * 写回剪贴板之后要等满它再多一点，自己造成的那一次变化才会被监视器读走（读走即丢弃）；
+     * 否则它会在抑制解除之后才被发现，那一条就被记成两次（见 `SelectClipUseCase` 的收尾等待）。
+     */
+    val clipboardPollIntervalMillis: Int
+
+    /**
+     * 写回完成后统一记一次账：这些条目各自算作「被复制了一次」，时间戳按 [ids] 的顺序前移。
+     *
+     * 与逐条调用 [updateStats] 的差别只在「重读元数据的次数」：连续粘贴十条不该触发十次全量重排。
+     */
+    suspend fun recordBatchCopy(ids: List<String>)
+
+    // -----------------------------------------------------------------------------------
     // 载荷
     // -----------------------------------------------------------------------------------
 
@@ -132,7 +163,13 @@ interface ClipboardRepository {
      */
     suspend fun backfillEmptyTitles()
 
-    suspend fun setPinned(id: String, pinned: Boolean)
+    /**
+     * 把 [ids] 统一设为 [pinned]。
+     *
+     * 批量而不是逐条：置顶会改变排序（置顶项单独成区），而每次改一条都重读一遍全量元数据
+     * 在「整批置顶 20 条」时就是 20 次全量重排——这里只锁一次、重排一次。
+     */
+    suspend fun setPinned(ids: List<String>, pinned: Boolean)
 
     suspend fun delete(ids: List<String>)
 
@@ -183,6 +220,12 @@ interface ClipboardPlatform {
 
     /** 尽力向此前聚焦的应用「按一次粘贴」。 */
     fun paste(): Boolean
+
+    /**
+     * 尽力向此前聚焦的应用「按一次回车」（不带任何修饰键）；只服务连续粘贴，
+     * 见 `AppSettings.pressReturnAfterPaste`。
+     */
+    fun pressReturn(): Boolean
 
     fun applicationIcon(bundleId: String?): String?
 
