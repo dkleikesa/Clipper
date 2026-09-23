@@ -79,17 +79,28 @@ data class ClipItem(
     private val richText: String by lazy { extractReadableText(contents) }
 
     /**
-     * 用于预览和搜索的文本，也是列表标题与 `ClipMeta.title` 的来源。
+     * 条目的**完整文本**：文件路径 → 正文 → 从附加表示（HTML / RTF）解析出的**全部**文字。
      *
-     * 依次尝试：文件路径 → 正文 → 图片识别结果 → 从附加表示（HTML / RTF）里提取的文字。
+     * 预览面板与「多条复制」读它，所以它必须是全文——刻意**不**复用 [deriveTitle]：那个函数
+     * 产出的是落库用的**标题**（要短、会被 `toStoredTitle()` 截断到 1000 字符），而这里最后
+     * 一档取的是未截断的 [richText]。
      *
-     * 最后那一支是必要的：有些应用复制富文本时**只写 HTML、不写纯文本**，那种条目既没有
-     * [text] 也没有 [files]，标题会一直是空的——在列表里是一行空白，搜什么都搜不到。
+     * 最后一档也是必要的：有些应用复制富文本时**只写 HTML、不写纯文本**，那种条目既没有
+     * [text] 也没有 [files]，没有它就会是一片空白。
+     *
+     * 两条规则只在「既没有正文也没有文件」时才碰面，而那时 `title` 本来就由 [richText] 派生，
+     * 因此 `toMeta()` 经 `previewableText.toStoredTitle()` 得到的标题不受这次改动影响。
+     *
+     * 图片识别出的原文不在这里：它在载荷里，由 [previewText] 另行取 `recognizedText`（那才是全文）。
      *
      * 它不在主构造器里，因此不参与 `equals` / `hashCode`。
      */
     val previewableText: String by lazy {
-        deriveTitle(text = text, files = files, title = title, richText = richText)
+        when {
+            files.isNotEmpty() -> files.joinToString(separator = "\n")
+            !text.isNullOrBlank() -> text
+            else -> richText.ifBlank { title }
+        }
     }
 
     /**
@@ -135,14 +146,19 @@ data class ClipItem(
 private fun String.utf8SizeBytes(): Long = encodeToByteArray().size.toLong()
 
 /**
- * 从一次复制的各个表示派生出标题。
+ * 从一次复制的各个表示派生出**标题**。
  *
  * 依次尝试：文件路径 → 正文 → 图片识别结果 → 从附加表示（HTML / RTF）里提取的文字。
  *
- * 单独抽出来是因为它有两个调用点：写入路径（`toMeta()` 经 [ClipItem.previewableText]）与
- * **启动时的回填**（见 `DefaultClipboardRepository.backfillEmptyTitles`）——`title` 是派生好
- * 落盘的，所以新增的标题来源只对新复制生效，历史遗留的空标题要靠同一个函数补一次。
- * 两处共用一套规则，才不会出现「新条目这样、旧条目那样」。
+ * 它只服务「落库的标题」这一件事，两个调用点都是标题派生：新条目（`ClipItem.toMeta()`，
+ * 标题取自 [ClipItem.previewableText] 再截断）与**启动时的回填**
+ * （见 `DefaultClipboardRepository.backfillEmptyTitles`）——`title` 是派生好落盘的，所以新增的
+ * 标题来源只对新复制生效，历史遗留的空标题要靠同一个函数补一次。两处共用一套规则，
+ * 才不会出现「新条目这样、旧条目那样」。
+ *
+ * 与「内容全文」是两回事：全文由 [ClipItem.previewableText] 直接给出（不截断、附加表示那一档
+ * 优先取完整的 `richText`）。两者只在「既没有正文也没有文件」时才走到同一档，而那时 `title`
+ * 本就为空或由 `richText` 派生，因此标题结果不会因为全文换了实现而漂移。
  *
  * [richText] 由调用方算好传入而不是就地解析：`ClipItem` 要把它缓存下来复用（见
  * [ClipItem.hasReadableText]），就地解析会算两遍。
