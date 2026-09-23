@@ -70,32 +70,26 @@ data class ClipboardUiState(
     /**
      * 已经取回来的图片，键是条目 id。
      *
-     * 只在有图片的行**进入组合**时才装填（`LazyColumn` 只组合可见项），并随窗口一起清理，
-     * 因此它的大小与视口相关，与历史里的图片总数无关。
+     * 它是 `ClipboardViewModel` 那份**按字节计容的 LRU** 的一个快照（装填时机见 `loadImage`）：
+     * 界面只按 id 取用，因此这里的顺序没有意义。有硬上限，与历史里的图片总数无关。
      */
     val images: Map<String, ClipImage> = emptyMap(),
     /**
      * 当前选中条目的完整内容（含载荷）。
      *
      * [selectedMeta] 只有元数据，渲染预览面板需要真正的正文 / 图片，因此由状态持有者按 id
-     * 异步补齐。条目还在路上（或本来就没有载荷）时为 `null`。
+     * 补齐——取自它那份**最近 50 条**的 LRU（见 `ClipboardViewModel.syncPreview`），
+     * 命中时是同步的。条目还在路上（或本来就没有载荷）时为 `null`。
      */
     val previewItem: ClipItem? = null,
     val historySelection: Int = 0,
     /** 由历史列表持有高亮时为 `-1`。 */
     val footerSelection: Int = -1,
-    /**
-     * `⇧`（连续选中）的锚点。
-     *
-     * 单选时等于光标；`⇧`点击 / `⇧↑↓` 把锚点到光标之间的**整段**设为选中集，因此按住 `⇧`
-     * 一路上下移动时会原路伸缩，而不是每按一次就从光标重新往外铺。
-     */
+    /** `⇧` 连续选中的锚点，单选时等于光标。 */
     val selectionAnchor: Int = 0,
     /**
-     * 多选（`⌘`点击 / `⌘A`）的选中集。
-     *
-     * 存的是**条目 id 而不是下标**：排序、筛选、新复制都会让下标指向别的条目，而 id 不会。
-     * 空集表示「还没建立过选中集」，此时由光标行兜底（见 [selectedEntries]）。
+     * 多选（`⌘`点击 / `⌘A`）的选中集。存的是**条目 id 而不是下标**：排序、筛选、新复制都会让
+     * 下标指向别的条目，而 id 不会。空集表示还没建立过，此时由光标行兜底。
      */
     val selectedIds: Set<String> = emptySet(),
     /**
@@ -157,12 +151,7 @@ data class ClipboardUiState(
     /** 与 [results] 一一对应的 id（按显示顺序）。选中集按下标取值时读它，不必每次 `map` 一遍全量。 */
     val resultIds: List<String> by lazy { results.map { it.meta.id } }
 
-    /**
-     * 要激活的条目，**按列表顺序**——连续粘贴的先后顺序就是它。
-     *
-     * 选中集为空时退回光标行：面板刚打开、结果刚刷新这些时刻还没有「显式的选中集」，
-     * 但语义上就是「当前这一条」。
-     */
+    /** 要激活的条目，**按列表顺序**（连续粘贴的先后顺序就是它）。选中集为空时退回光标行。 */
     val selectedEntries: List<SearchResult> by lazy {
         if (selectedIds.isEmpty()) listOfNotNull(selectedResult) else results.filter { it.meta.id in selectedIds }
     }
@@ -176,13 +165,7 @@ data class ClipboardUiState(
     /** `> 1` 表示处于多选态：鼠标悬停不再改变选中集，`Esc` 先退回单选。 */
     val isMultiSelect: Boolean get() = selectionCount > 1
 
-    /**
-     * 选中集是否**全部**已置顶。
-     *
-     * 右键菜单据此决定显示「置顶」还是「取消置顶」——它与
-     * `ClipboardViewModel.togglePinSelected` 里「只要有一条没置顶就整批置顶」是同一个判据的两面，
-     * 因此菜单上写的动作一定就是点下去会发生的那个。
-     */
+    /** 选中集是否**全部**已置顶；菜单据此显示「置顶」还是「取消置顶」，与 `togglePinSelected` 同判据。 */
     val isSelectionAllPinned: Boolean
         get() = selectedEntries.isNotEmpty() && selectedEntries.all { it.meta.isPinned }
 

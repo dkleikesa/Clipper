@@ -5,11 +5,8 @@ import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 /**
  * 置顶一批条目，或取消置顶。
  *
- * 传的是**目标状态**而不是「翻转」：一次多选里可能一半已置顶、一半没有，让每条各自取反
- * 会把两边都翻一遍，结果依旧参差。方向由调用方先定好（见 `ClipboardViewModel.togglePinSelected`）。
- *
- * 只改写 `pinned` 一列。单表时代这里要「取整份历史 → 换掉一条 → 全量写回」，而其中的
- * 图片 BLOB 会被跟着重写一遍——这正是拆表要解决的问题。
+ * 传的是**目标状态**而不是「翻转」：多选里可能一半已置顶、一半没有，让每条各自取反会把两边
+ * 都翻一遍。方向由调用方先定（见 `ClipboardViewModel.togglePinSelected`）。
  */
 class TogglePinUseCase(
     private val repository: ClipboardRepository,

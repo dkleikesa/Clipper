@@ -133,28 +133,21 @@ fun HistoryScreen(
     var composing by remember { mutableStateOf(false) }
 
     /**
-     * 最近一次指针按下期间按住的修饰键；点击的分流全在这里——`⌘` 多选、`⇧` 连续选中、
-     * `⌥` 粘贴（`⌃` 仍按旧语义兼作 `⌘`）。
+     * 最近一次指针按下期间按住的修饰键；点击的分流靠它：`⌘` 多选、`⇧` 连续选中、`⌥` 粘贴。
      *
-     * 刻意**不**用 Compose 状态：这些值只在点击闭包里、点击那一刻读取，不参与任何渲染，
-     * 若用 `mutableStateOf`，「按下鼠标」就会重组整棵界面（视觉零变化）。普通可变容器
-     * 写入不触发重组，点击时读到的仍是最新值。
+     * 刻意不用 Compose 状态：这些值只在点击闭包里读一次，若用 `mutableStateOf`，
+     * 「按下鼠标」就会重组整棵界面。
      */
     val pointerModifiers = remember { PointerModifiers() }
 
-    /**
-     * 右键菜单的弹出点（视口坐标）；`null` 表示菜单没开着。
-     *
-     * 它是纯界面状态，不进 `ClipboardUiState`：宿主与领域层都不关心一个菜单开在哪儿，
-     * 而它一旦进了状态，每次开关都要走一遍 `copy` + 重组整棵界面。
-     */
+    /** 右键菜单的弹出点（视口坐标）；`null` 表示没开着。纯界面状态，因此不进 `ClipboardUiState`。 */
     var contextMenuAt by remember { mutableStateOf<Offset?>(null) }
 
     // `focusRequestToken` 由宿主在请求显示面板时自增（`Popup.handleFirstKeyDown`）；首次组合时它
     // 为 0，这次请求顺带覆盖了「面板第一次打开」，因此不需要再单独起一个 `Unit` 副作用。
     // 重申焦点的理由见 [awaitSearchFocus]。
     LaunchedEffect(state.focusRequestToken) {
-        // 面板重新打开（或面板刚显示）：上一次留下的右键菜单不该飘在新一轮内容上。
+        // 面板重新打开：上一次留下的右键菜单不该飘在新一轮内容上。
         contextMenuAt = null
         awaitSearchFocus(searchFocusRequester)
     }
@@ -172,6 +165,7 @@ fun HistoryScreen(
             is ClipboardUiAction.HoverHistory,
             is ClipboardUiAction.HoverFooter,
             is ClipboardUiAction.PointerMoved,
+            is ClipboardUiAction.RequestImage,
             is ClipboardUiAction.Hidden -> Unit
             else -> refocusToken++
         }
@@ -303,8 +297,7 @@ fun HistoryScreen(
             swallowTypedCharacter = false
             swallow
         } else {
-            // 菜单开着时，任意按键先把它收掉；`Esc` 到此为止——那一下的语义是「关菜单」，
-            // 不该顺带清掉多选、更不该顺手把面板也关了。
+            // 菜单开着时任意按键先收掉它；`Esc` 到此为止，不顺带清多选、也不关面板。
             if (contextMenuAt != null) {
                 contextMenuAt = null
                 if (event.key == Key.Escape) return@handler true
@@ -329,9 +322,10 @@ fun HistoryScreen(
         val meta = indexed.value.meta
         val image = state.images[meta.id]
 
-        // 有图片的行**进入组合**时才去取它的字节：`LazyColumn` 只组合可见项，因此这个副作用
-        // 天然只对视口内的行触发，历史里有多少张图都不会一次性进内存。
-        if (meta.hasImage && image == null) {
+        // 进入组合就通知一次：命中缓存时那一下是把该条挪到 LRU 最新端，未命中才去读库。
+        // 判据必须是 `hasImage`（而不是「还没有图片」），否则行滚回时缓存收不到「又被用到」，
+        // 淘汰就退化成先进先出。
+        if (meta.hasImage) {
             LaunchedEffect(meta.id) { onUiAction(ClipboardUiAction.RequestImage(meta.id)) }
         }
 
@@ -359,9 +353,8 @@ fun HistoryScreen(
                     // ⇧：从锚点连续选中到这一条。
                     pointerModifiers.shift -> onUiAction(ClipboardUiAction.SelectRange(indexed.index))
                     else -> {
-                        // 普通点击：先折叠为单选，再按修饰键决定复制 / 粘贴。拆成两个动作而不是一个，
-                        // 是因为 `Activate` 作用在**选中集**上，不先落单选的话这一次点击会把上一批
-                        // 选中项一起激活。
+                        // 先折叠为单选再激活：`Activate` 作用在**选中集**上，不先落单选的话，
+                        // 这一次点击会把上一批选中项一起激活。
                         onUiAction(ClipboardUiAction.SelectOnly(indexed.index))
                         onUiAction(
                             ClipboardUiAction.Activate(
@@ -376,8 +369,7 @@ fun HistoryScreen(
                 onUiAction(
                     ClipboardUiAction.HoverHistory(
                         index = indexed.index,
-                        // 按住 `⌘` / `⇧` 时划过的行不改写选中集：那正是用户准备点击的时刻，
-                        // 鼠标先把基准换掉的话，那一次点击就成了空操作（见 `HoverHistory`）。
+                        // 按住选中修饰键时划过的行不改写选中集，否则那一次点击会成为空操作。
                         selectionModifierHeld = flags.command || flags.shift,
                     ),
                 )
@@ -473,16 +465,13 @@ fun HistoryScreen(
                                 pointerModifiers.control = event.keyboardModifiers.isCtrlPressed
 
                                 if (event.buttons.isSecondaryPressed) {
-                                    // 右键菜单作用于**当前选中集**，它自己不改变选择：想操作哪几条，
-                                    // 先用 `⌘` / `⇧` / 点击选好（这里也做不了行的命中测试）。
+                                    // 菜单作用于**当前选中集**，不改变选择（这里也做不了行的命中测试）。
                                     contextMenuAt = event.changes.last().position
-                                    // 就地消费：这一段跑在 `Initial` 阶段的最外层，消费之后行上的
-                                    // `clickable` 再也看不到这次按下，不会顺手把这一条激活
-                                    // （那会直接复制 / 粘贴并把面板收起来）。
+                                    // 就地消费：`Initial` 阶段跑在最外层，消费之后行上的 `clickable`
+                                    // 看不到这次按下，不会顺手激活这一条。
                                     event.changes.forEach { it.consume() }
                                 } else if (contextMenuAt != null) {
-                                    // 菜单开着时的第一下左键只负责「把它关掉」：不消费的话，这一下
-                                    // 还会顺手激活指针底下的那一行——用户只是想关个菜单。
+                                    // 菜单开着时的第一下左键只关菜单，不激活指针底下那一行。
                                     contextMenuAt = null
                                     event.changes.forEach { it.consume() }
                                 }
@@ -716,24 +705,19 @@ fun HistoryScreen(
 
         // 选中集的右键菜单。弹出点只在打开的那一帧定一次，之后不跟鼠标走。
         contextMenuAt?.let { at ->
-            // 两项各自与键盘上那个组合完全是一回事：按钮和快捷键提示读同一个判定，
-            // 两边不可能漂移。
             val pasteModifier = !settings.pasteByDefault
             SelectionContextMenu(
                 at = at,
                 selectionCount = state.selectionCount,
-                // 回车与 `⌥` 回车**互为镜像**：自动粘贴关着时 `↵` 复制、`⌥↵` 粘贴；开着时正好
-                // 反过来（`defaultAction` 里 `⌥` 那一支在开启时落到 `COPY`）。两项的提示因此
-                // 也互为镜像，两个方向读的都是同一个偏好。
+                // `↵` 与 `⌥↵` **互为镜像**：自动粘贴关着时前者复制、后者粘贴，开着时正好反过来
+                // （`defaultAction` 里 `⌥` 那一支在开启时落到 `COPY`）。
                 copyHint = if (settings.pasteByDefault) "⌥↵" else "↵",
                 pasteHint = if (settings.pasteByDefault) "↵" else "⌥↵",
                 allPinned = state.isSelectionAllPinned,
-                // 这两项没有「必然可用」的提示：绑定被用户清除后就是没有快捷键，
-                // 那时菜单项仍然可点。
+                // 置顶 / 删除绑的是可录制快捷键，用户清掉绑定后就没有提示可写（菜单项仍可点）。
                 pinHint = settings.pinShortcut?.label,
                 deleteHint = settings.deleteShortcut?.label,
-                // 明确要复制，不走修饰键解析：自动粘贴开着时，键盘上没有任何组合能触发复制，
-                // 而菜单里这一项必须是复制（见 `ClipboardUiAction.CopySelection`）。
+                // 明确要复制，不走修饰键解析：自动粘贴开着时键盘上没有任何组合能触发复制。
                 onCopy = {
                     contextMenuAt = null
                     onUiAction(ClipboardUiAction.CopySelection)
@@ -779,19 +763,13 @@ private class PointerModifiers {
 /**
  * 选中集的右键菜单。
  *
- * 弹出点由指针给，因此「菜单在哪儿」这件事对状态层完全透明——它不需要知道有一个菜单。
+ * 用 `Popup(TopStart + offset)` 而不是 `DropdownMenu`：后者的偏移是「从锚点往下展开」的语义，
+ * 要落在指针处得反过来推算；`Popup` 就是「把左上角摆在这里」，且同样自带点外面收掉。
  *
- * 用 `Popup` 而不是 `DropdownMenu`：后者的偏移语义是「从锚点往下展开」，要让它落在指针处
- * 得反过来推算；`Popup(TopStart + offset)` 就是「把左上角摆在这里」，且同样自带
- * 「点菜单外面收掉」（`PopupProperties.dismissOnClickOutside` 默认为真）。
+ * 配色只取主题里**确实定义过**的 token：`ClipperTheme` 只填了 colorScheme 的一部分，
+ * `surfaceContainer*` 那些没被指定的会退回 M3 基线色（带紫调），和这套中性灰不是一家人。
  *
- * 配色只取主题里**确实定义过**的那几个 token（`ClipperTheme` 只填了 `lightColorScheme` /
- * `darkColorScheme` 的一部分）：`surfaceVariant` 比面板底色深一档（浅色）/ 浅一档（深色），
- * 正好是「浮起来的一层」；`surfaceContainer*` 那一族没被指定，会退回 M3 基线色（带紫调），
- * 和这套中性灰不是一家人。
- *
- * 尺寸由常量算出来（而不是量真实布局），所以打开之前就能把它夹进窗口——`Popup` 自己不会
- * 躲开窗口边缘，超出去的部分会被窗口裁掉。
+ * 尺寸由常量算出来，所以打开前就能把它夹进窗口——`Popup` 不会自己躲开窗口边缘。
  */
 @Composable
 private fun SelectionContextMenu(
@@ -890,12 +868,7 @@ private fun ContextMenuDivider() {
     )
 }
 
-/**
- * 菜单里的一项：动作在左，它的快捷键提示在右。整行可点，悬停用主题色浅浅铺一层。
- *
- * [shortcut] 可以是 `null`：置顶 / 删除这两项绑的是**可录制**快捷键，用户把它们清除之后
- * 就没有组合可写了——那一项仍然能点，只是没有提示。
- */
+/** 菜单里的一项：动作在左、快捷键提示在右。整行可点。[shortcut] 为 `null` 时只显示动作。 */
 @Composable
 private fun ContextMenuItem(title: String, shortcut: String?, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme

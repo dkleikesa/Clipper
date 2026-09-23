@@ -103,13 +103,11 @@ data class AppSettings(
     val pasteByDefault: Boolean = false,
     val removeFormattingByDefault: Boolean = false,
     /**
-     * 连续粘贴时，每条之后补一个裸回车。
+     * 连续粘贴时每条之后补一个裸回车：多数目标端要一次「提交 / 换行」才会腾出下一处落点
+     * （终端执行、聊天发送、Excel 下移一格）。
      *
-     * 多数目标端要一次「提交 / 换行」才会腾出下一处落点：终端执行命令、聊天框发送、
-     * Excel 下移一格、编辑器另起一行。
-     *
-     * 只在**多条**时才会用到它（见 `SelectClipUseCase`）：单条粘贴一个多余按键都不发，
-     * 免得在 Finder 这类「回车 = 重命名」的应用里造成破坏。
+     * 只在**多条**时生效；单条粘贴一个多余按键都不发，免得在 Finder 这类「回车 = 重命名」
+     * 的应用里造成破坏。
      */
     val pressReturnAfterPaste: Boolean = true,
     val clearOnQuit: Boolean = false,

@@ -144,11 +144,7 @@ private class JvmClipboardDataSource : ClipboardDataSource {
         }.getOrDefault(false)
     }
 
-    /**
-     * 向此前聚焦的应用按一次**裸回车**（连续粘贴用）。
-     *
-     * 与 [paste] 走同一条投递路径（macOS 上仍是 `CGEventPostToPid`），只是事件上不带 `⌘`。
-     */
+    /** 向此前聚焦的应用按一次裸回车；与 [paste] 同一条投递路径，只是事件上不带 `⌘`。 */
     override fun pressReturn(): Boolean {
         if (isMacOs() && MacKeyboard.available) return MacKeyboard.sendReturn()
         return runCatching {

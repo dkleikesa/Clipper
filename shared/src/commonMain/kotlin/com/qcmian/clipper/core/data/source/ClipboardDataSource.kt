@@ -28,12 +28,7 @@ interface ClipboardDataSource {
      */
     fun paste(): Boolean = false
 
-    /**
-     * 向此前聚焦的应用「按一次回车」（**不带任何修饰键**）。
-     *
-     * 只服务连续粘贴：多数目标端要一次「提交 / 换行」才会腾出下一处落点（见
-     * `AppSettings.pressReturnAfterPaste`）。按键事件已送达时返回 `true`。
-     */
+    /** 向此前聚焦的应用「按一次回车」（不带修饰键）；只服务连续粘贴。已送达时返回 `true`。 */
     fun pressReturn(): Boolean = false
 
     /**

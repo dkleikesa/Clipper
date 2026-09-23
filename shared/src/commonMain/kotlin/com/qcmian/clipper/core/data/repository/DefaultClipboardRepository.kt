@@ -228,8 +228,7 @@ class DefaultClipboardRepository(
     override suspend fun recordBatchCopy(ids: List<String>) {
         if (ids.isEmpty()) return
         metadataLock.withLock {
-            // 时间戳按顺序递增：粘贴顺序就是「最后复制」的先后顺序（先粘的排在后面）。
-            // 墙钟精度只有毫秒，不足以保持严格顺序，因此让它越过历史里最大的那一个。
+            // 时间戳按顺序递增（先粘的排在后面）；墙钟精度不够时越过历史里最大的那一个。
             var now = maxOf(currentTimeMillis(), storage.maxLastCopiedAt() + 1L)
             for (id in ids) {
                 val meta = storage.loadMeta(id) ?: continue
