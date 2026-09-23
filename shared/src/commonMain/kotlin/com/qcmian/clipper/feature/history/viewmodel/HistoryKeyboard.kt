@@ -42,6 +42,8 @@ fun resolveKeyActions(
 
     val settings = state.settings
     val meta = event.isMetaPressed || event.isCtrlPressed
+    // 只认 `⌘`：全选按它判定，`⌃` 在这里不兼作 `⌘`（`⌃A` 是文本编辑里「移到行首」的常客）。
+    val command = event.isMetaPressed
     val alt = event.isAltPressed
     val control = event.isCtrlPressed
     val shift = event.isShiftPressed
@@ -53,11 +55,13 @@ fun resolveKeyActions(
         // moveToFirst：⌃⌥P
         control && alt && event.key == Key.P -> listOf(ClipboardUiAction.MoveToFirst)
 
-        // moveToNext：↓ / ⇧↓
-        event.key == Key.DirectionDown && !alt && !meta -> listOf(ClipboardUiAction.MoveNext())
+        // moveToNext：↓ / ⇧↓（按住 `⇧` 是在**连续选中**，不是在重新选择）
+        event.key == Key.DirectionDown && !alt && !meta ->
+            listOf(verticalStep(state, shift, delta = 1, plain = ClipboardUiAction.MoveNext()))
 
         // moveToPrevious：↑ / ⇧↑
-        event.key == Key.DirectionUp && !alt && !meta -> listOf(ClipboardUiAction.MovePrevious)
+        event.key == Key.DirectionUp && !alt && !meta ->
+            listOf(verticalStep(state, shift, delta = -1, plain = ClipboardUiAction.MovePrevious))
 
         // moveToLast：⌘↓ / ⌥↓ / PageDown
         (event.key == Key.DirectionDown && (meta || alt)) || event.key == Key.PageDown ->
@@ -73,7 +77,7 @@ fun resolveKeyActions(
                 footerActions.getOrNull(state.footerSelection)?.let { listOf(ClipboardUiAction.RunFooter(it)) }
                     ?: emptyList()
 
-            state.results.isNotEmpty() -> listOf(ClipboardUiAction.Activate(state.historySelection, shift, alt, meta))
+            state.results.isNotEmpty() -> listOf(ClipboardUiAction.Activate(shift, alt, meta))
 
             // 没有选中任何条目，于是复制查询词本身。
             else -> listOf(ClipboardUiAction.CopySearchQuery)
@@ -98,6 +102,9 @@ fun resolveKeyActions(
         // deleteCurrentItem：可录制的 `delete`，默认 `⌥⌫`
         matchesShortcut(event, settings.deleteShortcut) -> listOf(ClipboardUiAction.DeleteSelected)
 
+        // selectAll：⌘A。放在可录制的快捷键**之后**：用户自己录进同一个组合时，以那次录制为准。
+        command && !alt && event.key == Key.A -> listOf(ClipboardUiAction.SelectAll)
+
         else -> {
             // `History.pressedShortcutItem` + `HistoryItemAction`：条目快捷键只按物理键匹配，
             // 由修饰键决定复制 / 粘贴 / 不带格式粘贴，因此 ⌥1、⌃1、⌘⇧1 与 ⌥⇧1 也都可用
@@ -120,4 +127,23 @@ fun resolveKeyActions(
             if (index >= 0) listOf(ClipboardUiAction.ActivateShortcut(index, action)) else emptyList()
         }
     }
+}
+
+/**
+ * `↓` / `↑` 在按住 `⇧` 时改成**连续选中**。
+ *
+ * 目标下标在这里算成绝对值：界面与状态层因此只需要一个 `SelectRange`，
+ * 不必各自再推一遍步长（`⇧↓` 到底之后停在最后一条，而不是绕回去）。
+ */
+private fun verticalStep(
+    state: ClipboardUiState,
+    extend: Boolean,
+    delta: Int,
+    plain: ClipboardUiAction,
+): ClipboardUiAction = if (!extend) {
+    plain
+} else {
+    ClipboardUiAction.SelectRange(
+        (state.historySelection + delta).coerceIn(0, maxOf(0, state.results.lastIndex)),
+    )
 }

@@ -85,6 +85,20 @@ data class ClipboardUiState(
     /** 由历史列表持有高亮时为 `-1`。 */
     val footerSelection: Int = -1,
     /**
+     * `⇧`（连续选中）的锚点。
+     *
+     * 单选时等于光标；`⇧`点击 / `⇧↑↓` 把锚点到光标之间的**整段**设为选中集，因此按住 `⇧`
+     * 一路上下移动时会原路伸缩，而不是每按一次就从光标重新往外铺。
+     */
+    val selectionAnchor: Int = 0,
+    /**
+     * 多选（`⌘`点击 / `⌘A`）的选中集。
+     *
+     * 存的是**条目 id 而不是下标**：排序、筛选、新复制都会让下标指向别的条目，而 id 不会。
+     * 空集表示「还没建立过选中集」，此时由光标行兜底（见 [selectedEntries]）。
+     */
+    val selectedIds: Set<String> = emptySet(),
+    /**
      * 每当选中项因「非悬停」原因变化（键盘导航、新查询结果、面板重新打开）时自增。
      *
      * 界面的「把选中行滚进可视区」效果只跟这个令牌走：悬停同样会更新 [historySelection]，
@@ -137,8 +151,46 @@ data class ClipboardUiState(
 
     val selectedResult: SearchResult? get() = results.getOrNull(historySelection)
 
-    /** 当前选中条目的元数据；置顶 / 删除 / 激活都按 id 作用在它上面。 */
+    /** 当前选中条目的元数据；置顶 / 删除 / 预览都按 id 作用在它上面。 */
     val selectedMeta: ClipMeta? get() = selectedResult?.meta
+
+    /** 与 [results] 一一对应的 id（按显示顺序）。选中集按下标取值时读它，不必每次 `map` 一遍全量。 */
+    val resultIds: List<String> by lazy { results.map { it.meta.id } }
+
+    /**
+     * 要激活的条目，**按列表顺序**——连续粘贴的先后顺序就是它。
+     *
+     * 选中集为空时退回光标行：面板刚打开、结果刚刷新这些时刻还没有「显式的选中集」，
+     * 但语义上就是「当前这一条」。
+     */
+    val selectedEntries: List<SearchResult> by lazy {
+        if (selectedIds.isEmpty()) listOfNotNull(selectedResult) else results.filter { it.meta.id in selectedIds }
+    }
+
+    /** 待写回剪贴板的 id，顺序同 [selectedEntries]。 */
+    val selectedMetaIds: List<String> get() = selectedEntries.map { it.meta.id }
+
+    /** 选中条数。 */
+    val selectionCount: Int get() = selectedEntries.size
+
+    /** `> 1` 表示处于多选态：鼠标悬停不再改变选中集，`Esc` 先退回单选。 */
+    val isMultiSelect: Boolean get() = selectionCount > 1
+
+    /**
+     * 选中集是否**全部**已置顶。
+     *
+     * 右键菜单据此决定显示「置顶」还是「取消置顶」——它与
+     * `ClipboardViewModel.togglePinSelected` 里「只要有一条没置顶就整批置顶」是同一个判据的两面，
+     * 因此菜单上写的动作一定就是点下去会发生的那个。
+     */
+    val isSelectionAllPinned: Boolean
+        get() = selectedEntries.isNotEmpty() && selectedEntries.all { it.meta.isPinned }
+
+    /** 该行是否被选中（选中集为空时只有光标那一行算选中）。 */
+    fun isRowSelected(index: Int): Boolean {
+        val result = results.getOrNull(index) ?: return false
+        return if (selectedIds.isEmpty()) index == historySelection else result.meta.id in selectedIds
+    }
 
     val isHistoryHighlighted: Boolean get() = footerSelection < 0
 

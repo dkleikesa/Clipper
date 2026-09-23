@@ -41,6 +41,11 @@ class CaptureClipboardUseCase(
     private suspend fun capture(scope: CoroutineScope, snapshot: ClipboardSnapshot) {
         if (snapshot.isEmpty) return
 
+        // 本应用自己写回剪贴板造成的快照不算新复制（激活条目、连续粘贴逐条写回）。
+        // 那几条由激活路径在写完之后统一记一次账（见 `ClipboardRepository.recordBatchCopy`），
+        // 这里若再算一次，一次三连粘就会既重排三次列表、又把计数多记三次。
+        if (repository.isWritingClipboard.value) return
+
         val settings = repository.settings.value
 
         if (settings.ignoreEvents) return

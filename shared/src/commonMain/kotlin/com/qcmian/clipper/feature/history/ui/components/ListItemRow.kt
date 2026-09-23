@@ -45,6 +45,13 @@ import com.qcmian.clipper.core.ui.visibleShortcut
 @Composable
 fun ListItemRow(
     isSelected: Boolean,
+    /**
+     * 该行是不是**光标**（当前高亮的那一条）。
+     *
+     * 多选态下「被选中」与「是光标」是两回事：整批都会被粘贴，但预览面板只跟光标走。
+     * 默认与 [isSelected] 相同，因此单选调用方（页脚那些）不必关心它。
+     */
+    isCursor: Boolean = isSelected,
     modifier: Modifier = Modifier,
     shortcuts: List<KeyShortcut> = emptyList(),
     flags: ModifierFlags = ModifierFlags(),
@@ -62,7 +69,16 @@ fun ListItemRow(
     content: @Composable () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val contentColor = if (isSelected) colors.onPrimary else colors.onSurface
+    // 多选态用深浅两档区分：光标行是实色（与单选时一样醒目），其余选中行只染色、不抢视线。
+    // 光标落在选中集之外时（`⌘` 把光标那一条取消掉了）用最浅的一档，表示「只是看了一眼」。
+    val emphasized = isSelected && isCursor
+    val background = when {
+        emphasized -> colors.primary.copy(alpha = 0.8f)
+        isSelected -> colors.primary.copy(alpha = 0.32f)
+        isCursor -> colors.onSurface.copy(alpha = 0.08f)
+        else -> Color.Transparent
+    }
+    val contentColor = if (emphasized) colors.onPrimary else colors.onSurface
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
     val clickModifier = onClick?.let { Modifier.clickable(onClick = it) } ?: Modifier
@@ -81,7 +97,7 @@ fun ListItemRow(
             // `verticalAlignment` 解决，不要靠内边距撑开行。
             .height(height)
             .clip(RoundedCornerShape(4.dp))
-            .background(if (isSelected) colors.primary.copy(alpha = 0.8f) else Color.Transparent)
+            .background(background)
             .hoverable(interactionSource)
             .then(clickModifier),
         verticalAlignment = Alignment.CenterVertically,
