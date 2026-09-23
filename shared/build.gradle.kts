@@ -8,6 +8,10 @@ plugins {
 }
 
 kotlin {
+    // 与 desktopApp 固定到同一 JDK，保证产物可复现；
+    // 本机缺失时由 settings.gradle.kts 中的 foojay-resolver 自动下载。
+    jvmToolchain(21)
+
     compilerOptions {
         // Room 的 KMP 构造函数是一个 `expect object ... : RoomDatabaseConstructor<T>`。
         freeCompilerArgs.add("-Xexpect-actual-classes")

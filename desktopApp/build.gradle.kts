@@ -6,6 +6,18 @@ plugins {
     alias(libs.plugins.composeCompiler)
 }
 
+kotlin {
+    // 固定构建用 JDK，避免「谁的机器上是什么 JDK 就编出什么产物」；
+    // 本机缺失时由 settings.gradle.kts 中的 foojay-resolver 自动下载。
+    jvmToolchain(21)
+}
+
+/**
+ * 版本号唯一来源：`gradle.properties` 的 `appVersion`，可用 `-PappVersion=x.y.z` 覆盖。
+ * 发布时由 `.github/workflows/release.yml` 从 tag 注入，避免包名版本与 tag 脱节。
+ */
+val appVersion: String = providers.gradleProperty("appVersion").get()
+
 dependencies {
     implementation(project(":shared"))
 
@@ -35,7 +47,8 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "Clipper"
-            packageVersion = "1.0.0"
+            // Compose Desktop 要求 x.y.z 形式且各段为数字，来源见上方 appVersion
+            packageVersion = appVersion
             description = "Compose Multiplatform clipboard history manager"
             vendor = "qcmian"
 
