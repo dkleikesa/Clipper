@@ -28,6 +28,10 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 45
 
+    env:
+      # runner 在海外，走阿里云镜像会因回源不及时或超时导致插件解析失败
+      ORG_GRADLE_PROJECT_useChinaMirrors: "false"
+
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
