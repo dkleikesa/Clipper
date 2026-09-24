@@ -24,11 +24,11 @@ import com.qcmian.clipper.core.domain.usecase.copySearchQuery
 import com.qcmian.clipper.core.domain.usecase.deleteClip
 import com.qcmian.clipper.feature.history.state.FooterAction
 import com.qcmian.clipper.feature.history.state.ClearConfirmation
-import com.qcmian.clipper.feature.history.state.ClipboardDialog
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.state.ClipboardUiState
 import com.qcmian.clipper.feature.history.state.DeepSearchState
 import com.qcmian.clipper.feature.history.state.defaultSelectionIndex
+import com.qcmian.clipper.feature.preferences.state.ShortcutRecording
 import com.qcmian.clipper.feature.preferences.viewmodel.ShortcutRecorder
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -308,10 +308,12 @@ class ClipboardViewModel(
             is ClipboardUiAction.RequestImage -> loadImage(action.id)
 
             ClipboardUiAction.ShowPreferences ->
-                _uiState.update { it.copy(dialog = ClipboardDialog.PREFERENCES) }
+                _uiState.update { it.copy(settingsOpen = true) }
 
+            // 关窗即结束录制。设置窗口只是隐藏、内容并不销毁，不能指望 `DisposableEffect`
+            // 替我们收回录制态；而录制期间宿主的系统级热键是停着的，漏收一次它就一直是哑的。
             ClipboardUiAction.DismissPreferences ->
-                _uiState.update { it.copy(dialog = null) }
+                _uiState.update { it.copy(settingsOpen = false, shortcutRecording = ShortcutRecording()) }
 
             // 录制期间状态要透给宿主：系统级热键在此期间必须停手（见 `ClipboardUiState`）。
             is ClipboardUiAction.StartShortcutRecording -> shortcutRecorder.start(action.slot)
@@ -336,7 +338,7 @@ class ClipboardViewModel(
     /**
      * 设置页录制快捷键期间的一次按键；返回 `true` 表示这次按键已被录制器消费。
      *
-     * 界面在**预览阶段**转发它（见 `PreferencesDialog` 根 `Column` 的 `onPreviewKeyEvent`）：
+     * 界面在**预览阶段**转发它（见 `PreferencesScreen` 根节点的 `onPreviewKeyEvent`）：
      * 录制中的按键必须就地截下，否则会打进对话框里的输入框、或落到面板自己的快捷键上。
      * 之所以不走 `onAction`，是因为这里要拿返回值，而动作是单向的。
      */
@@ -550,8 +552,7 @@ class ClipboardViewModel(
     private fun runFooter(action: FooterAction) {
         when (action) {
             FooterAction.CLEAR -> requestClear(all = false)
-            FooterAction.PREFERENCES ->
-                _uiState.update { it.copy(dialog = ClipboardDialog.PREFERENCES) }
+            FooterAction.PREFERENCES -> _uiState.update { it.copy(settingsOpen = true) }
 
             FooterAction.QUIT -> onQuitRequest()
         }

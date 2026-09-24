@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.update
 /**
  * 设置页里「录制一个快捷键」的完整状态机。
  *
- * 它原本长在 `PreferencesDialog` 的 composable body 里（本地 `remember` 状态 + 一个按键回调），
+ * 它原本长在设置页的 composable body 里（本地 `remember` 状态 + 一个按键回调），
  * 抽出到这里有两个原因：
  * - 录制期间要向宿主上报（停掉系统级热键），这份状态不能随对话框的本地状态一起消失；
  * - 「按下什么组合算数」是一套与渲染无关的规则（裸键 / 与其它槽位重复 / 面板内置按键 / 被系统

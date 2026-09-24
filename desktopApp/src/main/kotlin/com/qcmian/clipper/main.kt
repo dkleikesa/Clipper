@@ -8,9 +8,11 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.desktop.domain.InitialPanelHeight
+import com.qcmian.clipper.desktop.ui.ClipperSettingsWindow
 import com.qcmian.clipper.desktop.ui.ClipperTray
 import com.qcmian.clipper.desktop.ui.ClipperWindow
 import com.qcmian.clipper.di.AppContainer
+import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
 import kotlinx.coroutines.flow.first
@@ -24,9 +26,11 @@ import kotlinx.coroutines.flow.first
  * - ViewModel（`desktop/viewmodel`）：[com.qcmian.clipper.desktop.viewmodel.DesktopShellViewModel]
  *   持有窗口状态、热键状态机与窗口尺寸逻辑，在 `Window` 内容里由窗口宿主的
  *   `ViewModelStoreOwner` 持有；托盘只有一次点击请求，直接内联在 [ClipperTray] 里。
+ *   界面状态持有者（`ClipboardViewModel`）则在这里创建——面板与设置窗口共用同一份。
  * - 通道：[WindowController] 承载窗口事件（显示 / 隐藏 / 退出）与面板投影，
  *   [HotkeyController] 承载热键按键意图，二者都由 [App]（shared）消费。
- * - View（`desktop/ui`）：[ClipperWindow] / [ClipperTray] 只渲染并转发事件。
+ * - View（`desktop/ui`）：[ClipperWindow] / [ClipperSettingsWindow] / [ClipperTray]
+ *   只渲染并转发事件。
  */
 fun main() {
     hideFromDock()
@@ -42,6 +46,22 @@ fun main() {
         val windowController = remember { WindowController() }
         val hotkeyController = remember { HotkeyController() }
 
+        // 界面状态持有者在**应用作用域**创建，而不是在某个窗口的内容里：偏好设置是独立窗口，
+        // 面板与它必须共享同一份状态，否则在设置里改完偏好、回到面板看到的还是改之前的值；
+        // 它也因此能在面板从未显示过时先一步存在。
+        //
+        // `showQuit = true`：桌面端始终能退出（对应 `App` 的 `onQuit` 非空）。
+        val clipboardViewModel = remember(container) {
+            ClipboardViewModel(
+                repository = container.repository,
+                platform = container.platform,
+                useCases = container.useCases,
+                showQuit = true,
+                // 设置页录制系统级快捷键时用它判断组合有没有被别的应用占用。
+                canUseGlobalShortcut = container.native::isGlobalShortcutAvailable,
+            )
+        }
+
         // 窗口状态属于 UI 层，由宿主创建后交给窗口的 ViewModel 读写。
         val windowState = rememberWindowState(
             width = Popup.contentWidth,
@@ -56,8 +76,10 @@ fun main() {
             exitApplication()
         }
 
-        // 窗口持有自己的 ViewModel（宿主 owner）；托盘只负责点击弹出面板。
-        ClipperWindow(windowState, container, windowController, hotkeyController)
+        // 两个窗口是**兄弟**：面板有自己的 ViewModel（宿主 owner），设置窗口直接渲染
+        // 共用状态持有者里那一份设置。托盘只负责点击弹出面板。
+        ClipperWindow(windowState, container, windowController, hotkeyController, clipboardViewModel)
+        ClipperSettingsWindow(clipboardViewModel, windowController)
         ClipperTray(windowController)
     }
 }

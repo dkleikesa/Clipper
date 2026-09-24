@@ -27,6 +27,10 @@ import com.qcmian.clipper.feature.history.state.ClipboardUiState
  *
  * 注意这里只处理 `KeyDown`：平台还会为同一个按键补送一个字符事件（AWT 的 `KEY_TYPED`），
  * 它由调用方在预览阶段吞掉——见 `HistoryScreen` 的 `keyHandler`。
+ *
+ * 下面这张 `when` 同时是设置页「固定快捷键」速查表的依据（见
+ * `com.qcmian.clipper.core.ui.fixedShortcuts`），也是 `ShortcutValidation` 里两个「面板保留」
+ * 集合的来源：**改动分支时要一并回来核对这三处**，否则设置页会开始骗人。
  */
 fun resolveKeyActions(
     event: KeyEvent,

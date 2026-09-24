@@ -33,7 +33,7 @@ data class HostUiState(
     val isWindowVisible: Boolean = false,
 
     /**
-     * 有对话框（偏好设置、关于、清除确认）显示时为 `true`，弹出警告框时不会关闭面板。
+     * 面板之上有它自己的模态框（清除确认）时为 `true`，此时面板不得自动隐藏。
      */
     val isModalOpen: Boolean = false,
 
@@ -42,6 +42,21 @@ data class HostUiState(
      * （见 `ClipboardUiState.isRecordingShortcut`）。
      */
     val isRecordingShortcut: Boolean = false,
+
+    /**
+     * 偏好设置窗口（独立窗口，见 `ClipperSettingsWindow`）是否打开。
+     *
+     * 面板据此收起：两个窗口争夺前台时，留着面板只会挡住设置。
+     */
+    val isSettingsWindowOpen: Boolean = false,
+
+    /**
+     * 宿主提供的原始系统外观；`null` 表示未提供。
+     *
+     * 刻意是**原始值**而不是解析后的深浅色：设置窗口用它和主题偏好一起自行解析，
+     * 与面板走同一个算式（`rememberClipperDarkTheme`），因此两个窗口不会差一帧。
+     */
+    val systemDark: Boolean? = null,
 )
 
 /**

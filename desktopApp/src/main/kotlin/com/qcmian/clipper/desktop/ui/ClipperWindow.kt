@@ -18,6 +18,7 @@ import com.qcmian.clipper.App
 import com.qcmian.clipper.desktop.viewmodel.DesktopShellViewModel
 import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.feature.history.ui.PreviewHostPolicy
+import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
@@ -33,49 +34,16 @@ import java.awt.event.WindowFocusListener
  */
 var onCloseRequest: () -> Unit = {}
 
-/** 面板显示后为「键盘目标组件」争取 AWT 焦点的最大重试帧数。 */
-private const val FOCUS_TARGET_ATTEMPTS = 12
-
-/**
- * 把 AWT 焦点交给窗口里真正接收键盘的那个组件。
- *
- * Compose 的按键监听挂在窗口**内容组件**上（`ComposeSceneMediator.keyListener` 是个挂在
- * `SkiaLayerComponent` 上的 `KeyListener`），而 AWT 只把按键派发给焦点所有者。直接
- * `window.requestFocus()` 会把焦点给窗口框架本身，于是按键全落在框架上、Compose 侧一条都
- * 收不到——表现为「面板呼出后打不了字，Esc / 方向键也全没反应」，点一下窗口内部才恢复。
- *
- * 因此这里沿组件树下探到最深的可聚焦组件（也就是 Compose 的内容组件）再请求焦点；
- * 找不到时退回窗口本身，行为与改动前一致。
- */
-private fun focusKeyboardTarget(window: java.awt.Window): Boolean {
-    val target = deepestFocusableChild(window)
-    if (target == null) {
-        // 找不到内容组件（或它不可聚焦）：退回窗口本身，行为与改动前一致。
-        return window.requestFocusInWindow() || window.isFocusOwner
-    }
-    if (target.isFocusOwner) return true
-    // 窗口还没成为 focused window 时 `requestFocusInWindow()` 会返回 `false`，
-    // 调用方据此跨帧重试。
-    return target.requestFocusInWindow() || target.isFocusOwner
-}
-
-/** 组件树里最深的「可聚焦且可见」的组件；只有窗口自身可聚焦时返回 `null`。 */
-private fun deepestFocusableChild(container: java.awt.Container): java.awt.Component? {
-    var found: java.awt.Component? = null
-    fun visit(component: java.awt.Component) {
-        if (component.isFocusable && component.isVisible) found = component
-        (component as? java.awt.Container)?.components?.forEach(::visit)
-    }
-    visit(container)
-    return found?.takeIf { it !== container }
-}
-
 /**
  * 主窗口（View 层）：把 [DesktopShellViewModel] 渲染成一个无标题栏的浮层，并把窗口级事件
  * （焦点、显示时机）转发给它。
  *
- * ViewModel 在 `Window` 内容里创建：内容组合由窗口宿主注入 `LocalViewModelStoreOwner`，
- * 无需自建。`Window` 的 `visible` 参数在进入内容之前求值，由内容根据 ViewModel 状态回写。
+ * [DesktopShellViewModel] 在 `Window` 内容里创建：内容组合由窗口宿主注入
+ * `LocalViewModelStoreOwner`，无需自建。`Window` 的 `visible` 参数在进入内容之前求值，
+ * 由内容根据 ViewModel 状态回写。
+ *
+ * 界面状态持有者 [clipboardViewModel] 则**从外面传入**：它由应用作用域创建，面板与设置窗口
+ * 共用同一份（见 `main.kt`），因此不能由本窗口自己 `viewModel {}` 一份。
  */
 @Composable
 fun ApplicationScope.ClipperWindow(
@@ -83,6 +51,7 @@ fun ApplicationScope.ClipperWindow(
     container: AppContainer,
     windowController: WindowController,
     hotkeyController: HotkeyController,
+    clipboardViewModel: ClipboardViewModel,
 ) {
     // 面板可见性：内容侧根据 ViewModel 状态回写，`Window` 参数读取。启动时隐藏。
     var windowVisible by remember { mutableStateOf(false) }
@@ -189,6 +158,7 @@ fun ApplicationScope.ClipperWindow(
         // 隐藏窗口（而不是销毁它）能让剪贴板监听保持存活，
         // 从而让「自动粘贴」动作到达此前聚焦的应用。
         App(
+            viewModel = clipboardViewModel,
             container = container,
             onRequestHideWindow = { viewModel.hidePanel() },
             onQuit = { viewModel.quit() },

@@ -102,10 +102,23 @@ internal class PanelPresentationController(
         if (state.value.windowVisible) hotkey.requestOpen()
     }
 
-    /** 失去焦点即隐藏（有弹窗时不隐藏）。 */
+    /** 失去焦点即隐藏（面板自己弹着确认框时不隐藏）。 */
     fun onWindowLostFocus() {
         val current = state.value
-        if (!current.windowVisible || panel.hostUiState.value.isModalOpen) return
+        val host = panel.hostUiState.value
+        if (!current.windowVisible) return
+        // 设置窗口是**独立窗口**：它抢走焦点就说明用户要改设置，面板必须让位。
+        //
+        // 这一条要排在 [HostUiState.isModalOpen] 与下面两条宽限期判断**之前**：一来从面板里
+        // 按 ⌘, 打开设置，多半正好落在「面板刚显示」的宽限期内；二来面板自己那层模态
+        // （清除确认）此刻是画在设置窗口里的（见 `HistoryDialogs`），拿它拦住隐藏只会把面板
+        // 留在屏幕上、和设置窗口叠在一起。
+        if (host.isSettingsWindowOpen) {
+            // 不能把焦点还给上一个应用——用户要的是设置窗口，抢回去等于把它挤到后面。
+            hidePanel(restoreFocus = false)
+            return
+        }
+        if (host.isModalOpen) return
         // 忽略面板刚显示之后那一次短暂的失焦。
         if (System.currentTimeMillis() - lastFocusGainedAt < FOCUS_GRACE_MILLIS) return
         // 刚点过菜单栏图标：这次失焦是点击本身造成的，收起与否交给 [togglePanel] 决定。

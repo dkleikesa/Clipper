@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +31,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -42,16 +45,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import com.qcmian.clipper.core.domain.action.ClipAction
-import com.qcmian.clipper.core.domain.action.modifierFlagsOf
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.HighlightMatch
 import com.qcmian.clipper.core.settings.PinPosition
@@ -60,17 +63,20 @@ import com.qcmian.clipper.core.settings.ShortcutSlot
 import com.qcmian.clipper.core.settings.ThemeMode
 import com.qcmian.clipper.core.settings.shortcut
 import com.qcmian.clipper.core.settings.withShortcut
+import com.qcmian.clipper.core.ui.FixedShortcutGroup
 import com.qcmian.clipper.core.ui.components.HoverTooltip
+import com.qcmian.clipper.core.ui.fixedShortcuts
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.feature.history.ui.components.HistoryFilterBar
+import com.qcmian.clipper.feature.history.ui.components.SearchField
 import com.qcmian.clipper.feature.preferences.state.ShortcutRecording
 import kotlin.math.roundToInt
 
 /**
- * 渲染偏好设置对话框所需的只读数据。
- * 收拢为一个对象，避免十几份参数在 [PreferencesDialog] 与内容层之间重复转发。
+ * 渲染偏好设置所需的只读数据。
+ * 收拢为一个对象，避免十几份参数在 [PreferencesScreen] 与内容层之间重复转发。
  */
 data class PreferencesUiData(
     val settings: AppSettings,
@@ -84,25 +90,26 @@ data class PreferencesUiData(
     /**
      * 正在录制的快捷键。
      *
-     * 状态机不在界面里（见 `ShortcutRecorder`）：对话框只渲染它、把按键转发回去，
-     * 关闭对话框时也不该把它忘掉——宿主正靠它让出系统级热键。
+     * 状态机不在界面里（见 `ShortcutRecorder`）：界面只渲染它、把按键转发回去，
+     * 窗口关掉时也不该把它忘掉——宿主正靠它让出系统级热键。
      */
     val shortcutRecording: ShortcutRecording = ShortcutRecording(),
 )
 
-/** 偏好设置对话框的全部上行动作。 */
+/** 偏好设置的全部上行动作。 */
 data class PreferencesActions(
     val onSettingsChange: ((AppSettings) -> AppSettings) -> Unit,
     val onClearUnpinned: () -> Unit,
     val onClearAll: () -> Unit,
+    /** 关闭设置窗口（标题栏的关闭按钮、页内「恢复默认设置」都走它）。 */
     val onDismiss: () -> Unit,
     /** 开始录制某个槽位的快捷键。 */
     val onStartShortcutRecording: (ShortcutSlot) -> Unit,
     /**
-     * 结束录制（对话框离开屏幕时调用）。
+     * 结束录制。
      *
-     * 录制期间宿主的系统级热键是停着的，不收回它就会一直哑着。用户按 Esc 取消走的不是这里
-     * ——那次按键先被录制器接住。
+     * 录制期间宿主的系统级热键是停着的，不收回它就会一直哑着。窗口关闭时由状态持有者收回
+     * （见 `ClipboardUiAction.DismissPreferences`），这里兜住「内容被销毁」那一路。
      */
     val onCancelShortcutRecording: () -> Unit,
     /**
@@ -114,151 +121,240 @@ data class PreferencesActions(
     val onShortcutKeyEvent: (KeyEvent) -> Boolean = { false },
 )
 
-/** 设置卡片的设计宽度。 */
-private val CardDesignWidth = 560.dp
+/** 侧边栏宽度：放得下最长的一页名（「存储与数据」），再宽就是白占地方。 */
+private val SidebarWidth = 170.dp
 
-/** 设置卡片的高度上限。 */
-private val CardMaxHeight = 680.dp
-
-/**
- * 卡片与窗口边缘之间的留白：**必须大于 0**，且卡片不能碰到窗口边缘。
- *
- * 桌面端的 `Dialog` 是**同一窗口内的 layer**，`layer.boundsInWindow` 恰好等于内容尺寸，
- * 因此这圈留白有三层作用：
- * - 卡片之外的区域属于「layer 之外」，点击它会触发 `dismissOnClickOutside`（点卡片外面关闭）
- *   ——卡片一旦铺满窗口，这条关闭路径就消失了；
- * - 内容超出窗口的部分**既不绘制也收不到点击**（卡片是垂直居中的，比窗口高时右上角会跑到窗口外），
- *   留白保证卡片始终完整落在窗口内；
- * - 右上角的关闭按钮不会贴着窗口边缘。
- */
-private val CardMargin = 12.dp
-
-/**
- * 偏好设置窗口（存储与数据 / 行为 / 快捷键 / 搜索 / 外观 / AI服务 / 重置），
- * 这里压缩成一个可滚动的对话框。
- *
- * 视觉：对话框底色用 `background`，每个分区是一张 `surface` 卡片（[SectionCard]），
- * 类似 macOS 系统设置的分组样式；主色只用于分区标题、选中态与录制态。
- *
- * 宽度与高度都夹在窗口尺寸之内（见 [CardMargin]）。`usePlatformDefaultWidth = false` 是必需的：
- * 默认值（`true`）会按「窗口宽高中较小者」把内容最大宽度档位化（≥600dp→580dp、≥480dp→440dp、
- * 否则 320dp），而面板是自动高度的，改任何影响行高的设置都会让窗口高度跨档、对话框宽度跟着跳。
- */
-@Composable
-fun PreferencesDialog(
-    data: PreferencesUiData,
-    actions: PreferencesActions,
-) {
-    val density = LocalDensity.current
-    val windowSize = LocalWindowInfo.current.containerSize
-    val maxCardWidth = (with(density) { windowSize.width.toDp() } - CardMargin * 2)
-        .coerceAtLeast(1.dp)
-        .coerceAtMost(CardDesignWidth)
-    val maxCardHeight = (with(density) { windowSize.height.toDp() } - CardMargin * 2)
-        .coerceAtLeast(1.dp)
-        .coerceAtMost(CardMaxHeight)
-    Dialog(
-        onDismissRequest = actions.onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Surface(
-            shape = RoundedCornerShape(10.dp),
-            color = MaterialTheme.colorScheme.background,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
-            modifier = Modifier.width(maxCardWidth).heightIn(max = maxCardHeight),
-        ) {
-            PreferencesContent(data, actions)
-        }
-    }
+/** 设置窗口左栏的一页；声明顺序就是侧边栏的显示顺序。 */
+internal enum class PreferencesSection(val title: String) {
+    STORAGE("存储与数据"),
+    BEHAVIOR("行为"),
+    SHORTCUTS("快捷键"),
+    SEARCH("搜索"),
+    APPEARANCE("外观"),
+    RECOGNITION("AI 服务"),
+    RESET("重置"),
 }
 
-/** 对话框主体：头部 + 可滚动的分区列表。 */
+/**
+ * 偏好设置窗口的完整内容：自绘标题栏 + 左栏分区导航 + 右栏当前分区。
+ *
+ * 标题栏是自绘的（宿主把窗口设成无边框，见 `ClipperSettingsWindow`）：系统标题栏的底色
+ * 由 AppKit 决定，既不跟主题走，也和本应用的配色对不上——一个深色模式的窗口顶着一条浅色
+ * 标题栏尤其突兀。自绘之后，标题、关闭按钮、可拖拽区都在我们手里。
+ *
+ * 换成两栏形态的原因是**分区之间不该互相挤**：原先七个分区竖着排成一条长列表，卡片又只有
+ * 约 376dp 宽（被面板窗口夹着），越往下的分区越难找到——「设置很长」因此并不只是长的问题。
+ * 分页之后，换分区是一次点击，与别的分区有多长完全无关。
+ *
+ * 它只渲染 [PreferencesUiData]、把交互发回 [PreferencesActions]，自己不持有任何偏好；
+ * 连「关窗」都是通过 [PreferencesActions.onDismiss] 转达的——窗口的开关由宿主与状态持有者
+ * 决定（见 `ClipboardUiState.settingsOpen`）。
+ *
+ * @param titleBarDragModifier 标题栏上「按住拖动窗口」的手势。共享代码里没有窗口概念
+ *   （`java.awt` 只存在于 jvmMain），因此这里只留一个挂点，由宿主注入。
+ */
 @Composable
-private fun PreferencesContent(
+fun PreferencesScreen(
     data: PreferencesUiData,
     actions: PreferencesActions,
+    titleBarDragModifier: Modifier = Modifier,
+    modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    // 选中的分区是纯粹的浏览状态（关窗即忘、不落盘），因此留在界面里。
+    var section by remember { mutableStateOf(PreferencesSection.STORAGE) }
 
-    // 录制状态机在 `ShortcutRecorder` 里（viewmodel 层），这里只读它：哪个槽位在录、
-    // 上一次为什么被拒。
     val recording = data.shortcutRecording
-
     val rootFocus = remember { FocusRequester() }
-
-    // 对话框一打开就让根 Column 取得焦点：按键处理器只在对话框持有焦点时才会收到按键。
-    // 开始录制时再要一次：用户点的那一行会先把焦点带走，不抢回来录制就收不到按键。
+    // 开始录制时把焦点抢回根节点：用户点的那一行会先把焦点带走，不抢回来录制就收不到按键。
     LaunchedEffect(recording.slot) {
         runCatching { rootFocus.requestFocus() }
     }
-
-    // 对话框离开屏幕时收回录制态：录制期间宿主的系统级热键是停着的，不收回它会一直哑着。
+    // 内容被销毁时收回录制态（窗口只隐藏不销毁，那一路由状态持有者负责）。
     // 用 `rememberUpdatedState` 取最新回调：`DisposableEffect(Unit)` 只在退出时执行一次，
     // 直接捕获 `actions` 会留下最初那一份引用。
     val cancelRecording by rememberUpdatedState(actions.onCancelShortcutRecording)
     DisposableEffect(Unit) { onDispose { cancelRecording() } }
 
-    // `KeyboardShortcuts.Recorder`：某个槽位正在录制时，所有按键都在这一步被截获，而不会落到
-    // 下面的文本输入框。转发给录制器由它判断——没在录制时它返回 `false`，按键照常往下走。
-    val captureKey: (KeyEvent) -> Boolean = actions.onShortcutKeyEvent
+    val scrollState = rememberScrollState()
+    // 换页回到顶部：上一页滚得深时，新页会停在同样的偏移量上（内容不够高就顶到底部），
+    // 看起来像「这一页是空的」。
+    LaunchedEffect(section) { scrollState.scrollTo(0) }
 
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .onPreviewKeyEvent(captureKey)
-            .focusRequester(rootFocus)
-            .focusable(),
+    // 录制中的按键必须在**预览阶段**就地截下，否则会打进筛选框、或落到面板自己的快捷键上；
+    // 没在录制时它返回 `false`，按键照常往下走。
+    val keyHandler: (KeyEvent) -> Boolean = { event ->
+        when {
+            actions.onShortcutKeyEvent(event) -> true
+            // 自绘标题栏之后就没有系统菜单了，⌘W 得自己接上，否则这个窗口只能用鼠标关。
+            // 排在录制之后：录制期间用户想录 ⌘W 就该录进去。
+            event.type == KeyEventType.KeyDown && event.isMetaPressed && event.key == Key.W -> {
+                actions.onDismiss()
+                true
+            }
+
+            else -> false
+        }
+    }
+
+    // 圆角 + 描边是窗口自己的外形：宿主把窗口设成透明无边框，这里画的才是用户看到的那一块。
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = colors.background,
+        border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.4f)),
+        modifier = modifier.fillMaxSize(),
     ) {
-        // ---------------------------------------------------------------- 头部
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 20.dp, end = 14.dp, top = 14.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            Modifier
+                .fillMaxSize()
+                .onPreviewKeyEvent(keyHandler)
+                .focusRequester(rootFocus)
+                .focusable(),
         ) {
-            Text(
-                text = "设置",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.onBackground,
+            PreferencesTitleBar(
+                dragModifier = titleBarDragModifier,
+                onClose = actions.onDismiss,
             )
-            Spacer(Modifier.weight(1f))
-            HoverTooltip("关闭设置") {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(colors.surfaceVariant.copy(alpha = 0.5f))
-                        .clickable(onClick = actions.onDismiss),
-                    contentAlignment = Alignment.Center,
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = colors.outline.copy(alpha = 0.3f),
+            )
+
+            Row(Modifier.weight(1f)) {
+                PreferencesSidebar(selected = section, onSelect = { section = it })
+                // 用一条竖线分开两栏，而不是靠底色差值——深色模式下那两个颜色本来就挨得很近。
+                VerticalDivider(thickness = 1.dp, color = colors.outline.copy(alpha = 0.3f))
+
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .verticalScroll(scrollState)
+                        .padding(horizontal = 22.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    ClipperIcon(ClipperIconKind.CLEAR, size = 13.dp, tint = colors.onSurfaceVariant)
+                    Text(
+                        text = section.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.onBackground,
+                    )
+                    when (section) {
+                        PreferencesSection.STORAGE -> StorageSection(data, actions)
+                        PreferencesSection.BEHAVIOR -> BehaviorSection(data, actions)
+                        PreferencesSection.SHORTCUTS -> ShortcutsSection(data, actions)
+                        PreferencesSection.SEARCH -> SearchSection(data, actions)
+                        PreferencesSection.APPEARANCE -> AppearanceSection(data, actions)
+                        PreferencesSection.RECOGNITION -> RecognitionSection(data, actions)
+                        PreferencesSection.RESET -> ResetSection(data, actions)
+                    }
                 }
             }
         }
+    }
+}
 
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = colors.outline.copy(alpha = 0.2f),
-        )
+// ---------------------------------------------------------------------------------
+// 标题栏与侧边栏
+// ---------------------------------------------------------------------------------
 
-        // ---------------------------------------------------------------- 分区
-        Column(
+/**
+ * 自绘标题栏：标题 + 关闭按钮，两者之间的那一段可以按住拖动整个窗口。
+ *
+ * 拖拽区刻意只覆盖标题那一段（[titleBarDragModifier] 挂在一个 `weight(1f)` 的容器上），
+ * 而不是整条标题栏：关闭按钮若落在拖拽区里，小幅移动就会被判成拖动、点不中。
+ */
+@Composable
+private fun PreferencesTitleBar(dragModifier: Modifier, onClose: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(TitleBarHeight)
+            .background(colors.surface)
+            .padding(start = 16.dp, end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 14.dp)
-                .padding(bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .weight(1f)
+                .fillMaxHeight()
+                .then(dragModifier),
+            contentAlignment = Alignment.CenterStart,
         ) {
-            StorageSection(data, actions)
-            BehaviorSection(data, actions)
-            ShortcutsSection(data, actions)
-            SearchSection(data, actions)
-            AppearanceSection(data, actions)
-            RecognitionSection(data, actions)
-            ResetSection(data, actions)
+            Text(
+                text = "设置",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface,
+            )
         }
+        HoverTooltip("关闭设置") {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(colors.surfaceVariant.copy(alpha = 0.5f))
+                    .clickable(onClick = onClose),
+                contentAlignment = Alignment.Center,
+            ) {
+                ClipperIcon(ClipperIconKind.CLEAR, size = 13.dp, tint = colors.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/** 标题栏高度：与 macOS 常规工具栏一致的量级，够放下 28dp 的关闭按钮又不占地方。 */
+private val TitleBarHeight = 40.dp
+
+// ---------------------------------------------------------------------------------
+// 侧边栏
+// ---------------------------------------------------------------------------------
+
+@Composable
+private fun PreferencesSidebar(
+    selected: PreferencesSection,
+    onSelect: (PreferencesSection) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        Modifier
+            .width(SidebarWidth)
+            .fillMaxHeight()
+            .background(colors.surfaceVariant.copy(alpha = 0.35f))
+            .padding(horizontal = 10.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        PreferencesSection.entries.forEach { entry ->
+            SidebarItem(
+                title = entry.title,
+                selected = entry == selected,
+                onClick = { onSelect(entry) },
+            )
+        }
+    }
+}
+
+/** 侧边栏的一行；选中态沿用 macOS 的惯例——主色淡底 + 主色文字。 */
+@Composable
+private fun SidebarItem(title: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (selected) colors.primary.copy(alpha = 0.14f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (selected) colors.primary else colors.onSurfaceVariant,
+        )
     }
 }
 
@@ -280,7 +376,8 @@ private val DataSwitches = listOf(
 private fun StorageSection(data: PreferencesUiData, actions: PreferencesActions) {
     val colors = MaterialTheme.colorScheme
     val settings = data.settings
-    SectionCard("存储与数据") {
+    SettingsGroup {
+        GroupLabel("容量")
         HistoryLimitField(
             maxCount = settings.historyMaxCount,
             usageCount = data.historyCount,
@@ -289,7 +386,10 @@ private fun StorageSection(data: PreferencesUiData, actions: PreferencesActions)
                 actions.onSettingsChange { it.copy(historyMaxCount = count) }
             },
         )
-        // 原「数据」分区的开关与清除入口：改的都是存储里的内容，与上面同属一类。
+    }
+    // 原「数据」分区的开关与清除入口：改的都是存储里的内容，因此与上面同属一页。
+    SettingsGroup {
+        GroupLabel("清除")
         SwitchSettings(settings, DataSwitches, actions.onSettingsChange)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -422,17 +522,8 @@ private fun behaviorSwitches(data: PreferencesUiData) = listOf(
 private fun BehaviorSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
     val switches = remember(data.supportsLaunchAtLogin) { behaviorSwitches(data) }
-    SectionCard("行为") {
+    SettingsGroup {
         SwitchSettings(settings, switches, actions.onSettingsChange)
-        // 展示当前偏好下每种动作对应的按键组合。
-        Text(
-            text = "按 ${modifierFlagsOf(ClipAction.COPY, settings)} 复制，" +
-                "${modifierFlagsOf(ClipAction.PASTE, settings)} 粘贴，" +
-                "${modifierFlagsOf(ClipAction.PASTE_WITHOUT_FORMATTING, settings)} 粘贴并去除格式。",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.hintColor,
-            modifier = Modifier.padding(top = 2.dp),
-        )
         SliderRow(
             title = "剪贴板检查间隔",
             valueLabel = "${settings.clipboardCheckIntervalMillis} 毫秒",
@@ -462,6 +553,15 @@ private fun globalScopeHint(): String {
     }
 }
 
+/**
+ * 快捷键分区：筛选框 + 两段式清单。
+ *
+ * 这是全页最长的一处（可录制 5 行 + 固定十几行），因此做两件事：
+ * - **筛选框**：按命令名与按键文本一起匹配（用户常记得「⌥P」却想不起它叫什么），
+ *   十几行当场缩到两三行；筛选词只是浏览状态，不落盘；
+ * - **两段式**：能改的（[ShortcutSlot]）与不能改的（[fixedShortcuts]）分成两段，
+ *   后者顺带把「方向键、`⏎`、角标」这些一直没有任何说明的按键讲清楚。
+ */
 @Composable
 private fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActions) {
     val colors = MaterialTheme.colorScheme
@@ -469,18 +569,74 @@ private fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesAction
     val recording = data.shortcutRecording
     // 上一次录制被拒绝的原因：录制没有因此退出，就地说明原因、继续等下一个组合。
     val problem = recording.problem
-    SectionCard("快捷键") {
-        // 槽位自己的元信息（标题 / 是否系统级）在 `ShortcutSlot` 里，设置页只负责渲染，
-        // 因此新增一个可录制快捷键不需要在这里、以及在别处再各抄一份。
-        ShortcutSlot.entries.forEach { slot ->
-            ShortcutRow(
-                title = slot.title,
-                spec = settings.shortcut(slot),
-                recording = recording.slot == slot,
-                onRecord = { actions.onStartShortcutRecording(slot) },
-                onClear = { actions.onSettingsChange { it.withShortcut(slot, null) } },
+
+    // 筛选词是纯粹的浏览状态（不落盘、不影响任何功能），因此留在界面里。
+    var filterText by remember { mutableStateOf("") }
+    val keyword = filterText.trim()
+
+    /** 固定项的键位也参与匹配：只比标题会漏掉「我知道按 ⌥P，但不知道它叫什么」这一路。 */
+    fun matches(title: String, keys: String?): Boolean =
+        keyword.isEmpty() ||
+            title.contains(keyword, ignoreCase = true) ||
+            keys?.contains(keyword, ignoreCase = true) == true
+
+    // 固定项随偏好现算：其中三条（`⏎` + 修饰键）与呼出键那一条的键位都由设置决定。
+    val fixed = remember(settings) { fixedShortcuts(settings) }
+    // 正在录制的槽位始终保留：它可能正好落在筛选结果之外，而用户此刻正需要看到它的状态。
+    val visibleSlots = ShortcutSlot.entries.filter { slot ->
+        slot == recording.slot || matches(slot.title, settings.shortcut(slot)?.label)
+    }
+    val visibleFixed = fixed.filter { matches(it.title, it.keys) }
+
+    SettingsGroup {
+        SearchField(
+            query = filterText,
+            onQueryChange = { filterText = it },
+            // 不主动抢焦点：筛选框只是可选的入口，抢焦点会让按键先落进输入框。
+            focusRequester = remember { FocusRequester() },
+        )
+        Spacer(Modifier.height(6.dp))
+
+        if (visibleSlots.isEmpty() && visibleFixed.isEmpty()) {
+            Text(
+                text = "没有匹配「$keyword」的快捷键。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.hintColor,
+                modifier = Modifier.padding(vertical = 4.dp),
             )
         }
+
+        if (visibleSlots.isNotEmpty()) {
+            ShortcutPartLabel("可自定义")
+            // 槽位自己的元信息（标题 / 是否系统级）在 `ShortcutSlot` 里，界面只负责渲染，
+            // 因此新增一个可录制快捷键不需要在这里、以及在别处再各抄一份。
+            visibleSlots.forEach { slot ->
+                ShortcutRow(
+                    title = slot.title,
+                    spec = settings.shortcut(slot),
+                    recording = recording.slot == slot,
+                    onRecord = { actions.onStartShortcutRecording(slot) },
+                    onClear = { actions.onSettingsChange { it.withShortcut(slot, null) } },
+                )
+            }
+        }
+
+        if (visibleFixed.isNotEmpty()) {
+            ShortcutPartLabel("固定（不可修改）", divider = visibleSlots.isNotEmpty())
+            Text(
+                text = "以下是面板内置的按键：它们是交互方式本身，不是可替换的命令，因此不提供修改。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.hintColor,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            FixedShortcutGroup.entries.forEach { group ->
+                val rows = visibleFixed.filter { it.group == group }
+                if (rows.isEmpty()) return@forEach
+                ShortcutGroupLabel(group.title)
+                rows.forEach { FixedShortcutRow(title = it.title, keys = it.keys) }
+            }
+        }
+
         Text(
             text = when {
                 // 被拒绝时录制**没有**退出，就地告诉他原因、并继续等下一个组合。
@@ -488,8 +644,7 @@ private fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesAction
                 recording.isActive -> "请按下新的快捷键…（至少要按一个修饰键）"
                 // 呼出键被清除之后没有全局热键了，得说清楚还能从哪打开面板。
                 settings.popupShortcut == null -> "呼出面板的快捷键已清除，可以从菜单栏图标打开面板。"
-                else -> "点击快捷键即可重新录制，✕ 清除绑定；" +
-                    globalScopeHint()
+                else -> "点击快捷键即可重新录制，✕ 清除绑定；" + globalScopeHint()
             },
             style = MaterialTheme.typography.labelSmall,
             color = when {
@@ -497,9 +652,39 @@ private fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesAction
                 recording.isActive -> colors.primary
                 else -> MaterialTheme.hintColor
             },
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = 6.dp),
         )
     }
+}
+
+/** 快捷键区的一级小标题：分开「可自定义」与「固定」两段。[divider] 用于在两段之间落一条分隔线。 */
+@Composable
+private fun ShortcutPartLabel(text: String, divider: Boolean = false) {
+    val colors = MaterialTheme.colorScheme
+    if (divider) {
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = colors.outline.copy(alpha = 0.2f),
+            modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
+        )
+    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = colors.onSurfaceVariant,
+    )
+}
+
+/** 二级小标题：固定项里的分组名（列表导航 / 激活与选择 / 呼出与窗口）。 */
+@Composable
+private fun ShortcutGroupLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.hintColor,
+        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+    )
 }
 
 /** 搜索分区里的开关表。 */
@@ -510,7 +695,7 @@ private val SearchSwitches = listOf(
 @Composable
 private fun SearchSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
-    SectionCard("搜索") {
+    SettingsGroup {
         SwitchSettings(settings, SearchSwitches, actions.onSettingsChange)
         SegmentedBlock(
             title = "匹配高亮",
@@ -553,7 +738,8 @@ private val AppearanceSwitches = listOf(
 @Composable
 private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
-    SectionCard("外观") {
+    SettingsGroup {
+        GroupLabel("窗口")
         // 拖动过窗口边缘、或拖过预览分隔条之后出现：点一下放弃自定义尺寸与预览宽度，恢复
         // 「自动贴合内容」。两者必须一起还原——预览宽度是窗口里分出去的一段，只把主列表宽度
         // 恢复成默认、留着拖出来的预览宽度，窗口会比默认状态宽（或窄）出预览让位的那一截。
@@ -608,6 +794,9 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
                 onSelect = { value -> actions.onSettingsChange { it.copy(popupScreen = value) } },
             )
         }
+    }
+    SettingsGroup {
+        GroupLabel("列表")
         SegmentedBlock(
             title = "置顶位置",
             values = PinPosition.entries,
@@ -658,7 +847,7 @@ private fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActio
     }
 }
 
-/** AI服务分区里的开关表；平台不支持时置灰并改说原因（而不是把这一项藏掉）。 */
+/** AI 服务分区里的开关表；平台不支持时置灰并改说原因（而不是把这一项藏掉）。 */
 private fun recognitionSwitches(data: PreferencesUiData) = listOf(
     BooleanSetting(
         "识别图片中的文字",
@@ -677,7 +866,7 @@ private fun recognitionSwitches(data: PreferencesUiData) = listOf(
 private fun RecognitionSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
     val switches = remember(data.supportsTextRecognition) { recognitionSwitches(data) }
-    SectionCard("AI服务") {
+    SettingsGroup {
         SwitchSettings(settings, switches, actions.onSettingsChange)
     }
 }
@@ -695,13 +884,12 @@ private fun RecognitionSection(data: PreferencesUiData, actions: PreferencesActi
 @Composable
 private fun ResetSection(data: PreferencesUiData, actions: PreferencesActions) {
     val isDefault = data.settings == AppSettings()
-    SectionCard("重置") {
+    SettingsGroup {
         TextButton(
             onClick = {
                 actions.onSettingsChange { AppSettings() }
-                // 全部还原会连窗口尺寸、外观、快捷键一起改回去，而对话框自己也在被改动的窗口里
-                // （桌面端的 `Dialog` 是窗口内的一层）：顺手关掉它，让用户直接看到还原后的面板，
-                // 而不是一张被窗口重新起算的尺寸挤得跳来跳去的卡片。
+                // 全部还原会把窗口尺寸、外观、快捷键一起改回去。关掉设置窗口，用户直接看到
+                // 还原后的面板，而不是一张正在被改动的窗口。
                 actions.onDismiss()
             },
             enabled = !isDefault,
