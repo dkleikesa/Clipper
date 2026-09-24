@@ -1,17 +1,10 @@
 package com.qcmian.clipper.feature.preferences.ui
 
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.core.domain.action.ClipAction
@@ -22,7 +15,6 @@ import com.qcmian.clipper.core.settings.ShortcutSlot
 import com.qcmian.clipper.core.settings.shortcut
 import com.qcmian.clipper.core.settings.withShortcut
 import com.qcmian.clipper.core.ui.theme.hintColor
-import com.qcmian.clipper.feature.history.ui.components.SearchField
 
 /**
  * 「哪些快捷键在系统范围内生效」那句提示。
@@ -40,7 +32,7 @@ private fun globalScopeHint(): String {
 }
 
 /**
- * 快捷键分区：筛选框 + 按分组排列的可录制清单。
+ * 快捷键分区：按分组排列的可录制清单。
  *
  * 所有快捷键——包括面板内置的导航键、`⏎`、`⎋`、`⌘,`、`⌘1…⌘9`——都是 [ShortcutSlot]，
  * 因此这一页没有「能改的」与「不能改的」两段，只有一种行。
@@ -56,47 +48,14 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
     // 上一次录制被拒绝的原因：录制没有因此退出，就地说明原因、继续等下一个组合。
     val problem = recording.problem
 
-    // 筛选词是纯粹的浏览状态（不落盘、不影响任何功能），因此留在界面里。
-    var filterText by remember { mutableStateOf("") }
-    val keyword = filterText.trim()
-
-    /** 命令名与按键文本一起匹配：用户常记得「⌥P」却想不起它叫什么，小字说明同样参与匹配。 */
-    fun matches(title: String, keys: String?, hint: String?): Boolean =
-        keyword.isEmpty() ||
-            title.contains(keyword, ignoreCase = true) ||
-            keys?.contains(keyword, ignoreCase = true) == true ||
-            hint?.contains(keyword, ignoreCase = true) == true
-
-    // 正在录制的槽位始终保留：它可能正好落在筛选结果之外，而用户此刻正需要看到它的状态。
-    val visibleSlots = ShortcutSlot.entries.filter { slot ->
-        slot == recording.slot || matches(slot.title, settings.shortcut(slot)?.label, slotHint(slot, settings))
-    }
-
     SettingsGroup {
-        SearchField(
-            query = filterText,
-            onQueryChange = { filterText = it },
-            // 不主动抢焦点：筛选框只是可选的入口，抢焦点会让按键先落进输入框。
-            focusRequester = remember { FocusRequester() },
-        )
-        Spacer(Modifier.height(6.dp))
-
-        if (visibleSlots.isEmpty()) {
-            Text(
-                text = "没有匹配「$keyword」的快捷键。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.hintColor,
-                modifier = Modifier.padding(vertical = 4.dp),
-            )
-        }
-
         // 槽位自己的元信息（标题 / 分组 / 是否系统级）在 `ShortcutSlot` 里，界面只负责渲染，
         // 因此新增一个可录制快捷键不需要在这里、以及在别处再各抄一份。
         ShortcutGroup.entries.forEach { group ->
-            val rows = visibleSlots.filter { it.group == group }
-            if (rows.isEmpty()) return@forEach
+            val slots = ShortcutSlot.entries.filter { it.group == group }
+            if (slots.isEmpty()) return@forEach
             ShortcutGroupLabel(group.title)
-            rows.forEach { slot ->
+            slots.forEach { slot ->
                 ShortcutRow(
                     title = slot.title,
                     hint = slotHint(slot, settings),
@@ -154,14 +113,19 @@ private fun activationHint(settings: AppSettings): String? {
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" / ")
 }
 
-/** 二级小标题：分组名（呼出与窗口 / 列表导航 / 激活与选择 / 条目与记录）。 */
+/**
+ * 分组标题（呼出与窗口 / 列表导航 / 激活与选择 / 条目与记录）。
+ *
+ * 必须比分组里的行更抢眼：行标题是 `bodyMedium`（14sp），这里用更大一号的 `titleSmall`
+ * 加粗，颜色取 `onSurface`（正文色）而不是行说明那种灰，否则一眼看不出这是分组。
+ */
 @Composable
 private fun ShortcutGroupLabel(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
     )
 }
