@@ -103,7 +103,18 @@ internal fun GroupLabel(text: String) {
 }
 
 /**
- * 键位胶囊：可录制行的当前绑定。
+ * 键位胶囊的固定宽度。
+ *
+ * 按最长的那条设计：录制中的「按下新快捷键」是 6 个 12sp 的字形（约 72dp），加左右各 12dp
+ * 内边距约 96dp；实际绑定的键位标签最长是「⌃⌥⇧⌘」加一个字符，也用不满，取 110dp 留余量。
+ */
+private val ShortcutPillWidth = 110.dp
+
+/**
+ * 键位胶囊：可录制行的当前绑定。**定宽**，内容居中。
+ *
+ * 定宽是刻意的：绑定长短不一（`⏎` 到 `⌃⌥⇧⌘⎋`），若各自包住文字，整列右边缘会参差不齐，
+ * 扫一眼看不出「这一列都是键位」。定宽之后每行的胶囊与右侧垃圾桶都落在同一条竖线上。
  *
  * 文字用 hintColor 表示「未绑定」（[dimmed]），与「有绑定」区分。
  *
@@ -119,6 +130,7 @@ private fun ShortcutPill(
     val colors = MaterialTheme.colorScheme
     Box(
         modifier = Modifier
+            .width(ShortcutPillWidth)
             .height(30.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(
@@ -142,6 +154,9 @@ private fun ShortcutPill(
                 dimmed -> MaterialTheme.hintColor
                 else -> colors.onSurface
             },
+            // 定宽之后文本要能截断：用户录进特别长的组合时宁可省略，也不要撑破胶囊。
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -183,7 +198,7 @@ internal fun ShortcutRow(
             }
         }
         ShortcutPill(
-            text = if (recording) "按下新快捷键…" else spec?.label ?: "未设置",
+            text = if (recording) "按下新快捷键" else spec?.label ?: "未设置",
             recording = recording,
             dimmed = spec == null,
             onClick = onRecord,
@@ -191,7 +206,9 @@ internal fun ShortcutRow(
         Spacer(Modifier.width(8.dp))
         HoverTooltip("清除快捷键") {
             IconButton(onClick = onClear, enabled = spec != null, modifier = Modifier.size(28.dp)) {
-                ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
+                // 垃圾桶而不是叉号：这一列的动作是「删掉这条绑定」，
+                // 叉号在设置页里还兼着「关闭窗口」的意思，两者容易看岔。
+                ClipperIcon(ClipperIconKind.TRASH, size = 15.dp, tint = colors.onSurfaceVariant)
             }
         }
     }

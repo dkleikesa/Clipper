@@ -79,8 +79,14 @@ internal class ShortcutRecorder(
         // 只认「按下」，且不把修饰键本身当作一次录制：按住 ⌘ 应当继续等后面的键。
         if (event.type != KeyEventType.KeyDown || modifiers.isModifierKey(event)) return true
 
-        // Escape 取消录制，而不是把它录成快捷键。
-        if (event.key == Key.Escape) {
+        // Escape：**裸按**才是「取消录制」；带着修饰键按下时按普通组合处理。
+        //
+        // 否则「把 Esc 设成快捷键」在录制器里永远做不到——原来只判了按键、不看修饰键，
+        // `⌘⎋` / `⌥⎋` 也会被当成取消。裸 `⎋` 仍然只做取消（那是它的惯例语义），
+        // 因此要把 Esc 录进一条绑定，必须配一个修饰键。
+        if (event.key == Key.Escape && !event.isMetaPressed && !event.isAltPressed &&
+            !event.isCtrlPressed && !event.isShiftPressed
+        ) {
             cancel()
             return true
         }

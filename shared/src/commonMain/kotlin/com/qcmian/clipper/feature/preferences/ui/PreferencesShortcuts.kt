@@ -75,10 +75,12 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
         text = when {
             // 被拒绝时录制**没有**退出，就地告诉他原因、并继续等下一个组合。
             problem != null -> "${problem.message}请换一个组合，或按 Esc 取消。"
-            recording.isActive -> "请按下新的快捷键…（至少要按一个修饰键，方向键等导航键除外）"
+            recording.isActive ->
+                "请按下新的快捷键（至少要按一个修饰键，方向键等导航键除外）；" +
+                    "裸按 Esc 取消录制，要把 Esc 本身录进去请配合一个修饰键。"
             // 呼出键被清除之后没有全局热键了，得说清楚还能从哪打开面板。
             settings.popupShortcut == null -> "呼出面板的快捷键已清除，可以从菜单栏图标打开面板。"
-            else -> "点击快捷键即可重新录制，✕ 清除绑定；" + globalScopeHint()
+            else -> "点击快捷键即可重新录制，右侧垃圾桶清除绑定；" + globalScopeHint()
         },
         style = MaterialTheme.typography.labelSmall,
         color = when {
