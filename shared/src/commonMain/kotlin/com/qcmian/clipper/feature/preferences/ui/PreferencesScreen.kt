@@ -354,7 +354,9 @@ private fun SidebarItem(
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ClipperIcon(kind = icon, size = 14.dp, tint = content)
+        // 图标尺寸取 14dp 放大 20%（14 × 1.2 = 16.8，圆整到 17dp）：原来偏小，
+        // 与同行标题（bodyMedium）的字重不成比例。
+        ClipperIcon(kind = icon, size = 17.dp, tint = content)
         Spacer(Modifier.width(8.dp))
         Text(
             text = title,
