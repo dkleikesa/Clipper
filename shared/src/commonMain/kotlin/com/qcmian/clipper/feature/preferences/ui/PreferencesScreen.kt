@@ -183,8 +183,8 @@ fun PreferencesScreen(
     val keyHandler: (KeyEvent) -> Boolean = { event ->
         when {
             actions.onShortcutKeyEvent(event) -> true
-            // `Esc` 关闭设置窗口；确认框开着时只关确认框。排在录制之后：录制期间的 `Esc`
-            // 是「取消录制」，那一支由录制器消费（见 `ShortcutRecorder.onKeyEvent`）。
+            // `Esc` 关闭设置窗口；确认框开着时只关确认框。排在录制之后：录制期间所有按键
+            // （含 `Esc`——它本身就可以被录成绑定）都由录制器消费，取消录制走 `⌘.`。
             event.type == KeyEventType.KeyDown && event.key == Key.Escape -> {
                 if (data.hasConfirmation) actions.onDismissConfirmation() else actions.onDismiss()
                 true

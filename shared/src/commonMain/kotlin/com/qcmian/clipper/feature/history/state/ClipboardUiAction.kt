@@ -128,7 +128,7 @@ sealed interface ClipboardUiAction {
     data class StartShortcutRecording(val slot: ShortcutSlot) : ClipboardUiAction
 
     /**
-     * 结束录制（按下 Esc、录制成功由录制器自己收尾，这一条用于对话框离开屏幕）。
+     * 结束录制（按下 ⌘.、录制成功由录制器自己收尾，这一条用于对话框离开屏幕）。
      *
      * 不收回它系统级热键会一直哑着。
      */
