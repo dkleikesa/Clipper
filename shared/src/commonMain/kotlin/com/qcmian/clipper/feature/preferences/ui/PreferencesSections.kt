@@ -162,19 +162,6 @@ private const val GIGABYTE = MEGABYTE * 1024L
  */
 private fun behaviorSwitches(data: PreferencesUiData) = listOf(
     BooleanSetting(
-        "自动粘贴",
-        { it.pasteByDefault },
-        { value -> copy(pasteByDefault = value) },
-        // 只管「不带修饰键」的那一次激活；带修饰键的组合在「快捷键」页各自指定。
-        description = "只作用于不带修饰键的激活键：直接按它时粘贴到上一个应用。",
-    ),
-    BooleanSetting(
-        "粘贴时去除格式",
-        { it.removeFormattingByDefault },
-        { value -> copy(removeFormattingByDefault = value) },
-        description = "同样只作用于不带修饰键的激活键：直接按它时只保留纯文本。",
-    ),
-    BooleanSetting(
         "连续粘贴后按回车",
         { it.pressReturnAfterPaste },
         { value -> copy(pressReturnAfterPaste = value) },

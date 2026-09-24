@@ -1,5 +1,6 @@
 package com.qcmian.clipper.core.settings
 
+import com.qcmian.clipper.core.domain.action.ClipAction
 import kotlinx.serialization.Serializable
 
 /**。 */
@@ -53,19 +54,6 @@ enum class PopupPosition(val label: String) {
 }
 
 /**
- * 激活键（「激活选中项」那一条）配上修饰键之后做什么。
- *
- * `⌘ + 激活键` / `⌥ + 激活键` / `⌥⇧ + 激活键` 三条各选一个动作。它取代了原来「由
- * [AppSettings.pasteByDefault] / [AppSettings.removeFormattingByDefault] 推导组合含义」的做法：
- * 那两个开关现在只管**不带修饰键**的激活键，组合的含义由用户直接指定。
- */
-enum class ActivateAction(val label: String) {
-    COPY("复制"),
-    PASTE("粘贴"),
-    PASTE_WITHOUT_FORMATTING("去格式"),
-}
-
-/**
  * 用户可录制的快捷键， +
  * `KeyboardShortcuts.Shortcut`。[character] 是渲染出来的按键（`"C"`、`"⌫"`、`" "`）。
  */
@@ -77,15 +65,17 @@ data class ShortcutSpec(
     val shift: Boolean = false,
     val command: Boolean = false,
 ) {
-    /** `⌥⌘⌫`，偏好设置窗口显示的标签。 */
-    val label: String
+    /** `⌥⌘`，只渲染修饰键（AppKit 顺序 `⌃⌥⇧⌘`）。 */
+    val modifiers: String
         get() = buildString {
             if (control) append('\u2303')
             if (option) append('\u2325')
             if (shift) append('\u21e7')
             if (command) append('\u2318')
-            append(if (character == " ") "Space" else character)
         }
+
+    /** `⌥⌘⌫`，偏好设置窗口显示的标签。 */
+    val label: String get() = modifiers + if (character == " ") "Space" else character
 }
 
 /**
@@ -113,18 +103,6 @@ data class AppSettings(
     val filterTypes: Set<ClipFilterType> = ClipFilterType.entries.toSet(),
 
     // 行为
-    /** 只作用于**不带修饰键**的激活键：直接按它是否触发一次粘贴。 */
-    val pasteByDefault: Boolean = false,
-    /** 只作用于**不带修饰键**的激活键：直接按它是否去掉格式。 */
-    val removeFormattingByDefault: Boolean = false,
-    /**
-     * 激活键配 `⌘` / `⌥` / `⌥⇧` 时各自的动作，三条独立可配（见 [ActivateAction]）。
-     *
-     * 默认值就是原来的推导结果：`⌘` 复制、`⌥` 粘贴、`⌥⇧` 去格式。
-     */
-    val activateWithCommand: ActivateAction = ActivateAction.COPY,
-    val activateWithOption: ActivateAction = ActivateAction.PASTE,
-    val activateWithShiftOption: ActivateAction = ActivateAction.PASTE_WITHOUT_FORMATTING,
     /**
      * 连续粘贴时每条之后补一个裸回车：多数目标端要一次「提交 / 换行」才会腾出下一处落点
      * （终端执行、聊天发送、Excel 下移一格）。
@@ -155,9 +133,25 @@ data class AppSettings(
     val moveNextShortcut: ShortcutSpec? = ShortcutSlot.MOVE_NEXT.default,
     val moveToFirstShortcut: ShortcutSpec? = ShortcutSlot.MOVE_TO_FIRST.default,
     val moveToLastShortcut: ShortcutSpec? = ShortcutSlot.MOVE_TO_LAST.default,
+    /** 默认 `⌥⏎`：把选中项复制进剪贴板，保留全部格式。 */
     val activateShortcut: ShortcutSpec? = ShortcutSlot.ACTIVATE.default,
+    /** 默认 `⌥⌘⏎`：同上，但只写纯文本。 */
+    val activateWithoutFormattingShortcut: ShortcutSpec? = ShortcutSlot.ACTIVATE_WITHOUT_FORMATTING.default,
+    /** 默认 `⏎`：复制之后向上一个应用合成一次粘贴。 */
+    val pasteShortcut: ShortcutSpec? = ShortcutSlot.PASTE.default,
+    /** 默认 `⌘⏎`：粘贴纯文本。 */
+    val pasteWithoutFormattingShortcut: ShortcutSpec? = ShortcutSlot.PASTE_WITHOUT_FORMATTING.default,
+    /** 默认 `⌘1`：配合 `1…9` 快速**粘贴**前九个置顶项（见 `ShortcutSlot.QUICK_SELECT`）。 */
     val quickSelectShortcut: ShortcutSpec? = ShortcutSlot.QUICK_SELECT.default,
-    val selectAllShortcut: ShortcutSpec? = ShortcutSlot.SELECT_ALL.default,
+    /**
+     * 鼠标**单击**条目时做什么，默认「激活」（复制）。
+     *
+     * 上面那四种按法各有一条绑定，但鼠标**不**读它们：手势与按键是两套输入，让点击去跟着某条
+     * 绑定走，用户改一次按键就会连带改掉点击行为。因此这里单给一个四选一。
+     *
+     * `⌥` / `⌥⇧` 点击另有固定含义（直接粘贴 / 去格式粘贴），不经过这一项。
+     */
+    val clickAction: ClipAction = ClipAction.COPY,
     val pauseShortcut: ShortcutSpec? = ShortcutSlot.PAUSE.default,
     val pinShortcut: ShortcutSpec? = ShortcutSlot.PIN.default,
     val deleteShortcut: ShortcutSpec? = ShortcutSlot.DELETE.default,

@@ -1,8 +1,6 @@
 package com.qcmian.clipper.core.domain.usecase
 
 import com.qcmian.clipper.core.domain.action.ClipAction
-import com.qcmian.clipper.core.domain.action.pastes
-import com.qcmian.clipper.core.domain.action.removesFormatting
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
@@ -13,7 +11,7 @@ import kotlinx.coroutines.withContext
 
 /** [SelectClipUseCase] 对一次激活做了什么。 */
 enum class SelectResult {
-    /** 不支持的修饰键组合，或条目已经不存在。 */
+    /** 条目一条都不在了（界面上停留期间被删掉）。 */
     IGNORED,
 
     /** 平台表示不了该内容；一条都没有写入。 */
@@ -48,15 +46,15 @@ class SelectClipUseCase(
         action: ClipAction,
         onHidePanel: () -> Unit,
     ): SelectResult {
-        if (action == ClipAction.UNKNOWN || itemIds.isEmpty()) return SelectResult.IGNORED
+        if (itemIds.isEmpty()) return SelectResult.IGNORED
 
         // 条目可能在界面上停留期间被删掉，静默跳过；不要往剪贴板写一份空内容。
         val items = itemIds.distinct().mapNotNull { repository.item(it) }
         if (items.isEmpty()) return SelectResult.IGNORED
 
         val settings = repository.settings.value
-        val removeFormatting = action.removesFormatting(settings)
-        val pasting = action.pastes(settings)
+        val removeFormatting = action.stripsFormatting
+        val pasting = action.pastes
 
         // 一次写回，以及它代表的那几条条目。多条复制是**一份**合并快照，两者不是一一对应。
         val batch = if (pasting) {
