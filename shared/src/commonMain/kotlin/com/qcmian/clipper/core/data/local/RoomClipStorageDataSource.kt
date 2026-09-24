@@ -108,6 +108,11 @@ internal class RoomClipStorageDataSource(
         return history.maxLastCopiedAt() ?: 0L
     }
 
+    override suspend fun maxPinnedAt(): Long {
+        if (closed) return 0L
+        return history.maxPinnedAt() ?: 0L
+    }
+
     override suspend fun emptyTitleIds(): List<String> {
         if (closed) return emptyList()
         return history.idsWithEmptyTitle()
@@ -123,9 +128,14 @@ internal class RoomClipStorageDataSource(
         history.updateRecognizedText(id, fullText, title)
     }
 
-    override suspend fun updatePinned(id: String, pinned: Boolean) {
+    override suspend fun updatePinned(id: String, pinned: Boolean, pinnedAt: Long) {
         if (closed) return
-        history.updatePinned(id, if (pinned) PINNED else UNPINNED)
+        // 取消置顶把时间戳清零：留着旧值会让「先取消、再重新置顶」排到过期位置上。
+        history.updatePinned(
+            id = id,
+            pinned = if (pinned) PINNED else UNPINNED,
+            pinnedAt = if (pinned) pinnedAt else NOT_PINNED_AT,
+        )
     }
 
     override suspend fun delete(ids: List<String>) {

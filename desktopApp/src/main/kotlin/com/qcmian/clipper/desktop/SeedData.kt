@@ -91,6 +91,11 @@ private fun seed() = runBlocking {
             val publishedAt = now - (TOTAL - index) * 1_000L
             val (meta, payload) = buildItem(random, index, publishedAt)
             storage.insert(meta, payload)
+            if (meta.isPinned) {
+                // `insert` 只能写「未置顶」的那一份，置顶时间戳得由置顶路径现发。用发布时间当戳：
+                // 种子里的三条置顶因此也有确定顺序，可以直接用来验证快速粘贴的角标。
+                storage.updatePinned(meta.id, pinned = true, pinnedAt = publishedAt)
+            }
             if (probeId == null && payload.contents.isNotEmpty()) probeId = meta.id
 
             if ((index + 1) % 1_000 == 0) {

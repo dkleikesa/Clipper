@@ -49,6 +49,9 @@ interface ClipStorageDataSource {
     /** 历史里最大的 `lastCopiedAt`；没有任何条目时为 `0`。 */
     suspend fun maxLastCopiedAt(): Long
 
+    /** 现有置顶里最大的 `pinnedAt`；没有任何置顶时为 `0`。批量置顶据此发出严格递增的时间戳。 */
+    suspend fun maxPinnedAt(): Long
+
     /**
      * 标题为空的条目 id；启动时用它回填历史遗留的空标题（见
      * `DefaultClipboardRepository.backfillEmptyTitles`）。
@@ -101,7 +104,13 @@ interface ClipStorageDataSource {
      */
     suspend fun updateRecognizedText(id: String, fullText: String, title: String)
 
-    suspend fun updatePinned(id: String, pinned: Boolean)
+    /**
+     * 切换一条的置顶状态；[pinnedAt] 是**置顶那一刻**的时间戳，决定它在置顶区的先后
+     * （取消置顶时无意义，存储层会清零）。
+     *
+     * 时间戳由调用方给而不是这里现取：一次批量置顶的几条必须拿到彼此不同的值，才分得出先后。
+     */
+    suspend fun updatePinned(id: String, pinned: Boolean, pinnedAt: Long)
 
     suspend fun delete(ids: List<String>)
 

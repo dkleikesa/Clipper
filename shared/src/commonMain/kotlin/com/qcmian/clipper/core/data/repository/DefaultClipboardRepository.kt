@@ -1,5 +1,6 @@
 package com.qcmian.clipper.core.data.repository
 
+import com.qcmian.clipper.core.data.local.NOT_PINNED_AT
 import com.qcmian.clipper.core.data.local.toItem
 import com.qcmian.clipper.core.data.source.ClipStorageDataSource
 import com.qcmian.clipper.core.data.source.ClipboardDataSource
@@ -291,8 +292,18 @@ class DefaultClipboardRepository(
     override suspend fun setPinned(ids: List<String>, pinned: Boolean) {
         if (ids.isEmpty()) return
         metadataLock.withLock {
+            if (pinned) {
+                // 置顶时间戳从「现在」与「已有最大值之上」的较大者往下发：同一次批量置顶的几条
+                // 因此也有确定的先后（在列表里靠上的仍排在置顶区靠上），且不会与已有的值撞上。
+                var stamp = maxOf(currentTimeMillis(), storage.maxPinnedAt() + 1L) + ids.size - 1L
+                for (id in ids) {
+                    storage.updatePinned(id, pinned = true, pinnedAt = stamp)
+                    stamp -= 1L
+                }
+            } else {
+                ids.forEach { storage.updatePinned(it, pinned = false, pinnedAt = NOT_PINNED_AT) }
+            }
             // 一次锁、一次重排：置顶会改变排序（置顶项单独成区），但不必每条都重读全量元数据。
-            ids.forEach { storage.updatePinned(it, pinned) }
             reloadMetadata()
         }
     }

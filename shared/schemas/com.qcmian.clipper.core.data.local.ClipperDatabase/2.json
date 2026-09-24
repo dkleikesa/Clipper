@@ -1,0 +1,246 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "833d35b9e0bc1f3ef75755ed77db6e17",
+    "entities": [
+      {
+        "tableName": "clip_meta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `kind` INTEGER NOT NULL, `files` TEXT NOT NULL, `applicationName` TEXT, `applicationBundleId` TEXT, `firstCopiedAt` INTEGER NOT NULL, `lastCopiedAt` INTEGER NOT NULL, `numberOfCopies` INTEGER NOT NULL, `pinned` INTEGER NOT NULL, `pinnedAt` INTEGER NOT NULL DEFAULT 0, `payloadBytes` INTEGER NOT NULL, `contentKey` TEXT NOT NULL, `hasRecognizedText` INTEGER NOT NULL, `hasImage` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "files",
+            "columnName": "files",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "applicationName",
+            "columnName": "applicationName",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "applicationBundleId",
+            "columnName": "applicationBundleId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "firstCopiedAt",
+            "columnName": "firstCopiedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastCopiedAt",
+            "columnName": "lastCopiedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "numberOfCopies",
+            "columnName": "numberOfCopies",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinned",
+            "columnName": "pinned",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinnedAt",
+            "columnName": "pinnedAt",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "payloadBytes",
+            "columnName": "payloadBytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentKey",
+            "columnName": "contentKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasRecognizedText",
+            "columnName": "hasRecognizedText",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasImage",
+            "columnName": "hasImage",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_clip_meta_pinned_pinnedAt",
+            "unique": false,
+            "columnNames": [
+              "pinned",
+              "pinnedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clip_meta_pinned_pinnedAt` ON `${TABLE_NAME}` (`pinned`, `pinnedAt`)"
+          },
+          {
+            "name": "index_clip_meta_pinned_lastCopiedAt",
+            "unique": false,
+            "columnNames": [
+              "pinned",
+              "lastCopiedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clip_meta_pinned_lastCopiedAt` ON `${TABLE_NAME}` (`pinned`, `lastCopiedAt`)"
+          },
+          {
+            "name": "index_clip_meta_pinned_firstCopiedAt",
+            "unique": false,
+            "columnNames": [
+              "pinned",
+              "firstCopiedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clip_meta_pinned_firstCopiedAt` ON `${TABLE_NAME}` (`pinned`, `firstCopiedAt`)"
+          },
+          {
+            "name": "index_clip_meta_pinned_numberOfCopies",
+            "unique": false,
+            "columnNames": [
+              "pinned",
+              "numberOfCopies"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clip_meta_pinned_numberOfCopies` ON `${TABLE_NAME}` (`pinned`, `numberOfCopies`)"
+          },
+          {
+            "name": "index_clip_meta_pinned_payloadBytes",
+            "unique": false,
+            "columnNames": [
+              "pinned",
+              "payloadBytes"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clip_meta_pinned_payloadBytes` ON `${TABLE_NAME}` (`pinned`, `payloadBytes`)"
+          },
+          {
+            "name": "index_clip_meta_contentKey",
+            "unique": false,
+            "columnNames": [
+              "contentKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clip_meta_contentKey` ON `${TABLE_NAME}` (`contentKey`)"
+          },
+          {
+            "name": "index_clip_meta_applicationBundleId",
+            "unique": false,
+            "columnNames": [
+              "applicationBundleId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_clip_meta_applicationBundleId` ON `${TABLE_NAME}` (`applicationBundleId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "clip_payload",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `text` TEXT, `image` BLOB, `contents` BLOB, `recognizedText` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "image",
+            "columnName": "image",
+            "affinity": "BLOB"
+          },
+          {
+            "fieldPath": "contents",
+            "columnName": "contents",
+            "affinity": "BLOB"
+          },
+          {
+            "fieldPath": "recognizedText",
+            "columnName": "recognizedText",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "app_settings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `payload` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '833d35b9e0bc1f3ef75755ed77db6e17')"
+    ]
+  }
+}
