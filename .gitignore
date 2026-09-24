@@ -17,3 +17,6 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
+
+# 发布流程产物（由 release.yml 从 CHANGELOG.md 生成）
+RELEASE_NOTES.md
