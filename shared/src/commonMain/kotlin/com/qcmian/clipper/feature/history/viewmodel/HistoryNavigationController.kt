@@ -108,14 +108,6 @@ internal class HistoryNavigationController(
         }
     }
 
-    /** `⌘A`：全选。光标不动，列表也不滚。 */
-    fun selectAll() {
-        keyboardNavigating = true
-        state.update { latest ->
-            latest.withSelection(HistoryNavigation.all(latest.selection(), latest.resultIds), scroll = false)
-        }
-    }
-
     /** `Esc`：清空多选，退回光标那一条。 */
     fun clearSelection() {
         state.update { latest ->
