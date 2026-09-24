@@ -1,35 +1,13 @@
 package com.qcmian.clipper.feature.history.ui
 
-import androidx.compose.animation.core.EaseInOutCubic
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,54 +20,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEvent
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.isAltPressed
-import androidx.compose.ui.input.pointer.isCtrlPressed
-import androidx.compose.ui.input.pointer.isMetaPressed
-import androidx.compose.ui.input.pointer.isSecondaryPressed
-import androidx.compose.ui.input.pointer.isShiftPressed
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.Popup
-import kotlinx.coroutines.flow.collect
-import kotlin.math.roundToInt
-import com.qcmian.clipper.feature.history.ui.components.DeepSearchFooter
+import com.qcmian.clipper.core.ui.components.rememberApplicationIcon
+import com.qcmian.clipper.feature.history.state.ClipboardUiAction
+import com.qcmian.clipper.feature.history.state.ClipboardUiState
 import com.qcmian.clipper.feature.history.ui.components.DeepSearchFooterHeight
-import com.qcmian.clipper.feature.history.ui.components.EmptyState
-import com.qcmian.clipper.feature.history.ui.components.FooterRows
-import com.qcmian.clipper.feature.history.ui.components.HistoryHeader
-import com.qcmian.clipper.feature.history.ui.components.HistoryFilterBar
 import com.qcmian.clipper.feature.history.ui.components.HistoryRow
-import com.qcmian.clipper.feature.history.ui.components.HistoryScrollbar
-import com.qcmian.clipper.feature.history.ui.components.PausedBanner
-import com.qcmian.clipper.feature.history.ui.components.PinnedSection
 import com.qcmian.clipper.feature.history.ui.components.PreviewSlideout
 import com.qcmian.clipper.feature.history.ui.components.StatusToast
 import com.qcmian.clipper.feature.history.ui.components.footerEntries
 import com.qcmian.clipper.feature.history.ui.components.historyRowHeight
-import com.qcmian.clipper.core.ui.components.rememberApplicationIcon
-import com.qcmian.clipper.feature.history.state.ClipboardUiAction
-import com.qcmian.clipper.feature.history.state.ClipboardUiState
-import com.qcmian.clipper.feature.history.viewmodel.resolveKeyActions
 import com.qcmian.clipper.feature.history.viewmodel.shortcutMap
 
 /**
@@ -97,6 +45,10 @@ import com.qcmian.clipper.feature.history.viewmodel.shortcutMap
  *
  * 界面是 [state] 的纯函数；每一次交互都通过 [onAction] 回传。所有行为都在
  * `ClipboardViewModel` 中。
+ *
+ * 这里只负责「准备状态 + 接线」：各区块的布局在 [HistoryMainColumn]，右键菜单在
+ * [SelectionContextMenu]，键盘与指针处理在 [rememberHistoryKeyHandler] / [trackHistoryPointer]，
+ * 预览的揭示动画在 [PreviewSlideoutHost]。
  *
  * @param previewHost 宿主为预览面板提供的空间约束（停靠侧与屏幕余量）。预览该怎么展示只由
  *   界面自己的状态推出，见 [PreviewHostPolicy]。
@@ -174,11 +126,7 @@ fun HistoryScreen(
 
     // 量出的各区块高度。它们从 0 开始，与 `Popup.height` 一致：
     // 面板先以最小高度打开，测量结果随后调整大小，使其贴合内容。
-    var headerHeight by remember { mutableStateOf(0.dp) }
-    var filterHeight by remember { mutableStateOf(0.dp) }
-    var topPinsHeight by remember { mutableStateOf(0.dp) }
-    var bottomPinsHeight by remember { mutableStateOf(0.dp) }
-    var footerHeight by remember { mutableStateOf(0.dp) }
+    val heights = remember { HistoryChromeHeights() }
 
     val footerEntries = footerEntries(state.showQuit)
 
@@ -229,11 +177,11 @@ fun HistoryScreen(
     val metrics = historyHeightMetrics(
         itemsHeight = unpinnedEntries.fold(0.dp) { total, entry -> total + rowHeight(entry.value) } +
             deepSearchHeight,
-        headerHeight = headerHeight,
-        filterHeight = filterHeight,
-        topPinsHeight = topPinsHeight,
-        bottomPinsHeight = bottomPinsHeight,
-        footerHeight = footerHeight,
+        headerHeight = heights.header,
+        filterHeight = heights.filter,
+        topPinsHeight = heights.topPins,
+        bottomPinsHeight = heights.bottomPins,
+        footerHeight = heights.footer,
         pinsAtTop = pinsAtTop,
         pinsSeparator = pinsSeparator,
     )
@@ -282,43 +230,16 @@ fun HistoryScreen(
         listState.scrollToItem(0)
     }
 
-    /**
-     * 平台会为带修饰键的按键**额外补送一个字符事件**（AWT 的 `KEY_TYPED`，在 Compose 里类型是
-     * [KeyEventType.Unknown]，字符就是 `utf16CodePoint`）：macOS 上 `⌃1` 送 `1`、`⌥1` 送 `¡`。
-     * 它不是用户想搜索的内容，必须在预览阶段吞掉，否则条目快捷键会一边生效一边把字符打进搜索框
-     * （`⌘` 组合不补送该事件，所以只有 `⌃` / `⌥` 变体会漏）。
-     *
-     * 只吞「刚刚被面板处理过的那一次按键」补送的字符：普通输入照常进搜索框；⌃K 那种有意不被
-     * 面板消费、留给搜索框的按键也照旧（见 `resolveKeyActions` 的 ⌃K 分支）。
-     */
-    var swallowTypedCharacter by remember { mutableStateOf(false) }
-
-    val keyHandler: (KeyEvent) -> Boolean = handler@{ event ->
-        flags.update(event)
-        if (event.type == KeyEventType.Unknown) {
-            val swallow = swallowTypedCharacter
-            swallowTypedCharacter = false
-            swallow
-        } else {
-            // 菜单开着时任意按键先收掉它；`Esc` 到此为止，不顺带清多选、也不关面板。
-            if (contextMenuAt != null) {
-                contextMenuAt = null
-                if (event.key == Key.Escape) return@handler true
-            }
-            val actions = resolveKeyActions(
-                event = event,
-                state = state,
-                flags = flags,
-                composing = composing,
-                shortcuts = shortcuts,
-                footerActions = footerEntries.map { it.action },
-            )
-            // 这次按键已被面板消费（无论是条目快捷键还是别的动作），它随后补送的字符不该再落进搜索框。
-            swallowTypedCharacter = actions.isNotEmpty()
-            actions.forEach(onUiAction)
-            actions.isNotEmpty()
-        }
-    }
+    val keyHandler = rememberHistoryKeyHandler(
+        state = state,
+        flags = flags,
+        composing = composing,
+        shortcuts = shortcuts,
+        footerActions = footerEntries.map { it.action },
+        contextMenuOpen = contextMenuAt != null,
+        onCloseContextMenu = { contextMenuAt = null },
+        onAction = onUiAction,
+    )
 
     /** 单条历史行，供固定的置顶区块与可滚动的未置顶列表共用。 */
     val entryRow: @Composable (IndexedValue<SearchResult>) -> Unit = { indexed ->
@@ -452,42 +373,16 @@ fun HistoryScreen(
                 windowHeight = with(density) { size.height.toDp() }
             }
             // 记录指针按下期间按住的修饰键，这样 ⌥-点击会粘贴、
-            // ⌘⇧-点击会不带格式粘贴（`HistoryItemView.performSelect`）。
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        when (event.type) {
-                            // `MouseMovedViewModifier`：鼠标移动会结束键盘导航，
-                            // 于是悬停重新开始选择。
-                            PointerEventType.Move -> onUiAction(ClipboardUiAction.PointerMoved)
-                            PointerEventType.Press -> {
-                                pointerModifiers.shift = event.keyboardModifiers.isShiftPressed
-                                pointerModifiers.alt = event.keyboardModifiers.isAltPressed
-                                pointerModifiers.command = event.keyboardModifiers.isMetaPressed
-                                pointerModifiers.control = event.keyboardModifiers.isCtrlPressed
-
-                                if (event.buttons.isSecondaryPressed) {
-                                    // 菜单作用于**当前选中集**，不改变选择（这里也做不了行的命中测试）。
-                                    contextMenuAt = event.changes.last().position
-                                    // 就地消费：`Initial` 阶段跑在最外层，消费之后行上的 `clickable`
-                                    // 看不到这次按下，不会顺手激活这一条。
-                                    event.changes.forEach { it.consume() }
-                                } else if (contextMenuAt != null) {
-                                    // 菜单开着时的第一下左键只关菜单，不激活指针底下那一行。
-                                    contextMenuAt = null
-                                    event.changes.forEach { it.consume() }
-                                }
-                            }
-
-                            else -> Unit
-                        }
-                    }
-                }
-            }
+            // ⌘⇧-点击会不带格式粘贴（`HistoryItemView.performSelect`），并管理右键菜单。
+            .trackHistoryPointer(
+                modifiers = pointerModifiers,
+                isContextMenuOpen = { contextMenuAt != null },
+                onPointerMoved = { onUiAction(ClipboardUiAction.PointerMoved) },
+                onOpenContextMenu = { contextMenuAt = it },
+                onCloseContextMenu = { contextMenuAt = null },
+            )
             .onPreviewKeyEvent(keyHandler),
     ) {
-
 
         // 预览卡：**必须声明在主列表之前**，z 序才在它下层。揭示动画期间它整体平移到主列表
         // 后面——列表不透明又压在它上面，藏进去的部分自然看不见；一旦声明在列表之后（更
@@ -527,178 +422,20 @@ fun HistoryScreen(
             )
         }
 
-        // 主窗口盖在卡片之上，因此**必须不透明**，否则卡片会透出来。
-        //
-        // 宽度是一个可推导的定值（见 `mainWidth`），不读窗口宽度：预览开着时窗口宽出来的那一段
-        // 全归卡片，关着时两者本就相等。
-        Column(
-            Modifier
-                // 宽度是设置算出来的一个定值，与窗口宽度、与预览开没开都无关。它同时是唯一的不透
-                // 明底色：窗口还没收回去那几帧，它把卡片整块盖住。
-                .width(mainWidth)
-                .align(
-                    if (previewHost.onLeft) Alignment.CenterEnd else Alignment.CenterStart,
-                )
-                .fillMaxHeight()
-                .background(colors.background),
-        ) {
-            // 暂停横幅折进同一个被测量的区块。
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .onSizeChanged { headerHeight = with(density) { it.height.toDp() } },
-            ) {
-                HistoryHeader(
-                    visible = state.searchVisible,
-                    query = state.query,
-                    onQueryChange = { value -> onUiAction(ClipboardUiAction.UpdateQuery(value)) },
-                    onCompositionChange = { composing = it },
-                    focusRequester = searchFocusRequester,
-                    previewOpen = state.previewOpen,
-                    previewOnLeft = previewHost.onLeft,
-                    previewTooltip = "显示 / 隐藏预览（${settings.togglePreviewShortcut?.label ?: "未设置"}）",
-                    onTogglePreview = { onUiAction(ClipboardUiAction.TogglePreview) },
-                )
-
-                if (settings.ignoreEvents) {
-                    PausedBanner(
-                        onResume = {
-                            onUiAction(
-                                ClipboardUiAction.UpdateSettings {
-                                    it.copy(ignoreEvents = false)
-                                },
-                            )
-                        },
-                    )
-                }
-
-            }
-
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                Column(Modifier.fillMaxSize()) {
-                    // 固定的置顶项及其分隔线。
-                    if (pinsAtTop && pinnedEntries.isNotEmpty()) {
-                        PinnedSection(
-                            entries = pinnedEntries,
-                            separator = pinsSeparator,
-                            separatorFirst = false,
-                            onHeightChange = { topPinsHeight = it },
-                            row = entryRow,
-                        )
-                    }
-
-                    // 筛选栏紧贴内容区上方（也就是置顶区之下）：它只作用于内容区。
-                    //
-                    // 位置之所以稳定，不是因为把它挪到了别处，而是因为**置顶区不参与筛选与搜索**
-                    // （见 `ClipboardViewModel.matchResults`）——置顶项数量恒定，上面那块的高度
-                    // 就不会变，它也就不会跟着跳。
-                    //
-                    // 开关关闭时整块隐藏；外层 Box 始终存在，让 filterHeight 能跟着归零。
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .onSizeChanged { filterHeight = with(density) { it.height.toDp() } },
-                    ) {
-                        if (settings.showFilterBar) {
-                            HistoryFilterBar(
-                                filterTypes = settings.filterTypes,
-                                sortBy = settings.sortBy,
-                                sortOrder = settings.sortOrder,
-                                onFilterTypesChange = { value ->
-                                    onUiAction(ClipboardUiAction.UpdateSettings { it.copy(filterTypes = value) })
-                                },
-                                onSortByChange = { value ->
-                                    onUiAction(ClipboardUiAction.UpdateSettings { it.copy(sortBy = value) })
-                                },
-                                onSortOrderChange = { value ->
-                                    onUiAction(ClipboardUiAction.UpdateSettings { it.copy(sortOrder = value) })
-                                },
-                            )
-                        }
-                    }
-
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        // 判据是**内容区**是否为空，而不是整个 `results`：置顶区不参与筛选与
-                        // 搜索，它会一直有内容，按 `results` 判断就永远显示不出空状态。
-                        if (unpinnedEntries.isEmpty()) {
-                            EmptyState(searching = state.query.isNotEmpty())
-                            // 空状态时入口照样出现，而且最该出现：标题一条都没命中，正是
-                            // 「去正文里找找」最可能有用的时刻。它浮在空状态之上，不改变那里
-                            // 原有的居中布局。
-                            if (deepSearchVisible) {
-                                DeepSearchFooter(
-                                    state = state.deepSearch,
-                                    hits = state.deepSearchHits,
-                                    onRun = { onUiAction(ClipboardUiAction.RunDeepSearch) },
-                                    modifier = Modifier.align(Alignment.BottomCenter),
-                                )
-                            }
-                        } else {
-                            LazyColumn(
-                                state = listState,
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(
-                                    start = Popup.horizontalPadding,
-                                    end = Popup.horizontalPadding,
-                                    top = Popup.verticalSeparatorPadding,
-                                    bottom = metrics.listBottomPadding,
-                                ),
-                            ) {
-                                items(unpinnedEntries, key = { it.value.meta.id }) { indexed ->
-                                    entryRow(indexed)
-                                }
-                                // 入口固定在内容末尾：用户滚到这儿本身就是「这些还不够」的
-                                // 表达，因此它不需要额外的提示，也不该悬在界面上方随时可见。
-                                if (deepSearchVisible) {
-                                    item {
-                                        DeepSearchFooter(
-                                            state = state.deepSearch,
-                                            hits = state.deepSearchHits,
-                                            onRun = { onUiAction(ClipboardUiAction.RunDeepSearch) },
-                                        )
-                                    }
-                                }
-                            }
-                            HistoryScrollbar(
-                                state = listState,
-                                heights = scrollHeights,
-                                contentPadding = scrollPadding,
-                                // 无标题栏窗口默认沿边缘 8dp 内是缩放热区
-                                // （WindowDecorationDefaults.ResizerThickness），
-                                // 热区会吞掉点击去调整窗口大小；内移 8dp 让滚动条
-                                // 完全落在可点击区域内。
-                                modifier = Modifier
-                                    .align(Alignment.CenterEnd)
-                                    .fillMaxHeight()
-                                    .padding(end = 8.dp),
-                            )
-                        }
-                    }
-
-                    if (!pinsAtTop && pinnedEntries.isNotEmpty()) {
-                        PinnedSection(
-                            entries = pinnedEntries,
-                            separator = pinsSeparator,
-                            separatorFirst = true,
-                            onHeightChange = { bottomPinsHeight = it },
-                            row = entryRow,
-                        )
-                    }
-                }
-            }
-
-            FooterRows(
-                selectedIndex = state.footerSelection,
-                showQuit = state.showQuit,
-                onAction = { action -> onUiAction(ClipboardUiAction.RunFooter(action)) },
-                // `FooterItemView.onHover` 原本会在悬停页脚时收起预览；预览开关现在是持久化的
-                // 用户选择（见 `AppSettings.previewOpen`），只由按钮 / 快捷键切换，这里不再动它。
-                onHover = { index -> onUiAction(ClipboardUiAction.HoverFooter(index)) },
-                modifier = Modifier.onSizeChanged {
-                    footerHeight = with(density) { it.height.toDp() }
-                },
-            )
-        }
+        HistoryMainColumn(
+            state = state,
+            onAction = onUiAction,
+            mainWidth = mainWidth,
+            previewHost = previewHost,
+            searchFocusRequester = searchFocusRequester,
+            onCompositionChange = { composing = it },
+            listState = listState,
+            scrollHeights = scrollHeights,
+            scrollPadding = scrollPadding,
+            listBottomPadding = metrics.listBottomPadding,
+            heights = heights,
+            row = entryRow,
+        )
 
         state.statusMessage?.let { message ->
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp)) {
@@ -752,207 +489,4 @@ fun HistoryScreen(
         state = state,
         onAction = onUiAction,
     )
-}
-
-/** 指针按下期间按住的修饰键；普通可变容器，写入不触发重组（见 [HistoryScreen] 内注释）。 */
-private class PointerModifiers {
-    var shift = false
-    var alt = false
-    var command = false
-    var control = false
-}
-
-/**
- * 选中集的右键菜单。
- *
- * 用 `Popup(TopStart + offset)` 而不是 `DropdownMenu`：后者的偏移是「从锚点往下展开」的语义，
- * 要落在指针处得反过来推算；`Popup` 就是「把左上角摆在这里」，且同样自带点外面收掉。
- *
- * 配色只取主题里**确实定义过**的 token：`ClipperTheme` 只填了 colorScheme 的一部分，
- * `surfaceContainer*` 那些没被指定的会退回 M3 基线色（带紫调），和这套中性灰不是一家人。
- *
- * 尺寸由常量算出来，所以打开前就能把它夹进窗口——`Popup` 不会自己躲开窗口边缘。
- */
-@Composable
-private fun SelectionContextMenu(
-    at: Offset,
-    selectionCount: Int,
-    copyHint: String,
-    pasteHint: String,
-    allPinned: Boolean,
-    pinHint: String?,
-    deleteHint: String?,
-    onCopy: () -> Unit,
-    onPaste: () -> Unit,
-    onTogglePin: () -> Unit,
-    onDelete: () -> Unit,
-    onClearSelection: () -> Unit,
-    onDismiss: () -> Unit,
-    windowWidth: Dp,
-    windowHeight: Dp,
-) {
-    val colors = MaterialTheme.colorScheme
-    val multi = selectionCount > 1
-    // 「复制 / 粘贴 / 置顶 / 删除」四项，多选时再多一行「取消多选」；分隔线数量跟着走。
-    val itemCount = if (multi) 5 else 4
-    val separatorCount = if (multi) 2 else 1
-    val estimatedHeight = ContextMenuItemHeight * itemCount +
-        ContextMenuPadding * 2 +
-        ContextMenuSeparatorHeight * separatorCount
-    val suffix = if (multi) " $selectionCount 条" else ""
-    val offset = with(LocalDensity.current) {
-        val margin = ContextMenuMargin.toPx()
-        val maxX = (windowWidth.toPx() - ContextMenuWidth.toPx() - margin).coerceAtLeast(margin)
-        val maxY = (windowHeight.toPx() - estimatedHeight.toPx() - margin).coerceAtLeast(margin)
-        IntOffset(
-            x = at.x.coerceIn(margin, maxX).roundToInt(),
-            y = at.y.coerceIn(margin, maxY).roundToInt(),
-        )
-    }
-
-    Popup(
-        alignment = Alignment.TopStart,
-        offset = offset,
-        onDismissRequest = onDismiss,
-        properties = PopupProperties(),
-    ) {
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = colors.surfaceVariant,
-            contentColor = colors.onSurface,
-            border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.5f)),
-            shadowElevation = 12.dp,
-            modifier = Modifier.width(ContextMenuWidth),
-        ) {
-            Column(Modifier.padding(vertical = ContextMenuPadding)) {
-                ContextMenuItem(
-                    title = "复制$suffix",
-                    shortcut = copyHint,
-                    onClick = onCopy,
-                )
-                ContextMenuItem(
-                    title = if (multi) "逐条粘贴$suffix" else "粘贴",
-                    shortcut = pasteHint,
-                    onClick = onPaste,
-                )
-                ContextMenuDivider()
-                // 文案跟着 `allPinned` 走，点下去发生的一定就是它写的那件事（见
-                // `ClipboardViewModel.togglePinSelected`）。
-                ContextMenuItem(
-                    title = (if (allPinned) "取消置顶" else "置顶") + suffix,
-                    shortcut = pinHint,
-                    onClick = onTogglePin,
-                )
-                ContextMenuItem(
-                    title = "删除$suffix",
-                    shortcut = deleteHint,
-                    onClick = onDelete,
-                )
-                if (multi) {
-                    ContextMenuDivider()
-                    ContextMenuItem(
-                        title = "取消多选",
-                        shortcut = "Esc",
-                        onClick = onClearSelection,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 菜单里的分组线。 */
-@Composable
-private fun ContextMenuDivider() {
-    HorizontalDivider(
-        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-    )
-}
-
-/** 菜单里的一项：动作在左、快捷键提示在右。整行可点。[shortcut] 为 `null` 时只显示动作。 */
-@Composable
-private fun ContextMenuItem(title: String, shortcut: String?, onClick: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(ContextMenuItemHeight)
-            .padding(horizontal = ContextMenuPadding)
-            .clip(RoundedCornerShape(5.dp))
-            .background(if (hovered) colors.primary.copy(alpha = 0.16f) else Color.Transparent)
-            .hoverable(interaction)
-            // 自带的水波纹 / 底色变化与这一行自绘的悬停态叠起来会很脏，因此不带 indication。
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 8.dp),
-    ) {
-        Text(
-            text = title,
-            fontSize = 12.sp,
-            color = colors.onSurface,
-            maxLines = 1,
-            modifier = Modifier.weight(1f),
-        )
-        if (shortcut != null) {
-            Text(
-                text = shortcut,
-                fontSize = 11.sp,
-                color = colors.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-/** 菜单的固定尺寸与行高：与 [SelectionContextMenu] 里那份高度估算必须是同一套数。 */
-private val ContextMenuWidth = 190.dp
-private val ContextMenuItemHeight = 28.dp
-private val ContextMenuPadding = 4.dp
-private val ContextMenuMargin = 6.dp
-
-/** 一条分组线占的高度：线本身 1dp，加上两侧各 3dp 的间距。 */
-private val ContextMenuSeparatorHeight = 7.dp
-
-/**
- * 预览卡的揭示动画容器。
- *
- * 揭示进度 [reveal] 是动画状态，展示 / 收起期间逐帧变化。把它圈在这个小组件里（而不是
- * `HistoryScreen` 顶层），动画期间就只重组这个轻量的 `Box`——列表、度量、`fold` 都不会
- * 跟着每帧重算；[content]（[PreviewSlideout]）的参数在动画期间不变，因此能整体跳过。
- *
- * 只有 graphicsLayer 的平移每帧读取 [reveal]（那是绘制阶段，本就只重绘不重组）。
- */
-@Composable
-private fun BoxScope.PreviewSlideoutHost(
-    previewOpen: Boolean,
-    slideoutWidth: Dp,
-    onLeft: Boolean,
-    content: @Composable () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    val slideoutPx = with(LocalDensity.current) { slideoutWidth.toPx() }
-    val reveal by animateFloatAsState(
-        targetValue = if (previewOpen) 1f else 0f,
-        animationSpec = tween(Popup.previewRevealMillis, easing = EaseInOutCubic),
-        label = "previewReveal",
-    )
-    // 刚关上时卡片要留到动画走完（宿主同样等动画走完才缩窗口），归零后自然为假、整块消失。
-    if (!previewOpen && reveal <= 0f) return
-    Box(
-        Modifier
-            .requiredWidth(slideoutWidth)
-            .align(if (onLeft) Alignment.CenterStart else Alignment.CenterEnd)
-            .fillMaxHeight()
-            // 往主列表那一侧平移「还没揭示的宽度」：reveal = 0 时整块卡在列表下面，= 1 时归位。
-            .graphicsLayer {
-                val hidden = (1f - reveal) * slideoutPx
-                translationX = if (onLeft) hidden else -hidden
-            }
-            .background(colors.background),
-    ) {
-        content()
-    }
 }
