@@ -109,7 +109,6 @@ internal enum class PreferencesSection(val title: String) {
     STORAGE("存储与数据"),
     BEHAVIOR("行为"),
     SHORTCUTS("快捷键"),
-    SEARCH("搜索"),
     APPEARANCE("外观"),
     RECOGNITION("AI 服务"),
     RESET("重置"),
@@ -226,7 +225,6 @@ fun PreferencesScreen(
                         PreferencesSection.STORAGE -> StorageSection(data, actions)
                         PreferencesSection.BEHAVIOR -> BehaviorSection(data, actions)
                         PreferencesSection.SHORTCUTS -> ShortcutsSection(data, actions)
-                        PreferencesSection.SEARCH -> SearchSection(data, actions)
                         PreferencesSection.APPEARANCE -> AppearanceSection(data, actions)
                         PreferencesSection.RECOGNITION -> RecognitionSection(data, actions)
                         PreferencesSection.RESET -> ResetSection(data, actions)
