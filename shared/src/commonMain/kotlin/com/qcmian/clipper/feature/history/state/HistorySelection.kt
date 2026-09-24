@@ -70,10 +70,6 @@ object HistoryNavigation {
         )
     }
 
-    /** `⌘A`：全选。光标与锚点不动。 */
-    fun all(current: HistorySelection, ids: List<String>): HistorySelection =
-        current.copy(footerIndex = -1, selectedIds = ids.toSet())
-
     /** `Esc`：清空多选，退回光标那一条。 */
     fun collapse(current: HistorySelection, lastIndex: Int, ids: List<String>): HistorySelection {
         val target = current.historyIndex.coerceIn(0, maxOf(0, lastIndex))
