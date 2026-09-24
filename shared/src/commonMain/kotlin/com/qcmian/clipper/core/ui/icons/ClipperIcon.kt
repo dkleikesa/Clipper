@@ -20,6 +20,9 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * 应用使用的图标。全部用 [Canvas] 绘制，因此本项目不依赖任何平台专属的图标构件。
@@ -46,6 +49,18 @@ enum class ClipperIconKind {
     ARROW_DOWN,
     /** 对号（勾选标记）。 */
     CHECKMARK,
+
+    // ---------------------------------------------------------------- 设置页侧边栏
+    /** 圆柱形数据库，设置页「存储与数据」用。 */
+    DATABASE,
+    /** 两条带滑块的轨道，设置页「行为」用。 */
+    SLIDERS,
+    /** 键盘，设置页「快捷键」用。 */
+    KEYBOARD,
+    /** 明暗对半的圆，设置页「外观」用。 */
+    APPEARANCE,
+    /** 逆时针回旋箭头，设置页「重置」用。 */
+    RESET,
 }
 
 @Composable
@@ -220,7 +235,129 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
                 strokeWidth, StrokeCap.Round,
             )
         }
+
+        ClipperIconKind.DATABASE -> {
+            val cx = s * 0.5f
+            val rx = s * 0.30f
+            val ry = s * 0.12f
+            val topY = s * 0.26f
+            val bottomY = s * 0.74f
+            // 顶面是完整的椭圆，中间与底面只画下半弧，看上去才是一摞圆盘。
+            drawOval(
+                color = color,
+                topLeft = Offset(cx - rx, topY - ry),
+                size = Size(rx * 2f, ry * 2f),
+                style = stroke,
+            )
+            drawLine(color, Offset(cx - rx, topY), Offset(cx - rx, bottomY), strokeWidth, StrokeCap.Round)
+            drawLine(color, Offset(cx + rx, topY), Offset(cx + rx, bottomY), strokeWidth, StrokeCap.Round)
+            listOf(topY + (bottomY - topY) / 2f, bottomY).forEach { y ->
+                drawArc(
+                    color = color,
+                    startAngle = 0f,
+                    sweepAngle = 180f,
+                    useCenter = false,
+                    topLeft = Offset(cx - rx, y - ry),
+                    size = Size(rx * 2f, ry * 2f),
+                    style = stroke,
+                )
+            }
+        }
+
+        ClipperIconKind.SLIDERS -> {
+            // 两条轨道各带一个实心滑块：与设置页里的滑杆控件是同一套语义。
+            drawLine(color, Offset(s * 0.16f, s * 0.34f), Offset(s * 0.84f, s * 0.34f), strokeWidth, StrokeCap.Round)
+            drawCircle(color, radius = s * 0.10f, center = Offset(s * 0.66f, s * 0.34f), style = Fill)
+            drawLine(color, Offset(s * 0.16f, s * 0.66f), Offset(s * 0.84f, s * 0.66f), strokeWidth, StrokeCap.Round)
+            drawCircle(color, radius = s * 0.10f, center = Offset(s * 0.34f, s * 0.66f), style = Fill)
+        }
+
+        ClipperIconKind.KEYBOARD -> {
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(s * 0.08f, s * 0.26f),
+                size = Size(s * 0.84f, s * 0.48f),
+                cornerRadius = CornerRadius(s * 0.10f),
+                style = stroke,
+            )
+            // 一排小键 + 一条空格键。
+            listOf(0.20f, 0.42f, 0.64f).forEach { x ->
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(s * x, s * 0.37f),
+                    size = Size(s * 0.10f, s * 0.09f),
+                    cornerRadius = CornerRadius(s * 0.03f),
+                    style = Fill,
+                )
+            }
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(s * 0.30f, s * 0.55f),
+                size = Size(s * 0.40f, s * 0.09f),
+                cornerRadius = CornerRadius(s * 0.03f),
+                style = Fill,
+            )
+        }
+
+        ClipperIconKind.APPEARANCE -> {
+            // 右半边填充、外圈描边：明暗各一半，与「主题」最贴。
+            val radius = s * 0.32f
+            val c = Offset(s * 0.5f, s * 0.5f)
+            drawArc(
+                color = color,
+                startAngle = -90f,
+                sweepAngle = 180f,
+                useCenter = true,
+                topLeft = Offset(c.x - radius, c.y - radius),
+                size = Size(radius * 2f, radius * 2f),
+                style = Fill,
+            )
+            drawCircle(color = color, radius = radius, center = c, style = stroke)
+        }
+
+        ClipperIconKind.RESET -> drawResetArrow(color, s, stroke)
     }
+}
+
+/**
+ * 逆时针回旋箭头：一段留出缺口的圆环 + 一个落在环末端的实心三角箭头。
+ *
+ * 缺口留在正上方，箭头落在左上（顺时针方向的末端），指向切线方向——与系统里
+ * `arrow.counterclockwise` 的观感一致。
+ */
+private fun DrawScope.drawResetArrow(color: Color, s: Float, stroke: Stroke) {
+    val radius = s * 0.30f
+    val center = Offset(s * 0.5f, s * 0.5f)
+    drawArc(
+        color = color,
+        startAngle = -45f,
+        sweepAngle = 270f,
+        useCenter = false,
+        topLeft = Offset(center.x - radius, center.y - radius),
+        size = Size(radius * 2f, radius * 2f),
+        style = stroke,
+    )
+
+    // 弧末端（-135°）的位置与顺时针切线方向；箭头沿切线指出去。
+    val endAngle = -135.0 * PI / 180.0
+    val end = Offset(
+        x = center.x + radius * cos(endAngle).toFloat(),
+        y = center.y + radius * sin(endAngle).toFloat(),
+    )
+    val tangent = Offset(-sin(endAngle).toFloat(), cos(endAngle).toFloat())
+    val normal = Offset(-tangent.y, tangent.x)
+    val head = s * 0.13f
+    val half = s * 0.09f
+    drawPath(
+        path = Path().apply {
+            moveTo(end.x + tangent.x * head, end.y + tangent.y * head)
+            lineTo(end.x + normal.x * half, end.y + normal.y * half)
+            lineTo(end.x - normal.x * half, end.y - normal.y * half)
+            close()
+        },
+        color = color,
+        style = Fill,
+    )
 }
 
 /**

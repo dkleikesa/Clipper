@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -105,13 +106,13 @@ data class PreferencesActions(
 private val SidebarWidth = 170.dp
 
 /** 设置窗口左栏的一页；声明顺序就是侧边栏的显示顺序。 */
-internal enum class PreferencesSection(val title: String) {
-    STORAGE("存储与数据"),
-    BEHAVIOR("行为"),
-    SHORTCUTS("快捷键"),
-    APPEARANCE("外观"),
-    RECOGNITION("AI 服务"),
-    RESET("重置"),
+internal enum class PreferencesSection(val title: String, val icon: ClipperIconKind) {
+    STORAGE("存储与数据", ClipperIconKind.DATABASE),
+    BEHAVIOR("行为", ClipperIconKind.SLIDERS),
+    SHORTCUTS("快捷键", ClipperIconKind.KEYBOARD),
+    APPEARANCE("外观", ClipperIconKind.APPEARANCE),
+    RECOGNITION("AI 服务", ClipperIconKind.TEXT_VIEWFINDER),
+    RESET("重置", ClipperIconKind.RESET),
 }
 
 /**
@@ -309,6 +310,7 @@ private fun PreferencesSidebar(
         PreferencesSection.entries.forEach { entry ->
             SidebarItem(
                 title = entry.title,
+                icon = entry.icon,
                 selected = entry == selected,
                 onClick = { onSelect(entry) },
             )
@@ -316,11 +318,22 @@ private fun PreferencesSidebar(
     }
 }
 
-/** 侧边栏的一行；选中态沿用 macOS 的惯例——主色淡底 + 主色文字。 */
+/**
+ * 侧边栏的一行：图标 + 标题。
+ *
+ * 选中态沿用 macOS 的惯例——主色淡底 + 主色文字，图标与文字同色：一行里出现两种颜色
+ * （比如图标恒为灰、文字变蓝）会让选中态看起来像没对齐。
+ */
 @Composable
-private fun SidebarItem(title: String, selected: Boolean, onClick: () -> Unit) {
+private fun SidebarItem(
+    title: String,
+    icon: ClipperIconKind,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
-    Box(
+    val content = if (selected) colors.primary else colors.onSurfaceVariant
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(28.dp)
@@ -328,13 +341,15 @@ private fun SidebarItem(title: String, selected: Boolean, onClick: () -> Unit) {
             .background(if (selected) colors.primary.copy(alpha = 0.14f) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp),
-        contentAlignment = Alignment.CenterStart,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        ClipperIcon(kind = icon, size = 14.dp, tint = content)
+        Spacer(Modifier.width(8.dp))
         Text(
             text = title,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) colors.primary else colors.onSurfaceVariant,
+            color = content,
         )
     }
 }
