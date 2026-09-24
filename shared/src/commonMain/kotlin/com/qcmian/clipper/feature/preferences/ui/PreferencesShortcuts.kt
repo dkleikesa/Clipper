@@ -3,7 +3,6 @@ package com.qcmian.clipper.feature.preferences.ui
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,11 +14,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.qcmian.clipper.core.domain.action.ClipAction
+import com.qcmian.clipper.core.domain.action.modifierFlagsOf
+import com.qcmian.clipper.core.settings.AppSettings
+import com.qcmian.clipper.core.settings.ShortcutGroup
 import com.qcmian.clipper.core.settings.ShortcutSlot
 import com.qcmian.clipper.core.settings.shortcut
 import com.qcmian.clipper.core.settings.withShortcut
-import com.qcmian.clipper.core.ui.FixedShortcutGroup
-import com.qcmian.clipper.core.ui.fixedShortcuts
 import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.feature.history.ui.components.SearchField
 
@@ -39,13 +40,13 @@ private fun globalScopeHint(): String {
 }
 
 /**
- * 快捷键分区：筛选框 + 两段式清单。
+ * 快捷键分区：筛选框 + 按分组排列的可录制清单。
  *
- * 这是全页最长的一处（可录制 5 行 + 固定十几行），因此做两件事：
- * - **筛选框**：按命令名与按键文本一起匹配（用户常记得「⌥P」却想不起它叫什么），
- *   十几行当场缩到两三行；筛选词只是浏览状态，不落盘；
- * - **两段式**：能改的（[ShortcutSlot]）与不能改的（[fixedShortcuts]）分成两段，
- *   后者顺带把「方向键、`⏎`、角标」这些一直没有任何说明的按键讲清楚。
+ * 所有快捷键——包括面板内置的导航键、`⏎`、`⎋`、`⌘,`、`⌘1…⌘9`——都是 [ShortcutSlot]，
+ * 因此这一页没有「能改的」与「不能改的」两段，只有一种行。
+ *
+ * 派生交互（`⇧` 连选、`⏎` 的修饰键映射）写在各行的灰色小字里：它们不是单独的键，而是
+ * 某条绑定按住不同修饰键时的含义，改绑定不影响它们。
  */
 @Composable
 internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActions) {
@@ -59,19 +60,17 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
     var filterText by remember { mutableStateOf("") }
     val keyword = filterText.trim()
 
-    /** 固定项的键位也参与匹配：只比标题会漏掉「我知道按 ⌥P，但不知道它叫什么」这一路。 */
-    fun matches(title: String, keys: String?): Boolean =
+    /** 命令名与按键文本一起匹配：用户常记得「⌥P」却想不起它叫什么，小字说明同样参与匹配。 */
+    fun matches(title: String, keys: String?, hint: String?): Boolean =
         keyword.isEmpty() ||
             title.contains(keyword, ignoreCase = true) ||
-            keys?.contains(keyword, ignoreCase = true) == true
+            keys?.contains(keyword, ignoreCase = true) == true ||
+            hint?.contains(keyword, ignoreCase = true) == true
 
-    // 固定项随偏好现算：其中三条（`⏎` + 修饰键）与呼出键那一条的键位都由设置决定。
-    val fixed = remember(settings) { fixedShortcuts(settings) }
     // 正在录制的槽位始终保留：它可能正好落在筛选结果之外，而用户此刻正需要看到它的状态。
     val visibleSlots = ShortcutSlot.entries.filter { slot ->
-        slot == recording.slot || matches(slot.title, settings.shortcut(slot)?.label)
+        slot == recording.slot || matches(slot.title, settings.shortcut(slot)?.label, slotHint(slot, settings))
     }
-    val visibleFixed = fixed.filter { matches(it.title, it.keys) }
 
     SettingsGroup {
         SearchField(
@@ -82,7 +81,7 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
         )
         Spacer(Modifier.height(6.dp))
 
-        if (visibleSlots.isEmpty() && visibleFixed.isEmpty()) {
+        if (visibleSlots.isEmpty()) {
             Text(
                 text = "没有匹配「$keyword」的快捷键。",
                 style = MaterialTheme.typography.labelSmall,
@@ -91,13 +90,16 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
             )
         }
 
-        if (visibleSlots.isNotEmpty()) {
-            ShortcutPartLabel("可自定义")
-            // 槽位自己的元信息（标题 / 是否系统级）在 `ShortcutSlot` 里，界面只负责渲染，
-            // 因此新增一个可录制快捷键不需要在这里、以及在别处再各抄一份。
-            visibleSlots.forEach { slot ->
+        // 槽位自己的元信息（标题 / 分组 / 是否系统级）在 `ShortcutSlot` 里，界面只负责渲染，
+        // 因此新增一个可录制快捷键不需要在这里、以及在别处再各抄一份。
+        ShortcutGroup.entries.forEach { group ->
+            val rows = visibleSlots.filter { it.group == group }
+            if (rows.isEmpty()) return@forEach
+            ShortcutGroupLabel(group.title)
+            rows.forEach { slot ->
                 ShortcutRow(
                     title = slot.title,
+                    hint = slotHint(slot, settings),
                     spec = settings.shortcut(slot),
                     recording = recording.slot == slot,
                     onRecord = { actions.onStartShortcutRecording(slot) },
@@ -106,27 +108,11 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
             }
         }
 
-        if (visibleFixed.isNotEmpty()) {
-            ShortcutPartLabel("固定（不可修改）", divider = visibleSlots.isNotEmpty())
-            Text(
-                text = "以下是面板内置的按键：它们是交互方式本身，不是可替换的命令，因此不提供修改。",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.hintColor,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            FixedShortcutGroup.entries.forEach { group ->
-                val rows = visibleFixed.filter { it.group == group }
-                if (rows.isEmpty()) return@forEach
-                ShortcutGroupLabel(group.title)
-                rows.forEach { FixedShortcutRow(title = it.title, keys = it.keys) }
-            }
-        }
-
         Text(
             text = when {
                 // 被拒绝时录制**没有**退出，就地告诉他原因、并继续等下一个组合。
                 problem != null -> "${problem.message}请换一个组合，或按 Esc 取消。"
-                recording.isActive -> "请按下新的快捷键…（至少要按一个修饰键）"
+                recording.isActive -> "请按下新的快捷键…（至少要按一个修饰键，方向键等导航键除外）"
                 // 呼出键被清除之后没有全局热键了，得说清楚还能从哪打开面板。
                 settings.popupShortcut == null -> "呼出面板的快捷键已清除，可以从菜单栏图标打开面板。"
                 else -> "点击快捷键即可重新录制，✕ 清除绑定；" + globalScopeHint()
@@ -142,32 +128,40 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
     }
 }
 
-/** 快捷键区的一级小标题：分开「可自定义」与「固定」两段。[divider] 用于在两段之间落一条分隔线。 */
-@Composable
-private fun ShortcutPartLabel(text: String, divider: Boolean = false) {
-    val colors = MaterialTheme.colorScheme
-    if (divider) {
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = colors.outline.copy(alpha = 0.2f),
-            modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-        )
+/**
+ * 某条槽位的灰色小字说明。
+ *
+ * 多数槽位是静态的（见 [ShortcutSlot.hint]）；激活键是唯一需要现算的——它按住 `⌘` / `⌥` /
+ * `⌥⇧` 时分别对应复制 / 粘贴 / 去格式，映射随「默认粘贴 / 去格式」偏好变化，因此这里用
+ * [modifierFlagsOf] 现推一份，与按键解析共用同一份规则，不会漂移。
+ */
+private fun slotHint(slot: ShortcutSlot, settings: AppSettings): String? =
+    if (slot == ShortcutSlot.ACTIVATE) activationHint(settings) else slot.hint
+
+/** 激活键的修饰键映射，如 `⌘⏎ 复制 / ⌥⏎ 粘贴 / ⌥⇧⏎ 去格式`。 */
+private fun activationHint(settings: AppSettings): String? {
+    val key = settings.activateShortcut?.character
+        ?: return "按住 ⌘ / ⌥ / ⌥⇧ 决定复制、粘贴或去格式"
+    val parts = listOf(
+        ClipAction.COPY to "复制",
+        ClipAction.PASTE to "粘贴",
+        ClipAction.PASTE_WITHOUT_FORMATTING to "去格式",
+    ).mapNotNull { (action, label) ->
+        modifierFlagsOf(action, settings)
+            .takeIf { it.isNotEmpty() }
+            ?.let { "$it$key $label" }
     }
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = colors.onSurfaceVariant,
-    )
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" / ")
 }
 
-/** 二级小标题：固定项里的分组名（列表导航 / 激活与选择 / 呼出与窗口）。 */
+/** 二级小标题：分组名（呼出与窗口 / 列表导航 / 激活与选择 / 条目与记录）。 */
 @Composable
 private fun ShortcutGroupLabel(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.hintColor,
-        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 10.dp, bottom = 2.dp),
     )
 }

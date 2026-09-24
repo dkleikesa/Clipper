@@ -135,8 +135,8 @@ fun HistoryScreen(
     val unpinnedEntries = state.unpinnedEntries
     // 快捷键映射是纯 UI 交互模型，不在状态里，因此这里自己缓存：`BoxWithConstraints` 在约束
     // 变化时会重新子组合整个界面——拖动窗口尺寸时每帧都会发生——缓存可避免每帧重建映射。
-    val shortcuts = remember(results, settings.pasteByDefault) {
-        shortcutMap(results, settings.pasteByDefault)
+    val shortcuts = remember(results, settings.quickSelectShortcut) {
+        shortcutMap(results, settings.quickSelectShortcut)
     }
 
     val pinsAtTop = settings.pinTo == PinPosition.TOP

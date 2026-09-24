@@ -97,15 +97,10 @@ internal fun GroupLabel(text: String) {
     )
 }
 
-/** 可录制行尾部「清除」按钮所占的宽度（`Spacer` + `IconButton`），只读行用它对齐右边缘。 */
-private val ShortcutClearColumnWidth = 36.dp
-
 /**
- * 键位胶囊：可录制行与只读速查行共用同一个形状，差别只在配色与描边。
+ * 键位胶囊：可录制行的当前绑定。
  *
- * 「有描边」= 可以点开录制，「无描边」= 固定按键，两段胶囊因此一眼可辨，
- * 而不必读小标题、也不会让用户对着一个点不动的胶囊发呆。文字用 hintColor 表示
- * 「未绑定」（[dimmed]），与「有绑定」区分。
+ * 文字用 hintColor 表示「未绑定」（[dimmed]），与「有绑定」区分。
  *
  * @param onClick `null` 表示这一行不可交互（[dimmed] 与它无关：未绑定的行仍可点击去录制）。
  */
@@ -114,7 +109,6 @@ private fun ShortcutPill(
     text: String,
     recording: Boolean = false,
     dimmed: Boolean = false,
-    outlined: Boolean = true,
     onClick: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -126,16 +120,10 @@ private fun ShortcutPill(
                 if (recording) colors.primary.copy(alpha = 0.10f)
                 else colors.surfaceVariant.copy(alpha = 0.35f),
             )
-            .then(
-                if (outlined) {
-                    Modifier.border(
-                        width = 1.dp,
-                        color = if (recording) colors.primary else colors.outline.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(6.dp),
-                    )
-                } else {
-                    Modifier
-                },
+            .border(
+                width = 1.dp,
+                color = if (recording) colors.primary else colors.outline.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(6.dp),
             )
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 12.dp),
@@ -154,10 +142,12 @@ private fun ShortcutPill(
 }
 
 /**
- * 可录制快捷键的一行：标题、当前绑定（点一下重新录制）、清除按钮。
+ * 可录制快捷键的一行：标题（含 [hint] 小字）、当前绑定（点一下重新录制）、清除按钮。
  *
  * 清除写的是「未绑定」（[spec] 为 `null`），而不是「恢复默认」：默认值只是出厂时的一次赋值，
  * 用户按 ✕ 的意图是「这个功能不要快捷键」。想回到默认值有设置页底部的「恢复默认设置」。
+ *
+ * @param hint 标题下的灰色小字，用来说明派生的交互（`⇧` 连选、`⏎` 的修饰键映射……）。
  */
 @Composable
 internal fun ShortcutRow(
@@ -166,18 +156,27 @@ internal fun ShortcutRow(
     recording: Boolean,
     onRecord: () -> Unit,
     onClear: () -> Unit,
+    hint: String? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onSurface,
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurface,
+            )
+            if (!hint.isNullOrBlank()) {
+                Text(
+                    text = hint,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.hintColor,
+                )
+            }
+        }
         ShortcutPill(
             text = if (recording) "按下新快捷键…" else spec?.label ?: "未设置",
             recording = recording,
@@ -190,32 +189,6 @@ internal fun ShortcutRow(
                 ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
             }
         }
-    }
-}
-
-/**
- * 固定快捷键（不可录制）的一行：只说明，不可点。
- *
- * 与 [ShortcutRow] **同形状**（键位胶囊同一个构件），只是胶囊不描边、行尾没有 ✕，
- * 右侧还留出等宽的空白让两段胶囊的右边缘落在同一条竖线上。用同一套美术而不是另做一套，
- * 是因为这两段行在页面里是上下相邻的：颜色或圆角一旦不同，看起来就像两个不相干的组件。
- */
-@Composable
-internal fun FixedShortcutRow(title: String, keys: String) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-        ShortcutPill(text = keys, outlined = false)
-        // 与可录制行的 ✕ 列等宽：不这样做，只读行的胶囊会比上面那几行多出一截。
-        Spacer(Modifier.width(ShortcutClearColumnWidth))
     }
 }
 

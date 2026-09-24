@@ -14,6 +14,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.utf16CodePoint
 import com.qcmian.clipper.core.settings.ShortcutSpec
+import com.qcmian.clipper.core.settings.hasModifiers
 
 /**
  * 当前按下的修饰键，包含 AppKit 使用的 `⌃⌥⇧⌘` 渲染顺序。
@@ -106,18 +107,13 @@ data class KeyShortcut(
 }
 
 /**
- * 普通的 ⌘ 变体、⌥ 变体，
- * 以及「不带格式粘贴」变体。
+ * 「同一按键再加一个 `⇧`」的变体；用于「`⇧` 连续选中」这类派生组合。
+ *
+ * 绑定本身已带修饰键（`⌘` / `⌥` / `⌃`，或已是 `⇧`）时返回 `null`：这时没有可扩展的余地，
+ * 避免与基础绑定撞成同一个组合。
  */
-fun keyShortcuts(character: String, pasteByDefault: Boolean): List<KeyShortcut> = listOf(
-    KeyShortcut(character = character, command = true),
-    KeyShortcut(character = character, option = true),
-    if (pasteByDefault) {
-        KeyShortcut(character = character, command = true, shift = true)
-    } else {
-        KeyShortcut(character = character, option = true, shift = true)
-    },
-)
+fun ShortcutSpec.shiftVariant(): ShortcutSpec? =
+    if (hasModifiers) null else copy(shift = true)
 
 /** 挑出与当前按下修饰键匹配的那个变体。 */
 fun visibleShortcut(shortcuts: List<KeyShortcut>, flags: ModifierFlags): KeyShortcut? {

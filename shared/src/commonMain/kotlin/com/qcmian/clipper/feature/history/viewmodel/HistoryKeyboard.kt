@@ -1,19 +1,21 @@
 package com.qcmian.clipper.feature.history.viewmodel
 
-import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
-import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.domain.action.defaultAction
+import com.qcmian.clipper.core.settings.QUICK_SELECT_DIGITS
+import com.qcmian.clipper.core.settings.ShortcutSpec
+import com.qcmian.clipper.core.settings.activationVariants
 import com.qcmian.clipper.core.ui.KeyShortcut
 import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.matchesShortcut
+import com.qcmian.clipper.core.ui.shiftVariant
 import com.qcmian.clipper.core.ui.shortcutCharacterFor
 import com.qcmian.clipper.feature.history.state.FooterAction
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
@@ -28,9 +30,11 @@ import com.qcmian.clipper.feature.history.state.ClipboardUiState
  * 注意这里只处理 `KeyDown`：平台还会为同一个按键补送一个字符事件（AWT 的 `KEY_TYPED`），
  * 它由调用方在预览阶段吞掉——见 `HistoryScreen` 的 `keyHandler`。
  *
- * 下面这张 `when` 同时是设置页「固定快捷键」速查表的依据（见
- * `com.qcmian.clipper.core.ui.fixedShortcuts`），也是 `ShortcutValidation` 里两个「面板保留」
- * 集合的来源：**改动分支时要一并回来核对这三处**，否则设置页会开始骗人。
+ * **全部快捷键都来自可录制的槽位**（见 `ShortcutSlot`）：过去写死的方向键、`⏎`、`⎋`、`⌘,`、
+ * `⌘1…⌘9` 现在各自是一条槽位，解析时统一走 `matchesShortcut`。两处派生语义仍然保留：
+ * - `⇧` + 上 / 下一条 = 连续选中（见 [shiftVariant]）；
+ * - 激活键 + `⌘` / `⌥` / `⌥⇧` / `⌘⇧` = 复制 / 粘贴 / 去格式（映射随偏好变化，见
+ *   [defaultAction] 与 [activationVariants]）。
  */
 fun resolveKeyActions(
     event: KeyEvent,
@@ -46,91 +50,106 @@ fun resolveKeyActions(
 
     val settings = state.settings
     val meta = event.isMetaPressed || event.isCtrlPressed
-    // 只认 `⌘`：全选按它判定，`⌃` 在这里不兼作 `⌘`（`⌃A` 是文本编辑里「移到行首」的常客）。
-    val command = event.isMetaPressed
     val alt = event.isAltPressed
-    val control = event.isCtrlPressed
     val shift = event.isShiftPressed
 
-    return when {
-        // moveToLast：⌃⌥N
-        control && alt && event.key == Key.N -> listOf(ClipboardUiAction.MoveToLast)
+    // ---------------------------------------------------------------- 列表导航
+    // 上 / 下一条：基础绑定往下 / 上走，再按住 `⇧` 就是连续选中。
+    if (matchesShortcut(event, settings.moveNextShortcut)) {
+        return listOf(verticalStep(state, extend = false, delta = 1, plain = ClipboardUiAction.MoveNext()))
+    }
+    if (matchesShortcut(event, settings.moveNextShortcut?.shiftVariant())) {
+        return listOf(verticalStep(state, extend = true, delta = 1, plain = ClipboardUiAction.MoveNext()))
+    }
+    if (matchesShortcut(event, settings.movePreviousShortcut)) {
+        return listOf(ClipboardUiAction.MovePrevious)
+    }
+    if (matchesShortcut(event, settings.movePreviousShortcut?.shiftVariant())) {
+        return listOf(verticalStep(state, extend = true, delta = -1, plain = ClipboardUiAction.MovePrevious))
+    }
+    if (matchesShortcut(event, settings.moveToLastShortcut)) return listOf(ClipboardUiAction.MoveToLast)
+    if (matchesShortcut(event, settings.moveToFirstShortcut)) return listOf(ClipboardUiAction.MoveToFirst)
 
-        // moveToFirst：⌃⌥P
-        control && alt && event.key == Key.P -> listOf(ClipboardUiAction.MoveToFirst)
-
-        // moveToNext：↓ / ⇧↓（按住 `⇧` 是在**连续选中**，不是在重新选择）
-        event.key == Key.DirectionDown && !alt && !meta ->
-            listOf(verticalStep(state, shift, delta = 1, plain = ClipboardUiAction.MoveNext()))
-
-        // moveToPrevious：↑ / ⇧↑
-        event.key == Key.DirectionUp && !alt && !meta ->
-            listOf(verticalStep(state, shift, delta = -1, plain = ClipboardUiAction.MovePrevious))
-
-        // moveToLast：⌘↓ / ⌥↓ / PageDown
-        (event.key == Key.DirectionDown && (meta || alt)) || event.key == Key.PageDown ->
-            listOf(ClipboardUiAction.MoveToLast)
-
-        // moveToFirst：⌘↑ / ⌥↑ / PageUp
-        (event.key == Key.DirectionUp && (meta || alt)) || event.key == Key.PageUp ->
-            listOf(ClipboardUiAction.MoveToFirst)
-
-        // selectCurrentItem
-        event.key == Key.Enter || event.key == Key.NumPadEnter -> when {
-            state.footerSelection >= 0 ->
-                footerActions.getOrNull(state.footerSelection)?.let { listOf(ClipboardUiAction.RunFooter(it)) }
-                    ?: emptyList()
-
-            state.results.isNotEmpty() -> listOf(ClipboardUiAction.Activate(shift, alt, meta))
-
-            // 没有选中任何条目，于是复制查询词本身。
-            else -> listOf(ClipboardUiAction.CopySearchQuery)
-        }
-
-        // close：`KeyChord.close` 关闭弹窗，`ListHeaderView` 在面板不再是主窗口时清空搜索。
-        event.key == Key.Escape -> listOf(ClipboardUiAction.Escape)
-
-        // pinOrUnpin：可录制的 `KeyboardShortcuts.Name.pin`，默认 `⌥P`
-        matchesShortcut(event, settings.pinShortcut) -> listOf(ClipboardUiAction.TogglePinSelected)
-
-        // togglePreview：可录制的 `togglePreview`，默认 `⌃Space`
-        matchesShortcut(event, settings.togglePreviewShortcut) -> listOf(ClipboardUiAction.TogglePreview)
-
-        // pause：可录制的 `pause`，默认 `⌘P`。放在条目快捷键之前，免得同一个组合先被当成
-        // 「快速选择某一条」（`⌘1`…`⌘9` 的任意修饰键变体都走最后那一支）。
-        matchesShortcut(event, settings.pauseShortcut) -> listOf(ClipboardUiAction.ToggleRecordingPause)
-
-        // openPreferences：⌘,
-        event.key == Key.Comma && meta -> listOf(ClipboardUiAction.ShowPreferences)
-
-        // deleteCurrentItem：可录制的 `delete`，默认 `⌥⌫`
-        matchesShortcut(event, settings.deleteShortcut) -> listOf(ClipboardUiAction.DeleteSelected)
-
-        // selectAll：⌘A。放在可录制的快捷键**之后**：用户自己录进同一个组合时，以那次录制为准。
-        command && !alt && event.key == Key.A -> listOf(ClipboardUiAction.SelectAll)
-
-        else -> {
-            // `History.pressedShortcutItem` + `HistoryItemAction`：条目快捷键只按物理键匹配，
-            // 由修饰键决定复制 / 粘贴 / 不带格式粘贴，因此 ⌥1、⌃1、⌘⇧1 与 ⌥⇧1 也都可用
-            // （按字符匹配会漏掉那些「字符随修饰键变化」的组合，见 `shortcutCharacterFor`）。
-            val character = shortcutCharacterFor(event)
-            val action = if (character == null) {
-                ClipAction.UNKNOWN
-            } else {
-                defaultAction(settings, shift, alt, meta)
-            }
-            // 普通按键（`default`）必须继续输入到搜索框。
-            val selectable = action != ClipAction.UNKNOWN && action != ClipAction.DEFAULT
-            val index = if (character != null && selectable) {
-                state.results.indexOfFirst { result ->
-                    shortcuts[result.meta.id]?.any { it.character == character } == true
-                }
-            } else {
-                -1
-            }
-            if (index >= 0) listOf(ClipboardUiAction.ActivateShortcut(index, action)) else emptyList()
+    // ---------------------------------------------------------------- 激活
+    // 激活键本身（不带修饰键）：含义交给 `defaultAction`；没有选中项时复制查询词。
+    if (matchesShortcut(event, settings.activateShortcut)) {
+        return activateActions(state, footerActions, shift, alt, meta)
+    }
+    // 激活键 + 修饰键：`⌘` / `⌥` / `⌥⇧` / `⌘⇧` 分别对应复制 / 粘贴 / 去格式，
+    // 映射随「默认粘贴 / 去格式」偏好变化，因此每种组合现算为一次 `Activate`。
+    settings.activateShortcut?.activationVariants()?.forEach { variant ->
+        if (matchesShortcut(event, variant)) {
+            return activateActions(state, footerActions, shift, alt, meta)
         }
     }
+
+    // ---------------------------------------------------------------- 条目操作
+    if (matchesShortcut(event, settings.pinShortcut)) return listOf(ClipboardUiAction.TogglePinSelected)
+    if (matchesShortcut(event, settings.togglePreviewShortcut)) return listOf(ClipboardUiAction.TogglePreview)
+    // 暂停放在条目快捷键之前检查也无妨：它与其它槽位不会撞键（录制时已查重）。
+    if (matchesShortcut(event, settings.pauseShortcut)) return listOf(ClipboardUiAction.ToggleRecordingPause)
+    if (matchesShortcut(event, settings.deleteShortcut)) return listOf(ClipboardUiAction.DeleteSelected)
+    if (matchesShortcut(event, settings.selectAllShortcut)) return listOf(ClipboardUiAction.SelectAll)
+
+    // ---------------------------------------------------------------- 窗口
+    if (matchesShortcut(event, settings.closeShortcut)) return listOf(ClipboardUiAction.Escape)
+    if (matchesShortcut(event, settings.openSettingsShortcut)) return listOf(ClipboardUiAction.ShowPreferences)
+
+    // ---------------------------------------------------------------- 快速激活（数字键）
+    // 放在可录制条目快捷键**之后**：用户自己录进同一个组合时，以那次录制为准（录制时已拦重复）。
+    // 只按物理键取字符（详见 `shortcutCharacterFor`），因此小键盘数字也能命中。
+    val quickSelect = settings.quickSelectShortcut
+    val character = shortcutCharacterFor(event)
+    if (quickSelect != null && character != null && character in QUICK_SELECT_DIGITS &&
+        matchesModifiers(event, quickSelect)
+    ) {
+        val action = defaultAction(settings, shift, alt, meta)
+        // 普通按键（`DEFAULT`）与不支持的组合（`UNKNOWN`）都不算快速激活。
+        if (action != ClipAction.UNKNOWN && action != ClipAction.DEFAULT) {
+            val index = state.results.indexOfFirst { result ->
+                shortcuts[result.meta.id]?.any { it.character == character } == true
+            }
+            if (index >= 0) return listOf(ClipboardUiAction.ActivateShortcut(index, action))
+        }
+    }
+
+    return emptyList()
+}
+
+/**
+ * 激活键按下后应当派发什么：页脚高亮时运行页脚项，有结果时激活选中集，否则复制查询词。
+ */
+private fun activateActions(
+    state: ClipboardUiState,
+    footerActions: List<FooterAction>,
+    shift: Boolean,
+    alt: Boolean,
+    meta: Boolean,
+): List<ClipboardUiAction> = when {
+    state.footerSelection >= 0 ->
+        footerActions.getOrNull(state.footerSelection)?.let { listOf(ClipboardUiAction.RunFooter(it)) }
+            ?: emptyList()
+
+    state.results.isNotEmpty() -> listOf(ClipboardUiAction.Activate(shift, alt, meta))
+
+    // 没有选中任何条目，于是复制查询词本身。
+    else -> listOf(ClipboardUiAction.CopySearchQuery)
+}
+
+/**
+ * 修饰键是否与 [spec] 一致（不看字符），与 [matchesShortcut] 同口径：
+ * 在没有 ⌘ 键的平台上 `Ctrl` 兼作 `⌘`，除非该快捷键显式要求 `⌃`。
+ *
+ * 单拿出来是因为快速激活按**字符**匹配任意数字键，不能直接走 `matchesShortcut`。
+ */
+private fun matchesModifiers(event: KeyEvent, spec: ShortcutSpec): Boolean {
+    val commandPressed =
+        if (spec.control) event.isMetaPressed else (event.isMetaPressed || event.isCtrlPressed)
+
+    return commandPressed == spec.command &&
+        event.isCtrlPressed == spec.control &&
+        event.isAltPressed == spec.option &&
+        event.isShiftPressed == spec.shift
 }
 
 /**
