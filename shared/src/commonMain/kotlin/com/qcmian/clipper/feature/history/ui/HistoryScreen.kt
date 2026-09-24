@@ -265,9 +265,9 @@ fun HistoryScreen(
     // 目标行已经完整可见时不再滚动——这条只服务于键盘导航：连续按方向键时，行已经在视野里
     // 就不该再动，只有走出可视区才跟随。
     //
-    // 只跟随 [ClipboardUiState.historyScrollToken]——它只在键盘导航、新查询结果、面板重新打开、
-    // 历史内容变化时递增。悬停也会更新选中项但不递增令牌：鼠标划过列表时行只高亮、列表不动，
-    // 否则会出现「悬停 → 选中变化 → 滚动 → 鼠标下换了行」的循环。
+    // 只跟随 [ClipboardUiState.historyScrollToken]——它只在键盘导航、新查询结果、历史内容变化时
+    // 递增。悬停也会更新选中项但不递增令牌：鼠标划过列表时行只高亮、列表不动，否则会出现
+    // 「悬停 → 选中变化 → 滚动 → 鼠标下换了行」的循环。
     LaunchedEffect(state.historyScrollToken) {
         val target = unpinnedEntries.indexOfFirst { it.index == state.historySelection }
         if (target < 0) return@LaunchedEffect
@@ -277,6 +277,15 @@ fun HistoryScreen(
             item.offset >= info.viewportStartOffset &&
             item.offset + item.size <= info.viewportEndOffset
         if (!fullyVisible) listState.animateScrollToItem(target)
+    }
+
+    // 面板收起时把内容区瞬间归位到第一条（[ClipboardUiState.listResetToken] 只在隐藏时自增）。
+    //
+    // 这一跳故意放在收起时做：窗口正在消失，看不见；等下次打开，列表已经在顶部，也就没有
+    // 「刚显示就看到列表滑一下」的闪动。用 `scrollToItem` 而不是动画，同上——收起这一刻
+    // 不该留下任何可见的动作。
+    LaunchedEffect(state.listResetToken) {
+        listState.scrollToItem(0)
     }
 
     /**

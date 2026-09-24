@@ -93,12 +93,19 @@ data class ClipboardUiState(
      */
     val selectedIds: Set<String> = emptySet(),
     /**
-     * 每当选中项因「非悬停」原因变化（键盘导航、新查询结果、面板重新打开）时自增。
+     * 每当选中项因「非悬停」原因变化（键盘导航、新查询结果）时自增。
      *
      * 界面的「把选中行滚进可视区」效果只跟这个令牌走：悬停同样会更新 [historySelection]，
      * 但不该带着列表滚动，因此悬停路径不递增它。
      */
     val historyScrollToken: Int = 0,
+    /**
+     * 每当面板收起时自增：界面据此把内容区**瞬间**滚回第一条。
+     *
+     * 这一刻的动作之所以安排在收起时，是因为此时窗口正在消失，跳变看不见；等下次打开，列表
+     * 已经在顶部，打开的那一帧就不必再滚一次——那一下动画正是「刚显示时页面闪一下」的来源。
+     */
+    val listResetToken: Int = 0,
     val previewOpen: Boolean = false,
     val statusMessage: String? = null,
     /** 数据库文件占用的字节数；设置页用它显示「数据库 x MB」，平台测不到时为 `null`。 */
