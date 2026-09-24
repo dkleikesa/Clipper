@@ -152,7 +152,7 @@ Clipper/
 - 构建产物未做代码签名与公证，需要用户手动放行
 - 尚未建立自动化测试基线
 
-后续计划见 [Roadmap](ROADMAP.md)。
+各版本变更见 [更新日志](CHANGELOG.md)，后续计划见 [Roadmap](ROADMAP.md)。
 
 ## 贡献
 

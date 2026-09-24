@@ -87,34 +87,36 @@ jobs:
           shasum -a 256 ./*.dmg > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
+      - name: 从 CHANGELOG 生成本版发布说明
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes="RELEASE_NOTES.md"
+
+          # 该版本的段落 = CHANGELOG.md 里的 "## [x.y.z]" 到下一个 "## [" 之间（不含标题行）
+          awk -v ver="${VERSION}" '
+            $0 ~ "^## \\[" ver "\\]" { inside = 1; next }
+            inside && /^## \[/ { exit }
+            inside { print }
+          ' CHANGELOG.md > "$notes"
+
+          if ! grep -q '[^[:space:]]' "$notes"; then
+            echo "::error::CHANGELOG.md 里没有 ${VERSION} 的段落，请先补上再发布"
+            exit 1
+          fi
+
+          echo "----- RELEASE_NOTES.md -----"
+          cat "$notes"
+
       - name: 发布到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
+          # 本版变更由上面从 CHANGELOG 生成；generate_release_notes 只补一行 Full Changelog 对比链接
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
-          body: |
-            ## 安装
-
-            1. 下载下方的 `Clipper-${{ steps.version.outputs.version }}.dmg`
-            2. 打开 DMG，将 Clipper 拖入「应用程序」
-            3. 首次启动若提示「无法验证开发者」，右键点击图标选择「打开」，或在终端执行：
-
-               ```bash
-               xattr -dr com.apple.quarantine /Applications/Clipper.app
-               ```
-
-            > 当前构建未做代码签名与公证，上述提示属预期行为。
-
-            首次使用需要在「系统设置 → 隐私与安全性 → 辅助功能」中授权，否则全局热键与自动粘贴不会生效。
-
-            ## 校验
-
-            下载后可用附件中的 `SHA256SUMS.txt` 校验完整性：
-
-            ```bash
-            shasum -a 256 -c SHA256SUMS.txt
-            ```
           files: |
             desktopApp/build/compose/binaries/main-release/dmg/*.dmg
             desktopApp/build/compose/binaries/main-release/dmg/SHA256SUMS.txt
