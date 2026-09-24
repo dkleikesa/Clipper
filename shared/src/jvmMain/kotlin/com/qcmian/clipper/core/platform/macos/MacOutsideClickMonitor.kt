@@ -15,8 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * 这里补上「失去焦点即关闭」的语义：
  *
  * - **全局监视器**：收到其它应用的鼠标抬起（点别的应用窗口、桌面、Dock、其它托盘）→ 面板外；
- * - **本地监视器**：收到本应用的鼠标抬起，若事件窗口不是面板（菜单栏、菜单）→ 面板外；
- *   是面板自身则忽略（正常交互）。点本应用托盘图标也会判为面板外，随后的
+ * - **本地监视器**：收到本应用的鼠标抬起，若事件窗口不属于本应用（菜单栏、菜单）→ 面板外；
+ *   是本应用自己的窗口（面板、设置窗口）则忽略。点本应用托盘图标也会判为面板外，随后的
  *   `togglePanel` 有 250ms 宽限位，不会把刚收起的面板重新打开。
  *
  * `addGlobalMonitorForEventsMatchingMask:handler:` 的 handler 是 ObjC block，
@@ -49,7 +49,7 @@ object MacOutsideClickMonitor {
 
     private val localCallback: Callback = object : LocalHandler {
         override fun invoke(self: Pointer?, event: Pointer?): Pointer? {
-            if (!isPanelEvent(event)) _outsideClicks.value += 1
+            if (!isOwnWindowEvent(event)) _outsideClicks.value += 1
             return event
         }
     }
@@ -64,15 +64,18 @@ object MacOutsideClickMonitor {
     private var localDescriptor: Memory? = null
 
     private var installed = false
-    private var panelTitle: String = ""
+    private var ownWindowTitles: Set<String> = emptySet()
 
     /**
      * 安装监视器；成功返回 `true`。幂等。
      * 失败（非 macOS / 原生层缺失 / block 构造失败）返回 `false`，调用方退回轮询。
      *
-     * @param panelTitle 面板窗口的 `NSWindow.title`，本地事件据此判定「点击在面板内」。
+     * @param panelTitle 面板窗口的 `NSWindow.title`。
+     * @param otherOwnTitles 本应用其它窗口的标题（如设置窗口）。**本应用自己的窗口都算「内部」**：
+     *   点在里面不是「点了别处」，否则面板一让位、用户去点设置窗口就会把面板（连带设置）
+     *   当成被点掉。
      */
-    fun install(panelTitle: String): Boolean {
+    fun install(panelTitle: String, otherOwnTitles: List<String> = emptyList()): Boolean {
         if (installed) return true
         return runCatching {
             val globalInvoke = CallbackReference.getFunctionPointer(globalCallback) ?: return false
@@ -85,7 +88,7 @@ object MacOutsideClickMonitor {
             globalDescriptor = newGlobalDescriptor
             localBlock = newLocalBlock
             localDescriptor = newLocalDescriptor
-            this.panelTitle = panelTitle
+            ownWindowTitles = (listOf(panelTitle) + otherOwnTitles).toSet()
 
             MacNative.send(
                 nsevent,
@@ -104,10 +107,10 @@ object MacOutsideClickMonitor {
         }.getOrDefault(false)
     }
 
-    /** 事件窗口是否为本面板（按标题判定；菜单栏、菜单、弹窗等都不是）。 */
-    private fun isPanelEvent(event: Pointer?): Boolean {
+    /** 事件窗口是否为本应用自己的窗口（按标题判定；菜单栏、菜单、别的应用都不是）。 */
+    private fun isOwnWindowEvent(event: Pointer?): Boolean {
         val window = MacNative.send(event, "window") ?: return false
         val title = MacNative.string(MacNative.send(window, "title"))
-        return title == panelTitle
+        return title in ownWindowTitles
     }
 }
