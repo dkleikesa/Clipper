@@ -5,7 +5,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.domain.action.modifierFlagsOf
@@ -32,7 +31,10 @@ private fun globalScopeHint(): String {
 }
 
 /**
- * 快捷键分区：按分组排列的可录制清单。
+ * 快捷键分区：**一组一张卡片**，卡片标题即分组名。
+ *
+ * 分组做成独立的卡片而不是一张大卡里的小标题：一张卡里塞十四五条、靠一条比正文还淡的小标题
+ * 分隔，扫读时根本分不出组。一张卡片一个分组之后，分组边界由卡片的边框与间距直接表达。
  *
  * 所有快捷键——包括面板内置的导航键、`⏎`、`⎋`、`⌘,`、`⌘1…⌘9`——都是 [ShortcutSlot]，
  * 因此这一页没有「能改的」与「不能改的」两段，只有一种行。
@@ -48,13 +50,13 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
     // 上一次录制被拒绝的原因：录制没有因此退出，就地说明原因、继续等下一个组合。
     val problem = recording.problem
 
-    SettingsGroup {
-        // 槽位自己的元信息（标题 / 分组 / 是否系统级）在 `ShortcutSlot` 里，界面只负责渲染，
-        // 因此新增一个可录制快捷键不需要在这里、以及在别处再各抄一份。
-        ShortcutGroup.entries.forEach { group ->
-            val slots = ShortcutSlot.entries.filter { it.group == group }
-            if (slots.isEmpty()) return@forEach
-            ShortcutGroupLabel(group.title)
+    // 槽位自己的元信息（标题 / 分组 / 是否系统级）在 `ShortcutSlot` 里，界面只负责渲染，
+    // 因此新增一个可录制快捷键不需要在这里、以及在别处再各抄一份。
+    ShortcutGroup.entries.forEach { group ->
+        val slots = ShortcutSlot.entries.filter { it.group == group }
+        if (slots.isEmpty()) return@forEach
+        SettingsGroup {
+            GroupLabel(group.title)
             slots.forEach { slot ->
                 ShortcutRow(
                     title = slot.title,
@@ -66,25 +68,26 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
                 )
             }
         }
-
-        Text(
-            text = when {
-                // 被拒绝时录制**没有**退出，就地告诉他原因、并继续等下一个组合。
-                problem != null -> "${problem.message}请换一个组合，或按 Esc 取消。"
-                recording.isActive -> "请按下新的快捷键…（至少要按一个修饰键，方向键等导航键除外）"
-                // 呼出键被清除之后没有全局热键了，得说清楚还能从哪打开面板。
-                settings.popupShortcut == null -> "呼出面板的快捷键已清除，可以从菜单栏图标打开面板。"
-                else -> "点击快捷键即可重新录制，✕ 清除绑定；" + globalScopeHint()
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = when {
-                problem != null -> colors.error
-                recording.isActive -> colors.primary
-                else -> MaterialTheme.hintColor
-            },
-            modifier = Modifier.padding(top = 6.dp),
-        )
     }
+
+    // 录制状态与全局作用域的说明不属于任何一组，落在所有卡片之后。
+    Text(
+        text = when {
+            // 被拒绝时录制**没有**退出，就地告诉他原因、并继续等下一个组合。
+            problem != null -> "${problem.message}请换一个组合，或按 Esc 取消。"
+            recording.isActive -> "请按下新的快捷键…（至少要按一个修饰键，方向键等导航键除外）"
+            // 呼出键被清除之后没有全局热键了，得说清楚还能从哪打开面板。
+            settings.popupShortcut == null -> "呼出面板的快捷键已清除，可以从菜单栏图标打开面板。"
+            else -> "点击快捷键即可重新录制，✕ 清除绑定；" + globalScopeHint()
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = when {
+            problem != null -> colors.error
+            recording.isActive -> colors.primary
+            else -> MaterialTheme.hintColor
+        },
+        modifier = Modifier.padding(top = 2.dp),
+    )
 }
 
 /**
@@ -111,21 +114,4 @@ private fun activationHint(settings: AppSettings): String? {
             ?.let { "$it$key $label" }
     }
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" / ")
-}
-
-/**
- * 分组标题（呼出与窗口 / 列表导航 / 激活与选择 / 条目与记录）。
- *
- * 必须比分组里的行更抢眼：行标题是 `bodyMedium`（14sp），这里用更大一号的 `titleSmall`
- * 加粗，颜色取 `onSurface`（正文色）而不是行说明那种灰，否则一眼看不出这是分组。
- */
-@Composable
-private fun ShortcutGroupLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
-    )
 }

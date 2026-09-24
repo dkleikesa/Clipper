@@ -84,16 +84,21 @@ internal fun SettingsGroup(
     }
 }
 
-/** 一组设置内部的小标题（如「外观」页里的窗口 / 列表显示）。 */
+/**
+ * 一组的标题（如「外观」页里的窗口 / 列表 / 搜索，或「存储与数据」里的容量 / 清除）。
+ *
+ * 必须比分组里的行**明显**更抢眼：行标题是 `bodyMedium`（14sp），所以这里用大一档的
+ * `titleMedium`（16sp）+ 加粗，颜色取正文色 `onSurface`。用 labelMedium(12sp) /
+ * labelSmall(11sp) 会让标题比正文行还小，就看不出这是分组了。
+ */
 @Composable
 internal fun GroupLabel(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.SemiBold,
-        letterSpacing = 1.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(bottom = 2.dp),
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
     )
 }
 
