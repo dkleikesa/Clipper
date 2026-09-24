@@ -5,7 +5,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.ui.Alignment
@@ -97,6 +99,13 @@ fun ApplicationScope.ClipperSettingsWindow(
         // 系统外观从宿主投影里取：面板与设置窗口用同一个原始值解析主题，不会一个深一个浅。
         val host by windowController.hostUiState.collectAsStateWithLifecycle()
 
+        // 每次窗口显示都自增一次，用来让设置页把 **Compose** 焦点抢到自己的根节点上。
+        //
+        // 只把 AWT 焦点交给内容组件（[focusKeyboardTarget]）还不够：`PreferencesScreen` 的按键
+        // 入口是根节点上的 `onPreviewKeyEvent`，而 Compose 没有焦点节点时这条链根本不会被调用
+        // ——表现为「刚打开设置、什么都还没点，Esc 没反应」，点一下内部之后才恢复。
+        var keyboardFocusToken by remember { mutableStateOf(0) }
+
         // 尺寸下限交给框架：无边框窗口的拖边缩放由 `UndecoratedWindowResizer` 实现，
         // 它读的正是 `minimumSize`。
         LaunchedEffect(Unit) {
@@ -170,11 +179,19 @@ fun ApplicationScope.ClipperSettingsWindow(
             if (!visible) return@LaunchedEffect
             launch(Dispatchers.IO) { runCatching { MacWorkspace.activateSelf() } }
             window.toFront()
+            // 先请求一次：窗口可见后尽快让 Compose 有个焦点节点（此刻 AWT 焦点可能还没到位，
+            // 这一次大概率落空，靠下面的重试兜住）。
+            keyboardFocusToken++
             // 焦点必须落到窗口内的内容组件上，不能停在窗口框架上——否则录制快捷键、
             // 输入历史上限都会「按下去没反应」（见 [focusKeyboardTarget]）。
             // 窗口刚显示时它还没成为 focused window，请求会被拒，因此跨帧重试到成功为止。
             repeat(FOCUS_TARGET_ATTEMPTS) {
-                if (focusKeyboardTarget(window)) return@LaunchedEffect
+                if (focusKeyboardTarget(window)) {
+                    // AWT 焦点真正到位之后再让 Compose 请求一次：Compose 的 `requestFocus`
+                    // 要等窗口/key window 就绪才落得下来。
+                    keyboardFocusToken++
+                    return@LaunchedEffect
+                }
                 withFrameNanos { }
             }
         }
@@ -185,6 +202,7 @@ fun ApplicationScope.ClipperSettingsWindow(
             captureShortcutKey = viewModel::captureShortcutKey,
             darkTheme = rememberClipperDarkTheme(state.settings.themeMode, host.systemDark),
             titleBarDragModifier = dragTitleBar,
+            focusRequestToken = keyboardFocusToken,
         )
     }
 }

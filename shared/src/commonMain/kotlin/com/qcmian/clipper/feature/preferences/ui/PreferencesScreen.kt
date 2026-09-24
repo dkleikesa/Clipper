@@ -148,6 +148,8 @@ fun PreferencesScreen(
     data: PreferencesUiData,
     actions: PreferencesActions,
     titleBarDragModifier: Modifier = Modifier,
+    /** 每次窗口显示都由宿主自增；变化时把 Compose 焦点抢回根节点。 */
+    focusRequestToken: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -156,8 +158,13 @@ fun PreferencesScreen(
 
     val recording = data.shortcutRecording
     val rootFocus = remember { FocusRequester() }
-    // 开始录制时把焦点抢回根节点：用户点的那一行会先把焦点带走，不抢回来录制就收不到按键。
-    LaunchedEffect(recording.slot) {
+    // 把焦点抢回根节点有两个时机：
+    // - 开始录制：用户点的那一行会先把焦点带走，不抢回来录制就收不到按键；
+    // - 窗口每次显示（[focusRequestToken] 变化）：AWT 焦点进了内容组件**不等于** Compose 有
+    //   焦点节点，而没有焦点节点时根节点上的 `onPreviewKeyEvent` 整条不会被调用——表现为
+    //   「刚打开设置、什么都没点，`Esc` 没反应」。宿主在窗口成为 key window 之后自增令牌，
+    //   请求才落得下来。
+    LaunchedEffect(recording.slot, focusRequestToken) {
         runCatching { rootFocus.requestFocus() }
     }
     // 内容被销毁时收回录制态（窗口只隐藏不销毁，那一路由状态持有者负责）。

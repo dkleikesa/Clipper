@@ -28,6 +28,8 @@ fun SettingsScreen(
     darkTheme: Boolean,
     /** 标题栏上「按住拖动窗口」的手势，由宿主注入（见 [PreferencesScreen] 的同名参数）。 */
     titleBarDragModifier: Modifier = Modifier,
+    /** 每次窗口显示都由宿主自增（见 [PreferencesScreen] 的同名参数）。 */
+    focusRequestToken: Int = 0,
     modifier: Modifier = Modifier,
 ) {
     // `PreferencesActions` 的字段全是内联 lambda，若每次重组都重建，[PreferencesScreen]
@@ -67,6 +69,7 @@ fun SettingsScreen(
             ),
             actions = actions,
             titleBarDragModifier = titleBarDragModifier,
+            focusRequestToken = focusRequestToken,
             modifier = modifier.fillMaxSize(),
         )
 
