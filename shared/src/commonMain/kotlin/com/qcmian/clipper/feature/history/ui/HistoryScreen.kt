@@ -25,6 +25,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.qcmian.clipper.core.domain.action.ClipAction
+import com.qcmian.clipper.core.domain.action.activateComboLabel
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.ui.ModifierFlags
@@ -445,26 +447,25 @@ fun HistoryScreen(
 
         // 选中集的右键菜单。弹出点只在打开的那一帧定一次，之后不跟鼠标走。
         contextMenuAt?.let { at ->
-            val pasteModifier = !settings.pasteByDefault
             SelectionContextMenu(
                 at = at,
                 selectionCount = state.selectionCount,
-                // `↵` 与 `⌥↵` **互为镜像**：自动粘贴关着时前者复制、后者粘贴，开着时正好反过来
-                // （`defaultAction` 里 `⌥` 那一支在开启时落到 `COPY`）。
-                copyHint = if (settings.pasteByDefault) "⌥↵" else "↵",
-                pasteHint = if (settings.pasteByDefault) "↵" else "⌥↵",
+                // 键位提示按当前映射现算：`⌘` / `⌥` / `⌥⇧` 的含义由设置直接指定，
+                // 写死 `↵` / `⌥↵` 会在用户改过映射之后失真。没有对应组合时不给提示。
+                copyHint = activateComboLabel(ClipAction.COPY, settings).takeIf { it.isNotEmpty() },
+                pasteHint = activateComboLabel(ClipAction.PASTE, settings).takeIf { it.isNotEmpty() },
                 allPinned = state.isSelectionAllPinned,
                 // 置顶 / 删除绑的是可录制快捷键，用户清掉绑定后就没有提示可写（菜单项仍可点）。
                 pinHint = settings.pinShortcut?.label,
                 deleteHint = settings.deleteShortcut?.label,
-                // 明确要复制，不走修饰键解析：自动粘贴开着时键盘上没有任何组合能触发复制。
+                // 这两项明确要复制 / 粘贴，不走修饰键解析（见 `ClipboardUiAction.CopySelection`）。
                 onCopy = {
                     contextMenuAt = null
                     onUiAction(ClipboardUiAction.CopySelection)
                 },
                 onPaste = {
                     contextMenuAt = null
-                    onUiAction(ClipboardUiAction.Activate(alt = pasteModifier))
+                    onUiAction(ClipboardUiAction.PasteSelection)
                 },
                 onTogglePin = {
                     contextMenuAt = null

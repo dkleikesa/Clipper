@@ -270,6 +270,9 @@ class ClipboardViewModel(
             // 菜单里的「复制」：明确要复制，不经过修饰键解析（见 `ClipboardUiAction.CopySelection`）。
             ClipboardUiAction.CopySelection -> activate(ClipAction.COPY)
 
+            // 菜单里的「粘贴」：同理，永远是粘贴。
+            ClipboardUiAction.PasteSelection -> activate(ClipAction.PASTE)
+
             is ClipboardUiAction.RunFooter -> runFooter(action.action)
 
             // 一次按键只做一件事：设置 → 多选 → 搜索 → 关窗，逐级往后退。
