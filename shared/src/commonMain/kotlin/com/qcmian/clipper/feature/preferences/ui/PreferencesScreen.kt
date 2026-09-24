@@ -109,6 +109,9 @@ data class PreferencesActions(
 /** 侧边栏宽度：放得下最长的一页名（「存储与数据」），再宽就是白占地方。 */
 private val SidebarWidth = 170.dp
 
+/** 侧边栏一行的高度。原为 28dp，配合 17dp 的图标显得挤，加高 5dp。 */
+private val SidebarItemHeight = 33.dp
+
 /** 设置窗口左栏的一页；声明顺序就是侧边栏的显示顺序。 */
 internal enum class PreferencesSection(val title: String, val icon: ClipperIconKind) {
     STORAGE("存储与数据", ClipperIconKind.DATABASE),
@@ -227,9 +230,11 @@ fun PreferencesScreen(
                         .padding(horizontal = 22.dp, vertical = 18.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    // 页面大标题比组标题再大一档（`titleLarge` 22sp）：组标题已经升到
+                    // `titleMedium`（16sp）加粗，若大标题还是 16sp，两者就分不出层级了。
                     Text(
                         text = section.title,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.onBackground,
                     )
@@ -347,7 +352,7 @@ private fun SidebarItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(28.dp)
+            .height(SidebarItemHeight)
             .clip(RoundedCornerShape(6.dp))
             .background(if (selected) colors.primary.copy(alpha = 0.14f) else Color.Transparent)
             .clickable(onClick = onClick)
