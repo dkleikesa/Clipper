@@ -168,6 +168,8 @@ private fun ShortcutPill(
  * 用户按 ✕ 的意图是「这个功能不要快捷键」。想回到默认值有设置页底部的「恢复默认设置」。
  *
  * @param hint 标题下的灰色小字，用来说明派生的交互（`⇧` 连选、`⏎` 的修饰键映射……）。
+ * @param label 覆盖胶囊里的文字。默认用 [spec] 的 `label`（`⌥⌘⌫`）；「快速粘贴」那种一带多的
+ *   绑定要写成 `⌘1…9`，一条 spec 表达不出来。
  */
 @Composable
 internal fun ShortcutRow(
@@ -177,6 +179,7 @@ internal fun ShortcutRow(
     onRecord: () -> Unit,
     onClear: () -> Unit,
     hint: String? = null,
+    label: String? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
@@ -198,7 +201,7 @@ internal fun ShortcutRow(
             }
         }
         ShortcutPill(
-            text = if (recording) "按下新快捷键" else spec?.label ?: "未设置",
+            text = if (recording) "按下新快捷键" else label ?: spec?.label ?: "未设置",
             recording = recording,
             dimmed = spec == null,
             onClick = onRecord,

@@ -59,36 +59,27 @@ sealed interface ClipboardUiAction {
     /** `⌘`点击：切换 [index] 的选中状态。 */
     data class ToggleSelection(val index: Int) : ClipboardUiAction
 
-    /** `⌘A`：全选。 */
-    data object SelectAll : ClipboardUiAction
-
     /** `Esc`：清空多选，退回单选。 */
     data object ClearSelection : ClipboardUiAction
 
     // ------------------------------------------------------------------ 激活
     /**
-     * 回车：对**当前选中集**执行动作；由修饰键决定实际的 [ClipAction]。
+     * 对**当前选中集**执行 [action]。
+     *
+     * 动作由触发它的那条快捷键直接给出（见 `ClipAction.slot`）：激活的四种按法是四条独立绑定，
+     * 这里不再表达「按了哪些修饰键」，含义也就不需要第二次解析。
      *
      * 不带下标：作用对象由 `ClipboardUiState.selectedIds` 唯一决定。
      */
-    data class Activate(
-        val shift: Boolean = false,
-        val alt: Boolean = false,
-        val meta: Boolean = false,
-    ) : ClipboardUiAction
+    data class Activate(val action: ClipAction) : ClipboardUiAction
 
-    /** `⌘1`…`⌘9` / `⌘<字母>`：动作已经解析完毕。 */
+    /** `⌘1`…`⌘9`：动作已经解析完毕（快速粘贴固定是粘贴）。 */
     data class ActivateShortcut(val index: Int, val action: ClipAction) : ClipboardUiAction
 
-    /**
-     * 复制选中集（右键菜单里的「复制」）。
-     *
-     * 不复用 `Activate(...)`：那个动作表达的是「按了哪个修饰键」，含义交给 `defaultAction`
-     * 解析；而菜单这一项必须**永远是复制**，与当前偏好下键盘有没有对应组合无关。
-     */
+    /** 复制选中集（右键菜单里的「复制」）：与 `Activate(ClipAction.COPY)` 同义。 */
     data object CopySelection : ClipboardUiAction
 
-    /** 粘贴选中集（右键菜单里的「粘贴」）。同理，必须是粘贴而与修饰键映射无关。 */
+    /** 粘贴选中集（右键菜单里的「粘贴」）。 */
     data object PasteSelection : ClipboardUiAction
 
     data class RunFooter(val action: FooterAction) : ClipboardUiAction

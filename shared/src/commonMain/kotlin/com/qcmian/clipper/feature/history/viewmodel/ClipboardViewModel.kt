@@ -17,7 +17,6 @@ import com.qcmian.clipper.di.ClipboardUseCases
 import com.qcmian.clipper.core.domain.repository.ClipboardPlatform
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
 import com.qcmian.clipper.core.domain.action.ClipAction
-import com.qcmian.clipper.core.domain.action.defaultAction
 import com.qcmian.clipper.core.domain.usecase.SelectResult
 import com.qcmian.clipper.core.domain.usecase.copyExtractedText
 import com.qcmian.clipper.core.domain.usecase.copySearchQuery
@@ -255,11 +254,9 @@ class ClipboardViewModel(
             is ClipboardUiAction.SelectOnly -> navigation.selectHistory(action.index)
             is ClipboardUiAction.SelectRange -> navigation.extendSelectionTo(action.index)
             is ClipboardUiAction.ToggleSelection -> navigation.toggleSelection(action.index)
-            ClipboardUiAction.SelectAll -> navigation.selectAll()
             ClipboardUiAction.ClearSelection -> navigation.clearSelection()
 
-            is ClipboardUiAction.Activate ->
-                activate(resolveAction(action.shift, action.alt, action.meta))
+            is ClipboardUiAction.Activate -> activate(action.action)
 
             // 数字键指向确定的某一条：先把它收成单选，再按该条目激活。
             is ClipboardUiAction.ActivateShortcut -> {
@@ -514,15 +511,11 @@ class ClipboardViewModel(
     // 激活
     // ---------------------------------------------------------------------------------
 
-    private fun resolveAction(shift: Boolean, alt: Boolean, meta: Boolean): ClipAction =
-        defaultAction(_uiState.value.settings, shift, alt, meta)
-
     /**
      * 激活**当前选中集**。上一次还没粘完就来了新的一次：旧的当场取消，已经写出去的那几条
      * 会在用例里补记一次复制。
      */
     private fun activate(action: ClipAction) {
-        if (action == ClipAction.UNKNOWN) return
         val ids = _uiState.value.selectedMetaIds
         if (ids.isEmpty()) return
 
@@ -628,11 +621,15 @@ class ClipboardViewModel(
         }
     }
 
-    /** 松开修饰键时接受当前高亮的条目。 */
+    /**
+     * 松开修饰键时接受当前高亮的条目。
+     *
+     * 这个手势等价于「按一下激活键」，因此走那条绑定对应的动作（[ClipAction.COPY]）。
+     */
     private fun onAccept() {
         val state = _uiState.value
         if (state.footerSelection < 0 && state.results.isNotEmpty()) {
-            activate(ClipAction.DEFAULT)
+            activate(ClipAction.COPY)
             onRequestHideWindow()
         }
     }

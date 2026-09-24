@@ -26,8 +26,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.core.domain.action.ClipAction
-import com.qcmian.clipper.core.domain.action.activateComboLabel
+import com.qcmian.clipper.core.domain.action.shortcutLabel
 import com.qcmian.clipper.core.domain.model.SearchResult
+import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.PinPosition
 import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.Popup
@@ -80,7 +81,8 @@ fun HistoryScreen(
     var composing by remember { mutableStateOf(false) }
 
     /**
-     * 最近一次指针按下期间按住的修饰键；点击的分流靠它：`⌘` 多选、`⇧` 连续选中、`⌥` 粘贴。
+     * 最近一次指针按下期间按住的修饰键；点击的分流靠它：`⌘` 多选、`⇧` 连续选中、
+     * `⌥` / `⌥⇧` 两条粘贴，其余按设置里的「鼠标单击条目」（见 [clickAction]）。
      *
      * 刻意不用 Compose 状态：这些值只在点击闭包里读一次，若用 `mutableStateOf`，
      * 「按下鼠标」就会重组整棵界面。
@@ -276,17 +278,16 @@ fun HistoryScreen(
                 when {
                     // ⌘：切换这一条的多选状态（点完不激活——用户是在攒要一起粘贴的那一批）。
                     pointerModifiers.command -> onUiAction(ClipboardUiAction.ToggleSelection(indexed.index))
-                    // ⇧：从锚点连续选中到这一条。
-                    pointerModifiers.shift -> onUiAction(ClipboardUiAction.SelectRange(indexed.index))
+                    // ⇧（不带 ⌥）：从锚点连续选中到这一条。
+                    pointerModifiers.shift && !pointerModifiers.alt ->
+                        onUiAction(ClipboardUiAction.SelectRange(indexed.index))
+
                     else -> {
                         // 先折叠为单选再激活：`Activate` 作用在**选中集**上，不先落单选的话，
                         // 这一次点击会把上一批选中项一起激活。
                         onUiAction(ClipboardUiAction.SelectOnly(indexed.index))
                         onUiAction(
-                            ClipboardUiAction.Activate(
-                                alt = pointerModifiers.alt,
-                                meta = pointerModifiers.control,
-                            ),
+                            ClipboardUiAction.Activate(clickAction(settings, pointerModifiers)),
                         )
                     }
                 }
@@ -374,8 +375,8 @@ fun HistoryScreen(
                 windowWidth = with(density) { size.width.toDp() }
                 windowHeight = with(density) { size.height.toDp() }
             }
-            // 记录指针按下期间按住的修饰键，这样 ⌥-点击会粘贴、
-            // ⌘⇧-点击会不带格式粘贴（`HistoryItemView.performSelect`），并管理右键菜单。
+            // 记录指针按下期间按住的修饰键，点击的分流靠它（⌘ 多选、⇧ 连续选中、⌥ 粘贴），
+            // 并管理右键菜单。
             .trackHistoryPointer(
                 modifiers = pointerModifiers,
                 isContextMenuOpen = { contextMenuAt != null },
@@ -450,10 +451,10 @@ fun HistoryScreen(
             SelectionContextMenu(
                 at = at,
                 selectionCount = state.selectionCount,
-                // 键位提示按当前映射现算：`⌘` / `⌥` / `⌥⇧` 的含义由设置直接指定，
-                // 写死 `↵` / `⌥↵` 会在用户改过映射之后失真。没有对应组合时不给提示。
-                copyHint = activateComboLabel(ClipAction.COPY, settings).takeIf { it.isNotEmpty() },
-                pasteHint = activateComboLabel(ClipAction.PASTE, settings).takeIf { it.isNotEmpty() },
+                // 键位提示按当前绑定现算：写死 `↵` / `⌥↵` 会在用户改绑之后失真；
+                // 这两条绑定被清除时不给提示（菜单项本身仍可点）。
+                copyHint = ClipAction.COPY.shortcutLabel(settings).takeIf { it.isNotEmpty() },
+                pasteHint = ClipAction.PASTE.shortcutLabel(settings).takeIf { it.isNotEmpty() },
                 allPinned = state.isSelectionAllPinned,
                 // 置顶 / 删除绑的是可录制快捷键，用户清掉绑定后就没有提示可写（菜单项仍可点）。
                 pinHint = settings.pinShortcut?.label,
@@ -490,4 +491,17 @@ fun HistoryScreen(
         state = state,
         onAction = onUiAction,
     )
+}
+
+/**
+ * 鼠标点击条目时执行的动作。
+ *
+ * `⌥` / `⌥⇧` 点击是固定的两条粘贴手势（对应快捷键里那两条粘贴），不带修饰键时读设置里的
+ * 「鼠标单击条目」（[AppSettings.clickAction]，默认激活）。鼠标因此不会被改键带走：点击做什么
+ * 只由这一项决定，`⌘` / `⇧` 点击仍然只管多选与连续选中。
+ */
+private fun clickAction(settings: AppSettings, modifiers: PointerModifiers): ClipAction = when {
+    modifiers.alt && modifiers.shift -> ClipAction.PASTE_WITHOUT_FORMATTING
+    modifiers.alt -> ClipAction.PASTE
+    else -> settings.clickAction
 }

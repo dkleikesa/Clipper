@@ -48,6 +48,20 @@ class ModifierFlags {
             if (command) add("command")
         }
 
+    /**
+     * 忘掉所有修饰键状态。
+     *
+     * 修饰键状态是靠「按下置真、松开置假」自己维护的，而录制结束后到达的那次**松开**会被丢在
+     * 门外（那时已经没有在录了），状态就停在「还按着」。下一次录制如果照着它算，
+     * 上一次按过的 `⌃` 会一直粘在新组合里——录制开始时清一次，才不会串味。
+     */
+    fun reset() {
+        control = false
+        option = false
+        shift = false
+        command = false
+    }
+
     /** 当 [event] 只是按下某个修饰键本身时返回 `true`。 */
     fun isModifierKey(event: KeyEvent): Boolean = when (event.key) {
         Key.ShiftLeft, Key.ShiftRight,

@@ -60,15 +60,44 @@ enum class ShortcutSlot(
     MOVE_TO_LAST("跳到最后一条", ShortcutGroup.NAVIGATION, global = false, default = ShortcutSpec("\u2193", command = true)),
 
     // ---------------------------------------------------------------- 激活与选择
-    /** 默认 `⏎`；含义随修饰键与「默认粘贴 / 去格式」偏好变化（见 `ClipAction.defaultAction`）。 */
-    ACTIVATE("激活选中项", ShortcutGroup.ACTIVATION, global = false, default = ShortcutSpec("\u23ce")),
-    /** 默认 `⌘1`；配合 `1…9` 激活前九个置顶项，含义同 [ACTIVATE]。 */
-    QUICK_SELECT(
-        "快速激活置顶项", ShortcutGroup.ACTIVATION, global = false,
-        default = ShortcutSpec("1", command = true), hint = "配合数字键 1…9",
+    // 激活选中项的四种按法各是一条独立绑定，对应 `ClipAction` 的四个取值。它们过去是
+    // 「一条 `⏎` + 按修饰键推导演绎」：用户得先记住 `⌘` / `⌥` / `⌥⇧` 各做什么，而那些含义
+    // 还会随行为页的开关变化。拆成四条之后，每行下面的小字就是它的全部规则。
+    /** 默认 `⌥⏎`。 */
+    ACTIVATE(
+        "激活选中项", ShortcutGroup.ACTIVATION, global = false,
+        default = ShortcutSpec("\u23ce", option = true), hint = "复制到剪贴板",
     ),
-    /** 默认 `⌘A`。 */
-    SELECT_ALL("全选", ShortcutGroup.ACTIVATION, global = false, default = ShortcutSpec("A", command = true)),
+    /** 默认 `⌥⌘⏎`；只往剪贴板写纯文本。 */
+    ACTIVATE_WITHOUT_FORMATTING(
+        "去格式激活", ShortcutGroup.ACTIVATION, global = false,
+        default = ShortcutSpec("\u23ce", option = true, command = true), hint = "只复制纯文本",
+    ),
+    /** 默认 `⏎`。 */
+    PASTE(
+        "直接粘贴", ShortcutGroup.ACTIVATION, global = false,
+        default = ShortcutSpec("\u23ce"), hint = "复制并粘贴到上一个应用",
+    ),
+    /** 默认 `⌘⏎`。 */
+    PASTE_WITHOUT_FORMATTING(
+        "去格式粘贴", ShortcutGroup.ACTIVATION, global = false,
+        default = ShortcutSpec("\u23ce", command = true), hint = "粘贴到上一个应用，只留纯文本",
+    ),
+    /**
+     * 默认 `⌘1`：配合 `1…9` 依次**粘贴**前九个置顶项，动作同 [PASTE]。
+     *
+     * 它实际上是「数字键族的**修饰键前缀**」而不是一条按键绑定——数字 `1…9` 固定，只有修饰键
+     * 可变。录制时要求按住想要的修饰键、再按一个数字（数字只是占位），落库前字符会被归一到
+     * `1`（见 `ShortcutRecorder`），因此那一行永远显示成 `⌘1` / `⌥⇧1` 这种形式。
+     *
+     * 常量名与设置里的字段名（`AppSettings.quickSelectShortcut`）都沿用「select」：它们的字面
+     * 是「快速选中第 N 条置顶项」，动作在 `HistoryKeyboard` 里定。改名字会让已存盘的偏好对不上
+     * 号，因此宁可名字旧一点。
+     */
+    QUICK_SELECT(
+        "快速粘贴置顶项", ShortcutGroup.ACTIVATION, global = false,
+        default = ShortcutSpec("1", command = true), hint = "直接按修饰键松手即可；也可再按一个数字占位",
+    ),
 
     // ---------------------------------------------------------------- 条目与记录
     /** 默认 `⌥P`。 */
@@ -86,7 +115,7 @@ enum class ShortcutSlot(
     PAUSE("暂停 / 恢复记录", ShortcutGroup.ITEM, global = false, default = ShortcutSpec("P", command = true)),
 }
 
-/** 快速激活（[ShortcutSlot.QUICK_SELECT]）使用的数字键。 */
+/** 快速粘贴（[ShortcutSlot.QUICK_SELECT]）使用的数字键。 */
 const val QUICK_SELECT_DIGITS = "123456789"
 
 /** 该槽位当前的绑定；`null` 表示未绑定。 */
@@ -99,8 +128,10 @@ fun AppSettings.shortcut(slot: ShortcutSlot): ShortcutSpec? = when (slot) {
     ShortcutSlot.MOVE_TO_FIRST -> moveToFirstShortcut
     ShortcutSlot.MOVE_TO_LAST -> moveToLastShortcut
     ShortcutSlot.ACTIVATE -> activateShortcut
+    ShortcutSlot.ACTIVATE_WITHOUT_FORMATTING -> activateWithoutFormattingShortcut
+    ShortcutSlot.PASTE -> pasteShortcut
+    ShortcutSlot.PASTE_WITHOUT_FORMATTING -> pasteWithoutFormattingShortcut
     ShortcutSlot.QUICK_SELECT -> quickSelectShortcut
-    ShortcutSlot.SELECT_ALL -> selectAllShortcut
     ShortcutSlot.PIN -> pinShortcut
     ShortcutSlot.DELETE -> deleteShortcut
     ShortcutSlot.TOGGLE_PREVIEW -> togglePreviewShortcut
@@ -117,8 +148,10 @@ fun AppSettings.withShortcut(slot: ShortcutSlot, spec: ShortcutSpec?): AppSettin
     ShortcutSlot.MOVE_TO_FIRST -> copy(moveToFirstShortcut = spec)
     ShortcutSlot.MOVE_TO_LAST -> copy(moveToLastShortcut = spec)
     ShortcutSlot.ACTIVATE -> copy(activateShortcut = spec)
+    ShortcutSlot.ACTIVATE_WITHOUT_FORMATTING -> copy(activateWithoutFormattingShortcut = spec)
+    ShortcutSlot.PASTE -> copy(pasteShortcut = spec)
+    ShortcutSlot.PASTE_WITHOUT_FORMATTING -> copy(pasteWithoutFormattingShortcut = spec)
     ShortcutSlot.QUICK_SELECT -> copy(quickSelectShortcut = spec)
-    ShortcutSlot.SELECT_ALL -> copy(selectAllShortcut = spec)
     ShortcutSlot.PIN -> copy(pinShortcut = spec)
     ShortcutSlot.DELETE -> copy(deleteShortcut = spec)
     ShortcutSlot.TOGGLE_PREVIEW -> copy(togglePreviewShortcut = spec)
@@ -126,50 +159,20 @@ fun AppSettings.withShortcut(slot: ShortcutSlot, spec: ShortcutSpec?): AppSettin
 }
 
 /**
- * 「激活键 + 修饰键」会额外命中的四种组合：`⌘` / `⌥` / `⌥⇧` / `⌘⇧`。
+ * 该槽位在实际按键解析中会命中的**全部**组合，含派生变体。
  *
- * 只关心键位（字符占位，稍后被替换成真正的激活键），含义随「默认粘贴 / 去格式」偏好变化，
- * 与 `ClipAction.defaultAction` 的映射表同源。
- */
-private val ACTIVATE_MODIFIER_SPECS = listOf(
-    ShortcutSpec(" ", command = true),
-    ShortcutSpec(" ", option = true),
-    ShortcutSpec(" ", shift = true, option = true),
-    ShortcutSpec(" ", shift = true, command = true),
-)
-
-/**
- * 该槽位在实际按键解析中会命中的**全部**组合，含派生变体：
- * - [ShortcutSlot.MOVE_NEXT] / [ShortcutSlot.MOVE_PREVIOUS] 额外占用「再加一个 `⇧`」的组合
- *   （连续选中）；
- * - [ShortcutSlot.ACTIVATE] 额外占用四种修饰键组合。
+ * 现在只剩一处派生：[ShortcutSlot.MOVE_NEXT] / [ShortcutSlot.MOVE_PREVIOUS] 之上再加一个
+ * `⇧` 就是连续选中。激活键不再有派生组合——四种按法各自是一条独立绑定。
  *
- * 录制查重按这张表而不是按单条绑定：用户把别的功能录成 `⌘⏎` 时，它和激活键的派生变体
+ * 录制查重按这张表而不是按单条绑定：用户把别的功能录成 `⇧↓` 时，它和「选中下一条」的派生组合
  * 同样会打架，必须在录制时就拦住。
  */
 fun ShortcutSlot.occupiedSpecs(spec: ShortcutSpec): List<ShortcutSpec> = when (this) {
     ShortcutSlot.MOVE_NEXT, ShortcutSlot.MOVE_PREVIOUS ->
         if (spec.hasModifiers) listOf(spec) else listOf(spec, spec.copy(shift = true))
 
-    ShortcutSlot.ACTIVATE -> listOf(spec) + spec.activationVariants()
-
     else -> listOf(spec)
 }
-
-/** 激活键的派生组合（`⌘` / `⌥` / `⌥⇧` / `⌘⇧`）；绑带修饰键时为空。 */
-fun ShortcutSpec.activationVariants(): List<ShortcutSpec> =
-    if (hasModifiers) {
-        emptyList()
-    } else {
-        ACTIVATE_MODIFIER_SPECS.map { combo ->
-            copy(
-                control = combo.control,
-                option = combo.option,
-                shift = combo.shift,
-                command = combo.command,
-            )
-        }
-    }
 
 /** 该绑定是否带了至少一个修饰键。 */
 val ShortcutSpec.hasModifiers: Boolean get() = control || option || shift || command

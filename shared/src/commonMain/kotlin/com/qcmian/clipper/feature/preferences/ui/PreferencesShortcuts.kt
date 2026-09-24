@@ -6,7 +6,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.core.settings.ActivateAction
+import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.ShortcutGroup
 import com.qcmian.clipper.core.settings.ShortcutSlot
@@ -55,10 +55,17 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
             GroupLabel(group.title)
             slots.forEach { slot ->
                 val isRecording = recording.slot == slot
+                val spec = settings.shortcut(slot)
                 ShortcutRow(
                     title = slot.title,
                     hint = slot.hint,
-                    spec = settings.shortcut(slot),
+                    spec = spec,
+                    // 「快速粘贴」一带九：显示成 `⌘1…9`，只写占位的 `1` 会被误读成单个按键。
+                    label = if (slot == ShortcutSlot.QUICK_SELECT) {
+                        spec?.let { "${it.modifiers}1…9" }
+                    } else {
+                        null
+                    },
                     recording = isRecording,
                     // 正在录制的这一行，再点一次即取消：这是取消录制的**唯一**按键方式
                     // （没有「取消录制」的快捷键，见 `ShortcutRecorder`）。
@@ -71,10 +78,10 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
                     },
                     onClear = { actions.onSettingsChange { it.withShortcut(slot, null) } },
                 )
-                // 激活键的组合映射紧跟在它后面：这是「按不同修饰键会做什么」的直接答案，
-                // 比原来那行灰色小字（只是把推导结果复述一遍）更好读，也比它更可控。
-                if (slot == ShortcutSlot.ACTIVATE) {
-                    ActivateMappingRows(settings, actions)
+                // 紧跟在四条激活动作之后：鼠标单击走的是同一个四选一，放在一起才看得出
+                // 「点击也是激活」。快速粘贴（数字键）排在它后面，因为那是另一件事。
+                if (slot == ShortcutSlot.PASTE_WITHOUT_FORMATTING) {
+                    MouseClickBlock(settings, actions)
                 }
             }
         }
@@ -100,47 +107,32 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
     )
 }
 
-/** 激活键带某个修饰键时做什么；标题就是那个组合。 */
-private class ActivateMapping(
-    val title: String,
-    val read: (AppSettings) -> ActivateAction,
-    val write: AppSettings.(ActivateAction) -> AppSettings,
-)
-
-/** 三条组合的读写；声明顺序即显示顺序。 */
-private val ActivateMappings = listOf(
-    ActivateMapping(
-        "⌘ + 激活键",
-        { it.activateWithCommand },
-        { value -> copy(activateWithCommand = value) },
-    ),
-    ActivateMapping(
-        "⌥ + 激活键",
-        { it.activateWithOption },
-        { value -> copy(activateWithOption = value) },
-    ),
-    ActivateMapping(
-        "⌥⇧ + 激活键",
-        { it.activateWithShiftOption },
-        { value -> copy(activateWithShiftOption = value) },
-    ),
-)
-
 /**
- * 激活键的三条修饰键映射。
+ * 鼠标**单击**条目时做什么。
  *
- * 取代了原先「`⌘` / `⌥` 的含义由『自动粘贴』推导、且两者对调」的做法：现在每条组合各自选
- * 复制 / 粘贴 / 去格式，那两个开关只管不带修饰键的激活键。
+ * 鼠标不读上面那四条绑定：手势与按键是两套输入，让点击跟着某条绑定走，用户改一次按键就会连带
+ * 改掉点击行为。默认「激活」——单击即复制；想「单击就粘贴」把它改成「直接粘贴」即可，而这不会
+ * 影响键盘上的任何一条。
+ *
+ * `⌥` / `⌥⇧` 点击是固定的两条粘贴手势，不经过这一项（它们没有可选项，因此这里也就不列）。
  */
 @Composable
-private fun ActivateMappingRows(settings: AppSettings, actions: PreferencesActions) {
-    ActivateMappings.forEach { mapping ->
-        SegmentedBlock(
-            title = mapping.title,
-            values = ActivateAction.entries,
-            selected = mapping.read(settings),
-            label = { it.label },
-            onSelect = { value -> actions.onSettingsChange { mapping.write(it, value) } },
-        )
-    }
+private fun MouseClickBlock(settings: AppSettings, actions: PreferencesActions) {
+    SegmentedBlock(
+        title = "鼠标单击条目",
+        values = ClipAction.entries,
+        selected = settings.clickAction,
+        label = { it.clickLabel },
+        onSelect = { value -> actions.onSettingsChange { it.copy(clickAction = value) } },
+    )
 }
+
+/** 四选一的显示名；与那四条绑定的标题同一套用词，免得同一件事有两个名字。 */
+private val ClipAction.clickLabel: String
+    get() = when (this) {
+        ClipAction.COPY -> "激活"
+        ClipAction.COPY_WITHOUT_FORMATTING -> "去格式激活"
+        ClipAction.PASTE -> "直接粘贴"
+        ClipAction.PASTE_WITHOUT_FORMATTING -> "去格式粘贴"
+    }
+

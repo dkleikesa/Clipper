@@ -21,11 +21,11 @@ enum class ShortcutProblem(val message: String) {
     /** 同一个组合被两个功能用，按下去只会命中先检查的那个。 */
     DUPLICATE("这个组合已经分配给其它功能了。"),
 
-    /** 面板自己也用这个按键（快速激活的数字键），它们先于普通快捷键执行。 */
+    /** 面板自己也用这个按键（快速粘贴的数字键），它们先于普通快捷键执行。 */
     RESERVED("面板内置操作占用了这个按键。"),
 
-    /** 快速激活只认数字键：必须录成 `⌘1`…`⌘9` 这样的组合。 */
-    QUICK_SELECT_DIGIT("快速激活请使用数字键，例如 ⌘1。"),
+    /** 快速粘贴只认数字键：**只有修饰键有意义**，数字只是占位。 */
+    QUICK_SELECT_DIGIT("请按住想要的修饰键，再按一个数字键（数字只是占位）。"),
 
     /** 已被系统或其它应用注册为全局热键。 */
     OCCUPIED("已被系统或其它应用占用。"),
@@ -61,7 +61,7 @@ fun shortcutProblem(
         return ShortcutProblem.NEEDS_MODIFIER
     }
 
-    // 快速激活只认数字键：字符是占位，真正生效的是它带的修饰键。
+    // 快速粘贴只认数字键：它真正要的只是修饰键，数字是占位；录进别键会让人误以为绑定了那个键。
     if (slot == ShortcutSlot.QUICK_SELECT && spec.character !in QUICK_SELECT_DIGITS) {
         return ShortcutProblem.QUICK_SELECT_DIGIT
     }
@@ -74,7 +74,7 @@ fun shortcutProblem(
     }
     if (duplicated) return ShortcutProblem.DUPLICATE
 
-    // 快速激活占用的数字键：同一修饰键下任意数字都会被它先接走。
+    // 快速粘贴占用的数字键：同一修饰键下任意数字都会被它先接走。
     val quickSelect = settings.shortcut(ShortcutSlot.QUICK_SELECT)
     if (slot != ShortcutSlot.QUICK_SELECT && quickSelect != null &&
         spec.character in QUICK_SELECT_DIGITS && sameModifiers(spec, quickSelect)
