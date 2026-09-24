@@ -34,18 +34,15 @@ import kotlin.math.roundToInt
 /**
  * 窗口几何：位置与尺寸的计算、预览停靠侧、用户拖拽与最小尺寸。
  *
- * 它持有全部几何状态（锚点、上一次应用的几何、程序自己设过的尺寸历史、拖拽静默期），
- * 并把这些字段从 ViewModel 里收拢到一处——原 `DesktopShellViewModel` 里耦合最深的就是这一块。
+ * 它持有全部几何状态（锚点、上一次应用的几何、程序自己设过的尺寸历史、拖拽静默期）。
  *
  * 对外只有两个观察入口（[observeWindowGeometry] / [observeUserResize]）与一个命令
  * （[moveToCursor]）；[applyWindowGeometry] 是它们共同的落点。面板显隐、预览开关、内容高度变化
  * 都不直接调用它——它们只改 [state] 或偏好，由这里的观察者自己收敛，因此窗口几何永远只有一个
  * 「算-应用」路径。
  *
- * 唯一的例外是**预览开关**：打开时窗口一次到位（宽出来的那一段是透明的，setBounds 本身
- * 不可见），收起时等界面把预览卡收回主列表后面、动画走完再把窗口缩回去（缩掉的正是已经透明
- * 的那一段）。逐帧 setBounds 的老做法已经删掉：原生 resize 与 Compose 重排每帧错位一拍，停靠
- * 左侧时窗口原点每帧左移，整个内容先右偏再弹回——动画全程都在抖。
+ * 唯一的例外是**预览开关**：打开时窗口一次到位，收起时等界面把预览卡收回主列表后面、动画走完
+ * 再把窗口缩回去。两者的理由见 [observeWindowGeometry]。
  *
  * @param openedByTray 本次显示是否由托盘触发；托盘呼出时锚点固定在菜单栏图标上
  *   （见 [placementPreference]）。
@@ -55,19 +52,11 @@ internal class WindowGeometryController(
     private val repository: ClipboardRepository,
     /** 由宿主创建、交给本类读写的窗口状态（位置 / 尺寸）。 */
     private val windowState: WindowState,
-    /**
-     * 把位置与尺寸一次性应用到窗口上。
-     *
-     * 必须一次调用完成：Compose 自己的窗口实现把它拆成 `setSize` + `setLocation` 两次原生
-     * 调用，而预览停靠左侧时窗口要同时「左移」和「变宽」（右边缘不动，主列表才停在原地），
-     * 两次调用之间的中间帧会被系统画出来——整个窗口左右闪一下。宿主改为一次 `setBounds`。
-     */
+    /** 把位置与尺寸一次性应用到窗口上：必须一次调用完成，拆成两次会闪（见 [applyNativeBounds]）。 */
     private val applyBounds: (x: Int, y: Int, width: Int, height: Int) -> Unit,
     /**
-     * 设置窗口允许的最小尺寸（AWT `window.minimumSize`）。
-     *
-     * 手动拖拽窗口边缘时由框架读它拦下收缩（`UndecoratedWindowResizer`），因此这里算的
-     * 就是内容区的下限（宽度恒为内容区下限，不含预览那一段，见 [minimumWindowSizeOf]）。
+     * 设置窗口允许的最小尺寸（AWT `window.minimumSize`）：手动拖拽窗口边缘时由框架读它拦下收缩，
+     * 因此这里算的是内容区的下限（见 [minimumWindowSizeOf]）。
      */
     private val applyMinimumSize: (width: Int, height: Int) -> Unit,
     private val openedByTray: () -> Boolean,
@@ -85,7 +74,7 @@ internal class WindowGeometryController(
     /** 应用自己最后设定过的窗口几何（位置 + 尺寸），用来跳过重复的原生调用。 */
     private var lastAppliedBounds: Rectangle? = null
 
-    /** 应用自己最后设定过的窗口最小尺寸，用来跳过重复的原生调用。 */
+    /** 同 [lastAppliedBounds]，针对原生窗口的下限尺寸。 */
     private var lastAppliedMinimumSize: DpSize? = null
 
     /**
@@ -102,15 +91,6 @@ internal class WindowGeometryController(
      * 刚显示的那一次是 `null`：开关在这次呼出里并没有变，窗口一次到位，不多跑一段揭示动画。
      */
     private var appliedPreviewOpen: Boolean? = null
-
-    /**
-     * 收起动画跑完后补发的布局结论（停靠侧 + 拖动上限，见 [publishLayout]）。
-     *
-     * 只有**收起**会欠这一笔：界面要把预览卡收回主列表后面（窗口这段时间保持宽着），布局结论
-     * 先发出去，界面就会在窗口还宽着的那几帧按「预览在右」排版——列表当场平移一个滑出宽度。
-     * 打开则相反，必须**先**发布（见 [applyWindowGeometry]）。
-     */
-    private var deferredLayout: Pair<Boolean, Dp>? = null
 
     /**
      * 主列表（内容区）左上角的锚点。预览打开时窗口以此为准向一侧展开，因此主列表本身不会移动；
@@ -140,18 +120,9 @@ internal class WindowGeometryController(
      */
     fun moveToCursor() {
         val settings = repository.settings.value
-        val cursor = cursorAnchor(settings.popupScreen) as WindowPosition.Absolute
-        // 同步「内容区锚点」：否则下次切换预览会按旧锚点摆放，窗口会跳回去。
-        contentAnchor = if (state.value.previewOnLeft) {
-            WindowPosition.Absolute(cursor.x + slideoutWidthOf(settings), cursor.y)
-        } else {
-            cursor
-        }
-        anchorPreviewWidth = settings.previewWidth
-        lastPlacementSignature = Pair(placementPreference(settings), settings.popupScreen)
-        // 挪窗口不动预览开关，因此这里不会带出动画；真带出来了（开关刚好在切）也只是少一段过渡
-        // ——直接落地，窗口一定落在算出来的位置上，不会停在中间尺寸。
-        applyWindowGeometry(state.value, settings)?.let(::applyWindowBounds)
+        // 锚点跟着光标走：不同步的话，下次切换预览会按旧锚点摆放，窗口跳回去。
+        setContentAnchor(cursorAnchor(settings.popupScreen) as WindowPosition.Absolute)
+        applyGeometryNow()
     }
 
     /**
@@ -170,8 +141,6 @@ internal class WindowGeometryController(
      * 它只在 [applyWindowGeometry] 里、**先于**尺寸跑一次：下限是原生窗口的一个属性，值一旦大于
      * 当前窗口，系统会立刻把窗口撑到下限——那是一次程序没安排的原生 resize。放在尺寸之前，这次
      * 撑大与随后的 `setBounds` 落在同一条调用里，不会单独露出来。
-     *
-     * 宽度是常数（见 [minimumWindowSizeOf]），只有高度会随界面测量的内容高度变。
      */
     private fun applyMinimumSizeIfNeeded(size: DpSize) {
         if (size == lastAppliedMinimumSize) return
@@ -216,27 +185,24 @@ internal class WindowGeometryController(
                     // 走完再把窗口缩回去——缩掉的正是已经透明的那一段，同样看不出来。等待期间
                     // 几何不落地，窗口保持宽着。
                     delay(Popup.previewRevealMillis.toLong())
-                    if (!userIsResizing()) {
-                        // 不能直接落地 toggled：等待期间预览可能又被打开、内容高度也可能变了，
-                        // 重新按最新状态算一遍（无开关变化时它自己就会应用并返回 null）。
-                        applyWindowGeometry(state.value, repository.settings.value)
-                            ?.let(::applyWindowBounds)
-                    }
+                    // 等待期间用户可能开始拖边缘（手优先），预览也可能又被打开、内容高度也会变：
+                    // 重新按最新状态算一遍，而不是直接落地上面那次算出的 `toggled`。
+                    if (!userIsResizing()) applyGeometryNow()
                 }
             }
         }
     }
 
     /**
-     * 按内容、偏好与屏幕空间算出窗口的位置与尺寸，并写进窗口。
+     * 按内容、偏好与屏幕空间算出窗口的位置与尺寸；是否当场落地见返回值。
      *
      * 主列表（内容区）的锚点先定下来，预览再以它为基准向一侧展开——默认在右侧（窗口向右
      * 加宽），主列表右边缘放不下时改到左侧（窗口向左加宽），因此预览永远不会盖住主列表，
      * 主列表本身也不会移动。
      *
-     * 返回值是**预览开关引起的那次几何变化**：非 `null` 表示这次是开关引起的、几何还没有落地，
-     * 由调用方按方向处理（打开立即 [applyWindowBounds] 一次到位，收起等界面动画走完再落地，见
-     * [observeWindowGeometry]）。返回 `null` 表示已经落地完毕。
+     * 返回值是**预览开关引起的那次几何变化**：非 `null` 表示这次是开关引起的、几何还没有落地。
+     * 只有 [observeWindowGeometry] 需要按开关方向处理它（打开立即 [applyWindowBounds] 一次到位，
+     * 收起等界面动画走完再落地）；其余入口一律走 [applyGeometryNow]。返回 `null` 表示已经落地。
      */
     private fun applyWindowGeometry(
         snapshot: DesktopShellUiState,
@@ -247,8 +213,6 @@ internal class WindowGeometryController(
             contentAnchor = null
             anchorPreviewWidth = null
             lastPlacementSignature = null
-            // 收起动画还没走完就被隐藏：押后的布局结论作废，下次显示会重新发布。
-            deferredLayout = null
             // 下次显示时窗口一次到位：重新呼出面板不是「切换预览」。
             appliedPreviewOpen = null
             return null
@@ -301,7 +265,7 @@ internal class WindowGeometryController(
         }
         contentAnchor = anchor
 
-        // 预览停靠在哪一侧：优先右侧，右侧放不下时改左侧，两侧都放不下就退回覆盖层。
+        // 预览停靠在哪一侧：优先右侧，右侧放不下时改左侧。
         //
         // 判断的是「窗口整个（主列表 + 滑出面板）放不放得进屏幕」，而不是「预览放不放得进
         // 列表旁边」：主列表是跟着窗口走的，只要窗口被 `constrained` 夹回屏幕内，主列表就会
@@ -326,8 +290,7 @@ internal class WindowGeometryController(
         // 尺寸由内容与偏好决定（预览并排时额外容纳滑出面板）；位置以锚点为基准，预览停靠左侧时
         // 窗口向左展开——两者用的必须是**同一个**滑出宽度，否则窗口边缘和面板会差着一段。
         //
-        // 高度截的是「锚点下方还剩多少」，不是窗口当前的 y：那样会让「窗口有多高」和「窗口在哪」
-        // 互相追赶（见 `autoWindowSize`）。实在放不下时由下面的 `constrained` 把窗口上移。
+        // 高度截的是「锚点下方还剩多少」，不是窗口当前的 y，理由（棘轮效应）见 `autoWindowSize`。
         val slideout = if (previewOpen) {
             desiredSlideout.coerceAtMost(if (previewOnLeft) roomLeft else roomRight)
         } else {
@@ -364,8 +327,6 @@ internal class WindowGeometryController(
         }
 
         rememberAppliedSize(target)
-        // 位置与尺寸必须一次应用（见 [applyBounds]），`windowState` 也由 [applyWindowBounds] 一并
-        // 对齐——不写它会留下一帧「尺寸已新、位置仍旧」的窗口，理由见那里。
         val placed = constrained(
             x = windowX.toInt(),
             y = anchor.y.value.toInt(),
@@ -376,7 +337,6 @@ internal class WindowGeometryController(
         // 窗口撑到下限，排在这里就能与随后的 `setBounds` 落在同一条调用里。
         applyMinimumSizeIfNeeded(minimumWindowSizeOf(snapshot.minimumHeight))
 
-        // Java 的 `Rectangle` 不吃具名参数。
         val placedBounds = Rectangle(
             placed.x.value.roundToInt(),
             placed.y.value.roundToInt(),
@@ -384,21 +344,20 @@ internal class WindowGeometryController(
             target.height.value.roundToInt(),
         )
 
-        // 预览开关带来的宽度变化交给调用方按开关方向处理（见 [observeWindowGeometry]）：打开一次
-        // 到位，收起等界面动画走完再缩窗；其余来源（面板显隐、内容高度、偏好改动、窗口被挪走）
-        // 一律一次到位。曾经的做法是这里逐帧 setBounds——原生 resize 与 Compose 重排每帧错位
-        // 一拍，停靠左侧时窗口原点每帧左移，整个内容先右偏再弹回，动画全程都在抖，已废弃。
+        // 预览开关带来的宽度变化交给调用方按开关方向处理（见 [observeWindowGeometry]），其余来源
+        // （面板显隐、内容高度、偏好改动、窗口被挪走）一律一次到位。曾经的做法是这里逐帧
+        // setBounds——原生 resize 与 Compose 重排每帧错位一拍，停靠左侧时窗口原点每帧左移，整个
+        // 内容先右偏再弹回，动画全程都在抖，已废弃。
         val togglingPreview = appliedPreviewOpen != null && appliedPreviewOpen != previewOpen
         appliedPreviewOpen = previewOpen
         if (togglingPreview) {
-            if (previewOpen) {
-                // 打开：停靠侧必须**先**发布。窗口是朝预览那一侧长出去的，列表得立刻按新的一侧
-                // 贴住锚点（左侧停靠时贴窗口右边缘），否则它会跟着窗口的左边缘一起平移。
-                publishLayout(previewOnLeft, maxPreviewWidth)
-            } else {
-                // 收起：结论押后到界面动画走完、窗口缩回去时再发（见 [deferredLayout]）。
-                deferredLayout = Pair(previewOnLeft, maxPreviewWidth)
-            }
+            // 打开：停靠侧必须**先**发布。窗口是朝预览那一侧长出去的，列表得立刻按新的一侧贴住
+            // 锚点（左侧停靠时贴窗口右边缘），否则它会跟着窗口的左边缘一起平移。
+            //
+            // 收起则相反：这一次既不发布局、也不落窗口。界面此刻正把预览卡收回主列表后面，按旧
+            // 结论（窗口还宽着、预览仍在原侧）排版才对；等动画走完由调用方重算一遍，那一次不再
+            // 是开关引起的，自然会发布并落地（见 [observeWindowGeometry]）。
+            if (previewOpen) publishLayout(previewOnLeft, maxPreviewWidth)
             return placedBounds
         }
         publishLayout(previewOnLeft, maxPreviewWidth)
@@ -407,17 +366,23 @@ internal class WindowGeometryController(
     }
 
     /**
+     * 「算 + 落」一次做完：按当前状态算出几何并立刻应用。
+     *
+     * 走到这里说明调用方不需要分辨预览开关的方向——挪窗口到光标处、用户拖完边缘都是「这一帧
+     * 就要落在算出来的位置上」，撞上开关也只是少一段过渡。[observeWindowGeometry] 是唯一例外，
+     * 它自己处理返回值。
+     */
+    private fun applyGeometryNow() {
+        applyWindowGeometry(state.value, repository.settings.value)?.let(::applyWindowBounds)
+    }
+
+    /**
      * 把摆窗口的产物发布给界面：预览停靠在哪一侧、这一侧还能给多宽。
      *
-     * 界面算不出这两件事（它们是「窗口整个放不放得进屏幕」的结论），但它们也**不**表示「预览
-     * 该不该在画面上」——那由设置本身决定（见 `HistoryScreen` 的预览段）：为预览让位的加宽 / 收回
-     * 就是窗口宽度本身，界面跟着窗口走就行。值没变时不产生新状态。
-     *
-     * 发布的一定是最新结论，因此顺手清掉可能欠着的那一笔（见 [deferredLayout]）：它已经被这次
-     * 取代，再发出去就是拿旧值往回写。
+     * 它们是「窗口整个放不放得进屏幕」的结论，界面自己算不出；但它们**不**表示「预览该不该在
+     * 画面上」（那由设置本身决定）：界面只需要跟着窗口宽度走。值没变时不产生新状态。
      */
     private fun publishLayout(previewOnLeft: Boolean, maxPreviewWidth: Dp) {
-        deferredLayout = null
         state.update {
             if (it.previewOnLeft == previewOnLeft && it.maxPreviewWidth == maxPreviewWidth) {
                 it
@@ -481,8 +446,7 @@ internal class WindowGeometryController(
     suspend fun observeUserResize() {
         snapshotFlow { windowState.size }
             .collectLatest { size ->
-                // 命中程序最近设过的某个尺寸 —— 这次通知是自己造成的，直接忽略。
-                // 判据必须是「最近若干次」而不是「最后一次」，理由见 [recentAppliedSizes]。
+                // 这条通知是程序自己造成的（见 [recentAppliedSizes]），忽略。
                 if (wasAppliedByProgram(size)) return@collectLatest
 
                 if (!state.value.userResizing) state.update { it.copy(userResizing = true) }
@@ -504,13 +468,12 @@ internal class WindowGeometryController(
                 // 必须在写设置之前——设置一变，[observeWindowGeometry] 可能立刻按旧锚点把窗口
                 // 拉回去，等于把刚才的拖动撤销掉。
                 rememberContentAnchor()
+                // 内容区下限：右 / 下两侧的拖拽框架不读 `minimumSize`，落盘时收敛一次，最终尺寸
+                // 同样不会低于下限（见 [minimumWindowSizeOf]）。宽度用 [Popup.minimumSplitContentWidth]
+                // ——它比窗口下限小：预览开着时拖窄窗口，被挤窄的是主列表，按窗口下限收敛会把窗口
+                // 又顶宽；高度用界面报上来的窗口下限，滑动区因此总是留着「剪贴板为空时」那一档。
                 repository.setSettings(
                     settings.copy(
-                        // 内容区下限：右 / 下两侧的拖拽框架不读 `minimumSize`，落盘时收敛一次，
-                        // 最终尺寸同样不会低于下限（见 [minimumWindowSizeOf]）。这里用的是
-                        // 「划分里的下限」[Popup.minimumSplitContentWidth]（比窗口下限小）：
-                        // 预览开着时拖窄窗口，同时被挤窄的是主列表，按窗口下限收敛会把窗口又顶宽。
-                        // 高度用的是界面报上来的窗口下限，滑动区因此总是留着「剪贴板为空时」那一档。
                         customWindowWidth = contentWidth.value.roundToInt()
                             .coerceAtLeast(Popup.minimumSplitContentWidth.value.toInt()),
                         customWindowHeight = size.height.value.roundToInt()
@@ -524,25 +487,32 @@ internal class WindowGeometryController(
                 // 用户拖出的尺寸仍要受屏幕约束（例如不能盖住 Dock），补一次程序化几何。
                 // 拖动期间开关不可能变，因此这里不会撞上开关的收起等待；真带出来了也直接
                 // 落地，理由同 [moveToCursor]。
-                applyWindowGeometry(
-                    snapshot = state.value,
-                    settings = repository.settings.value,
-                )?.let(::applyWindowBounds)
+                applyGeometryNow()
             }
+    }
+
+    /**
+     * 按「主列表（内容区）左上角在哪」写入锚点，并同步它的有效期凭据。
+     *
+     * 三件事必须一起写：锚点本身；锚点是在哪个预览宽度下定的（[anchorPreviewWidth]，拖动分隔条
+     * 时靠它把锚点按差值挪过去）；以及取锚点时的位置偏好签名（[lastPlacementSignature]）。
+     */
+    private fun setContentAnchor(anchor: WindowPosition.Absolute) {
+        val settings = repository.settings.value
+        contentAnchor = if (state.value.previewOnLeft) {
+            WindowPosition.Absolute(anchor.x + slideoutWidthOf(settings), anchor.y)
+        } else {
+            anchor
+        }
+        anchorPreviewWidth = settings.previewWidth
+        lastPlacementSignature = Pair(placementPreference(settings), settings.popupScreen)
     }
 
     /** 以当前窗口位置更新「内容区锚点」；面板尚未摆放时不动。 */
     private fun rememberContentAnchor() {
         if (contentAnchor == null) return
         val position = windowState.position as? WindowPosition.Absolute ?: return
-        val settings = repository.settings.value
-        contentAnchor = if (state.value.previewOnLeft) {
-            WindowPosition.Absolute(position.x + slideoutWidthOf(settings), position.y)
-        } else {
-            position
-        }
-        anchorPreviewWidth = settings.previewWidth
-        lastPlacementSignature = Pair(placementPreference(settings), settings.popupScreen)
+        setContentAnchor(position)
     }
 
     /** 用户是否正在手动调整窗口尺寸（含刚停下的一小段静默期）。 */
