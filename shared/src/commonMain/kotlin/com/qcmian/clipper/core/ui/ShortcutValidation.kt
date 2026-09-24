@@ -1,8 +1,11 @@
 package com.qcmian.clipper.core.ui
 
 import com.qcmian.clipper.core.settings.AppSettings
+import com.qcmian.clipper.core.settings.QUICK_SELECT_DIGITS
 import com.qcmian.clipper.core.settings.ShortcutSlot
 import com.qcmian.clipper.core.settings.ShortcutSpec
+import com.qcmian.clipper.core.settings.hasModifiers
+import com.qcmian.clipper.core.settings.occupiedSpecs
 import com.qcmian.clipper.core.settings.shortcut
 
 /**
@@ -12,56 +15,39 @@ import com.qcmian.clipper.core.settings.shortcut
  * 就是真的注册一次（见 `NativeDataSource.isGlobalShortcutAvailable`）。
  */
 enum class ShortcutProblem(val message: String) {
-    /** 一个裸键会在面板里吞掉普通输入，在系统里也会抢走别的应用的正键。 */
-    NEEDS_MODIFIER("至少要有一个修饰键（⌘ / ⌥ / ⌃ / ⇧）。"),
+    /** 单按一个可输入字符会在面板里吞掉普通输入，全局键则会在系统范围内抢键。 */
+    NEEDS_MODIFIER("这个按键不能单独使用，请至少按一个修饰键（⌘ / ⌥ / ⌃ / ⇧）。"),
 
     /** 同一个组合被两个功能用，按下去只会命中先检查的那个。 */
     DUPLICATE("这个组合已经分配给其它功能了。"),
 
-    /** 面板自己也用这个按键（导航、回车、清空搜索……），它们先于可录制快捷键执行。 */
+    /** 面板自己也用这个按键（快速激活的数字键），它们先于普通快捷键执行。 */
     RESERVED("面板内置操作占用了这个按键。"),
+
+    /** 快速激活只认数字键：必须录成 `⌘1`…`⌘9` 这样的组合。 */
+    QUICK_SELECT_DIGIT("快速激活请使用数字键，例如 ⌘1。"),
 
     /** 已被系统或其它应用注册为全局热键。 */
     OCCUPIED("已被系统或其它应用占用。"),
 }
 
 /**
- * 面板自己保留的按键（按字符判定）：方向键、翻页键、回车、Esc。
+ * 可输入字符（字母 / 数字 / 标点 / 空格）：单按它们会与搜索输入冲突，必须带修饰键。
  *
- * 这些分支在 `HistoryKeyboard.resolveKeyActions` 里只看按键、不看修饰键，因此任何修饰键组合
- * 都命中它们——录给可录制快捷键只会「按下去没反应」。
- *
- * 集合比设置页的固定速查表（`core.ui.fixedShortcuts`）**更宽**：速查表只列面板真的用到的
- * 那些按键，这里还额外拦住「方向键与翻页键」的全部键位（用户看到一颗方向键就想录，是常见误操作）。
+ * 方向键、回车、`⎋`、功能键等非输入字符不受此限——它们的默认绑定本来就是裸键
+ * （`↑` / `↓` / `⏎` / `⎋`），单按不会吞掉打字。
  */
-private val PANEL_NAVIGATION_CHARACTERS = setOf(
-    "\u2191", "\u2193", "\u2190", "\u2192",
-    "\u2196", "\u2198", "\u21de", "\u21df",
-    "\u23ce", "\u2324", "\u238b",
-)
-
-/**
- * 面板自己保留的组合（按组合判定）：`⌃⌥N`/`⌃⌥P` 跳到首尾、`⌘,` 打开设置。
- *
- * 与 [PANEL_NAVIGATION_CHARACTERS] 一样，这里列的就是 `HistoryKeyboard` 里可录制快捷键
- * **之前**的那些分支；改动那张 `when` 时要一并回来核对。
- */
-private val PANEL_RESERVED_SPECS = listOf(
-    ShortcutSpec("N", control = true, option = true),
-    ShortcutSpec("P", control = true, option = true),
-    ShortcutSpec(",", command = true),
-)
-
-/**
- * 条目快捷键（`⌘1`…`⌘9`）用的字符：前九个置顶项固定占用它们的任意修饰键变体。
- */
-private const val QUICK_SELECT_CHARACTERS = "123456789"
+private val TYPING_CHARACTERS: Set<String> = buildSet {
+    ('A'..'Z').forEach { add(it.toString()) }
+    ('0'..'9').forEach { add(it.toString()) }
+    addAll(listOf(",", ".", "/", ";", "'", "[", "]", "\\", "-", "=", "`", " "))
+}
 
 /**
  * 纯本地的可用性检查：不碰系统、只看这条组合与面板自身的关系。
  *
- * 检查顺序由「先拦最贵的」决定：一个裸键最糟（面板与系统都会被打扰），
- * 其次是重复绑定，最后才是面板内置按键。
+ * 检查顺序由「先拦最贵的」决定：一个会吞掉输入的裸键最糟，其次是重复绑定（含派生组合），
+ * 最后才是面板内置的数字键。
  *
  * 系统 / 其它应用的占用不在这里判断——那需要真的去注册一次，交给调用方（见 [ShortcutProblem.OCCUPIED]）。
  */
@@ -70,19 +56,35 @@ fun shortcutProblem(
     slot: ShortcutSlot,
     settings: AppSettings,
 ): ShortcutProblem? {
-    if (!spec.command && !spec.control && !spec.option && !spec.shift) {
+    // 全局快捷键再裸也不能没有修饰键；面板内的裸键只在「会吞掉输入」时才拦。
+    if (!spec.hasModifiers && (slot.global || spec.character in TYPING_CHARACTERS)) {
         return ShortcutProblem.NEEDS_MODIFIER
     }
 
+    // 快速激活只认数字键：字符是占位，真正生效的是它带的修饰键。
+    if (slot == ShortcutSlot.QUICK_SELECT && spec.character !in QUICK_SELECT_DIGITS) {
+        return ShortcutProblem.QUICK_SELECT_DIGIT
+    }
+
+    // 与其它槽位冲突：按「实际会命中的全部组合」比，而不是只比单条绑定。
     val duplicated = ShortcutSlot.entries.any { other ->
-        other != slot && settings.shortcut(other) == spec
+        other != slot && settings.shortcut(other)?.let { otherSpec ->
+            spec in other.occupiedSpecs(otherSpec)
+        } == true
     }
     if (duplicated) return ShortcutProblem.DUPLICATE
 
-    if (spec.character in PANEL_NAVIGATION_CHARACTERS) return ShortcutProblem.RESERVED
-    if (spec in PANEL_RESERVED_SPECS) return ShortcutProblem.RESERVED
-    // 条目快捷键只认字符，任意修饰键变体都算占用（`⌘1`、`⌥1`、`⌃⇧1` 都是第 1 条）。
-    if (spec.character in QUICK_SELECT_CHARACTERS) return ShortcutProblem.RESERVED
+    // 快速激活占用的数字键：同一修饰键下任意数字都会被它先接走。
+    val quickSelect = settings.shortcut(ShortcutSlot.QUICK_SELECT)
+    if (slot != ShortcutSlot.QUICK_SELECT && quickSelect != null &&
+        spec.character in QUICK_SELECT_DIGITS && sameModifiers(spec, quickSelect)
+    ) {
+        return ShortcutProblem.RESERVED
+    }
 
     return null
 }
+
+/** 两个组合的修饰键是否一致（忽略字符）。 */
+private fun sameModifiers(a: ShortcutSpec, b: ShortcutSpec): Boolean =
+    a.control == b.control && a.option == b.option && a.shift == b.shift && a.command == b.command

@@ -121,8 +121,20 @@ data class AppSettings(
     /**
      * 每个槽位的取值见 [ShortcutSlot]；`null` 表示用户把它**清除**了（未绑定），
      * 与「还没改过、用出厂默认值」不是一回事。
+     *
+     * 面板内置按键（导航、激活、`⎋`、`⌘,`、`⌘1…⌘9`）与条目操作共用同一套槽位，
+     * 因此设置页里每一行都可录制。
      */
     val popupShortcut: ShortcutSpec? = ShortcutSlot.POPUP.default,
+    val closeShortcut: ShortcutSpec? = ShortcutSlot.CLOSE.default,
+    val openSettingsShortcut: ShortcutSpec? = ShortcutSlot.OPEN_SETTINGS.default,
+    val movePreviousShortcut: ShortcutSpec? = ShortcutSlot.MOVE_PREVIOUS.default,
+    val moveNextShortcut: ShortcutSpec? = ShortcutSlot.MOVE_NEXT.default,
+    val moveToFirstShortcut: ShortcutSpec? = ShortcutSlot.MOVE_TO_FIRST.default,
+    val moveToLastShortcut: ShortcutSpec? = ShortcutSlot.MOVE_TO_LAST.default,
+    val activateShortcut: ShortcutSpec? = ShortcutSlot.ACTIVATE.default,
+    val quickSelectShortcut: ShortcutSpec? = ShortcutSlot.QUICK_SELECT.default,
+    val selectAllShortcut: ShortcutSpec? = ShortcutSlot.SELECT_ALL.default,
     val pauseShortcut: ShortcutSpec? = ShortcutSlot.PAUSE.default,
     val pinShortcut: ShortcutSpec? = ShortcutSlot.PIN.default,
     val deleteShortcut: ShortcutSpec? = ShortcutSlot.DELETE.default,
