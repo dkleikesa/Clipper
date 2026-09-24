@@ -58,12 +58,21 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
         SettingsGroup {
             GroupLabel(group.title)
             slots.forEach { slot ->
+                val isRecording = recording.slot == slot
                 ShortcutRow(
                     title = slot.title,
                     hint = slotHint(slot, settings),
                     spec = settings.shortcut(slot),
-                    recording = recording.slot == slot,
-                    onRecord = { actions.onStartShortcutRecording(slot) },
+                    recording = isRecording,
+                    // 正在录制的这一行，再点一次即取消：`⌘.` 之外的另一条退出路径，
+                    // 免得用户按不动（取消键不是 Esc，见 `ShortcutRecorder.onKeyEvent`）。
+                    onRecord = {
+                        if (isRecording) {
+                            actions.onCancelShortcutRecording()
+                        } else {
+                            actions.onStartShortcutRecording(slot)
+                        }
+                    },
                     onClear = { actions.onSettingsChange { it.withShortcut(slot, null) } },
                 )
             }
@@ -74,10 +83,10 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
     Text(
         text = when {
             // 被拒绝时录制**没有**退出，就地告诉他原因、并继续等下一个组合。
-            problem != null -> "${problem.message}请换一个组合，或按 Esc 取消。"
+            problem != null -> "${problem.message}请换一个组合，或按 ⌘. 取消。"
             recording.isActive ->
                 "请按下新的快捷键（至少要按一个修饰键，方向键等导航键除外）；" +
-                    "裸按 Esc 取消录制，要把 Esc 本身录进去请配合一个修饰键。"
+                    "取消录制请按 ⌘. 或再点一次这个胶囊。"
             // 呼出键被清除之后没有全局热键了，得说清楚还能从哪打开面板。
             settings.popupShortcut == null -> "呼出面板的快捷键已清除，可以从菜单栏图标打开面板。"
             else -> "点击快捷键即可重新录制，右侧垃圾桶清除绑定；" + globalScopeHint()
