@@ -272,8 +272,12 @@ class ClipboardViewModel(
 
             is ClipboardUiAction.RunFooter -> runFooter(action.action)
 
-            // 一次按键只做一件事：多选 → 搜索 → 关窗，逐级往后退。
+            // 一次按键只做一件事：设置 → 多选 → 搜索 → 关窗，逐级往后退。
+            // 设置窗口排在最前：它开着时 ESC 先把它关掉，再按一次才轮到面板（见 ROADMAP）。
             ClipboardUiAction.Escape -> when {
+                _uiState.value.settingsOpen ->
+                    _uiState.update { it.copy(settingsOpen = false, shortcutRecording = ShortcutRecording()) }
+
                 _uiState.value.isMultiSelect -> navigation.clearSelection()
                 // 搜索状态下 `Esc` 只清空搜索（`KeyChord.clearSearch`）；搜索为空时才关闭面板
                 // （`KeyChord.close`）。
@@ -606,9 +610,19 @@ class ClipboardViewModel(
      * 收起时窗口正在消失，这一跳看不见；等下次打开，列表已经在第一条上，也就不会出现
      * 「刚显示就看到列表滑一下」的闪动。内容是**瞬间**归位而非动画，同样是为了收起这一刻
      * 不留下可见的动作。
+     *
+     * 同时把设置窗口一并收起：主窗口都没了，留一个孤立的设置窗口没有意义（见 ROADMAP）。
+     * 「打开设置时面板让位」那一次不会走到这里——它刻意不发 `WindowController.requestHide`
+     * （见 `PanelPresentationController.hidePanel` 的 `notifyHidden`）。
      */
     private fun onHidden() {
-        _uiState.update { it.copy(listResetToken = it.listResetToken + 1) }
+        _uiState.update {
+            it.copy(
+                listResetToken = it.listResetToken + 1,
+                settingsOpen = false,
+                shortcutRecording = ShortcutRecording(),
+            )
+        }
     }
 
     /** 松开修饰键时接受当前高亮的条目。 */

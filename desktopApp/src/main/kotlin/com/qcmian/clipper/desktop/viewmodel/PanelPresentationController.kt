@@ -5,6 +5,7 @@ import com.qcmian.clipper.core.platform.macos.MacOutsideClickMonitor
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.desktop.domain.FOCUS_GRACE_MILLIS
 import com.qcmian.clipper.desktop.domain.PANEL_WINDOW_TITLE
+import com.qcmian.clipper.desktop.domain.SETTINGS_WINDOW_TITLE
 import com.qcmian.clipper.desktop.domain.PopupMode
 import com.qcmian.clipper.desktop.domain.TRAY_CLICK_GRACE_MILLIS
 import com.qcmian.clipper.host.HotkeyController
@@ -26,6 +27,14 @@ internal class PanelPresentationController(
     private val state: MutableStateFlow<DesktopShellUiState>,
     private val panel: WindowController,
     private val hotkey: HotkeyController,
+    /**
+     * 设置窗口此刻是否开着（读状态持有者，而不是 [WindowController.hostUiState] 的投影）。
+     *
+     * 投影由 `App` 的 `SideEffect` 写入，比真实状态晚一帧：判定「这次失焦是不是设置窗口抢的」
+     * 正发生在那一帧的窗口里，读投影会偶尔读到 `false`，于是把「给设置让位」当成用户关闭主窗口
+     * ——面板照旧收起（没问题），却会连带把刚打开的设置窗口一起关掉。
+     */
+    private val isSettingsWindowOpen: () -> Boolean = { false },
 ) {
     /**
      * 本次显示是否由点击托盘图标触发。是的话位置直接锚定菜单栏图标：点托盘那一刻光标就在
@@ -46,6 +55,14 @@ internal class PanelPresentationController(
 
     /** 最近一次「点击面板之外」导致的收起时刻，用于识别同一次点击触发的托盘切换。 */
     private var lastOutsideHideAtMillis = 0L
+
+    /**
+     * 面板这一次收起是不是「给设置窗口让位」。
+     *
+     * 是的话，设置窗口关闭时要把面板放回来——用户从面板打开设置、改完再按 Esc，
+     * 看到的应当还是那个面板，而不是一片空桌面（见 [restorePanel]）。
+     */
+    private var hiddenForSettings = false
 
     /**
      * 全局热键在面板隐藏时按下：只做表现层该记的账（抓前台应用 + 标记非托盘呼出），
@@ -75,14 +92,22 @@ internal class PanelPresentationController(
         if (state.value.windowVisible) hidePanel() else showPanel()
     }
 
-    /** 隐藏面板。[restoreFocus] 为 `false`（因点击别处而失焦）时不抢回焦点。 */
-    fun hidePanel(restoreFocus: Boolean = true) {
+    /**
+     * 隐藏面板。[restoreFocus] 为 `false`（因点击别处而失焦）时不抢回焦点。
+     *
+     * [notifyHidden] 为 `false` 时不发 [WindowController.requestHide]：那一路会让状态持有者
+     * 把「面板被收起」理解为用户关闭主窗口，从而一并关掉设置窗口。打开设置窗口时面板也要让位，
+     * 但那不是「关闭主窗口」，因此那一条路径传 `false`。
+     */
+    fun hidePanel(restoreFocus: Boolean = true, notifyHidden: Boolean = true) {
         val pid = previousAppPid
+        // 「给设置让位」的收起要记住，设置关闭时才能把面板放回原处。其余收起是真正的关闭。
+        hiddenForSettings = !notifyHidden
         state.update {
             it.copy(windowVisible = false, popupMode = PopupMode.TOGGLE, panelOpenedByTray = false)
         }
         // `FloatingPanel.close()`：关闭弹窗时一并关闭预览。
-        panel.requestHide()
+        if (notifyHidden) panel.requestHide()
         panel.clearSearch()
         // 把焦点还给此前聚焦的应用：合成粘贴（⌘V）才会落到它上面。
         if (restoreFocus && pid > 0) {
@@ -91,6 +116,33 @@ internal class PanelPresentationController(
             MacKeyboard.pasteTargetPid = pid
             runCatching { MacWorkspace.activate(pid) }
         }
+    }
+
+    /**
+     * 取出并清空「面板这次是为设置让位而收起」的标记。
+     *
+     * 设置窗口关闭时读它：为真才把面板放回来（见 [restorePanel]），否则说明面板是用户
+     * 明确关掉的，别自作主张再弹出来。
+     */
+    fun consumeHiddenForSettings(): Boolean {
+        val value = hiddenForSettings
+        hiddenForSettings = false
+        return value
+    }
+
+    /**
+     * 设置窗口关闭后把面板放回原处：用户从面板打开设置、改完退出，回到的应当还是那个面板
+     * （也因此 `Esc` 能接着把面板关掉，而不是在一片空桌面上再按一次没反应）。
+     *
+     * 走的是与热键打开相同的通道（`hotkey.requestOpen`），但不算托盘呼出：几何锚点不该切到
+     * 菜单栏图标上。
+     */
+    fun restorePanel() {
+        if (state.value.windowVisible) return
+        state.update {
+            it.copy(windowVisible = true, popupMode = PopupMode.TOGGLE, panelOpenedByTray = false)
+        }
+        hotkey.requestOpen()
     }
 
     fun onWindowGainedFocus() {
@@ -113,9 +165,11 @@ internal class PanelPresentationController(
         // 按 ⌘, 打开设置，多半正好落在「面板刚显示」的宽限期内；二来面板自己那层模态
         // （清除确认）此刻是画在设置窗口里的（见 `HistoryDialogs`），拿它拦住隐藏只会把面板
         // 留在屏幕上、和设置窗口叠在一起。
-        if (host.isSettingsWindowOpen) {
+        if (isSettingsWindowOpen() || host.isSettingsWindowOpen) {
             // 不能把焦点还给上一个应用——用户要的是设置窗口，抢回去等于把它挤到后面。
-            hidePanel(restoreFocus = false)
+            // `notifyHidden = false`：这次收起是「给设置窗口让位」，不是用户关闭主窗口，
+            // 不该连带把设置窗口一起关掉（见 [hidePanel]）。
+            hidePanel(restoreFocus = false, notifyHidden = false)
             return
         }
         if (host.isModalOpen) return
@@ -147,7 +201,9 @@ internal class PanelPresentationController(
      * 「点击别处收起」这一条能力静默缺失，其余收起路径（失焦、Esc、托盘、热键）不受影响。
      */
     suspend fun observeOutsideClicks() {
-        MacOutsideClickMonitor.install(PANEL_WINDOW_TITLE)
+        // 设置窗口也是本应用自己的窗口：点在里面不算「点了别处」，否则面板一让位、
+        // 用户去点设置窗口就会把面板（连带设置）当成被点掉。
+        MacOutsideClickMonitor.install(PANEL_WINDOW_TITLE, listOf(SETTINGS_WINDOW_TITLE))
         MacOutsideClickMonitor.outsideClicks.collect {
             if (state.value.windowVisible && !panel.hostUiState.value.isModalOpen) {
                 lastOutsideHideAtMillis = System.currentTimeMillis()

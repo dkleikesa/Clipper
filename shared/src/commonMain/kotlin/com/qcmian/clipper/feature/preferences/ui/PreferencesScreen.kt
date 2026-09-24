@@ -75,6 +75,8 @@ data class PreferencesUiData(
      * 窗口关掉时也不该把它忘掉——宿主正靠它让出系统级热键。
      */
     val shortcutRecording: ShortcutRecording = ShortcutRecording(),
+    /** 「清除历史」确认框此刻是否开着；`Esc` 时它比设置窗口本身优先。 */
+    val hasConfirmation: Boolean = false,
 )
 
 /** 偏好设置的全部上行动作。 */
@@ -84,6 +86,8 @@ data class PreferencesActions(
     val onClearAll: () -> Unit,
     /** 关闭设置窗口（标题栏的关闭按钮、页内「恢复默认设置」都走它）。 */
     val onDismiss: () -> Unit,
+    /** 关掉「清除历史」确认框（`Esc` 在确认框开着时走它）。 */
+    val onDismissConfirmation: () -> Unit = {},
     /** 开始录制某个槽位的快捷键。 */
     val onStartShortcutRecording: (ShortcutSlot) -> Unit,
     /**
@@ -169,6 +173,13 @@ fun PreferencesScreen(
     val keyHandler: (KeyEvent) -> Boolean = { event ->
         when {
             actions.onShortcutKeyEvent(event) -> true
+            // `Esc` 关闭设置窗口；确认框开着时只关确认框。排在录制之后：录制期间的 `Esc`
+            // 是「取消录制」，那一支由录制器消费（见 `ShortcutRecorder.onKeyEvent`）。
+            event.type == KeyEventType.KeyDown && event.key == Key.Escape -> {
+                if (data.hasConfirmation) actions.onDismissConfirmation() else actions.onDismiss()
+                true
+            }
+
             // 自绘标题栏之后就没有系统菜单了，⌘W 得自己接上，否则这个窗口只能用鼠标关。
             // 排在录制之后：录制期间用户想录 ⌘W 就该录进去。
             event.type == KeyEventType.KeyDown && event.isMetaPressed && event.key == Key.W -> {

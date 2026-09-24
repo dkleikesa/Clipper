@@ -42,6 +42,7 @@ fun SettingsScreen(
             onClearUnpinned = { onAction(ClipboardUiAction.RequestClear(all = false, hidePanel = false)) },
             onClearAll = { onAction(ClipboardUiAction.RequestClear(all = true, hidePanel = false)) },
             onDismiss = { onAction(ClipboardUiAction.DismissPreferences) },
+            onDismissConfirmation = { onAction(ClipboardUiAction.DismissClear) },
             // 录制期间宿主要停掉系统级热键，否则同一个组合会一边被录、一边触发原动作
             // （见 `ClipboardUiState.shortcutRecording`）。
             onStartShortcutRecording = { slot ->
@@ -62,6 +63,7 @@ fun SettingsScreen(
                 supportsLaunchAtLogin = state.supportsLaunchAtLogin,
                 supportsTextRecognition = state.supportsTextRecognition,
                 shortcutRecording = state.shortcutRecording,
+                hasConfirmation = state.confirmation != null,
             ),
             actions = actions,
             titleBarDragModifier = titleBarDragModifier,

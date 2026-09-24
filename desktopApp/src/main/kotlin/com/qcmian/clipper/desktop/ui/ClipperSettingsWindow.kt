@@ -23,6 +23,7 @@ import androidx.compose.ui.window.rememberWindowState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.core.ui.theme.rememberClipperDarkTheme
+import com.qcmian.clipper.desktop.domain.SETTINGS_WINDOW_TITLE
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.feature.preferences.ui.SettingsScreen
@@ -78,7 +79,7 @@ fun ApplicationScope.ClipperSettingsWindow(
         // 关闭请求不自己去藏窗口：把意图发回状态持有者，由状态决定窗口的存亡。
         onCloseRequest = { viewModel.onAction(ClipboardUiAction.DismissPreferences) },
         visible = visible,
-        title = "Clipper 设置",
+        title = SETTINGS_WINDOW_TITLE,
         icon = rememberVectorPainter(ClipperAppIcon),
         state = windowState,
         // 自绘标题栏：系统标题栏的底色由 AppKit 决定，既不跟主题走、也和本应用的配色对不上

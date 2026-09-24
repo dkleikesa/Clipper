@@ -70,3 +70,10 @@ internal const val TRAY_CLICK_GRACE_MILLIS = 250L
  * 必须与 [com.qcmian.clipper.desktop.ui.ClipperWindow] 的 `title` 保持一致。
  */
 internal const val PANEL_WINDOW_TITLE = "Clipper"
+
+/**
+ * 设置窗口标题；见 [com.qcmian.clipper.desktop.ui.ClipperSettingsWindow]。
+ *
+ * 面板外点击监视器也认它：设置窗口是本应用自己的窗口，点在它里面不算「点了别处」。
+ */
+internal const val SETTINGS_WINDOW_TITLE = "Clipper 设置"
