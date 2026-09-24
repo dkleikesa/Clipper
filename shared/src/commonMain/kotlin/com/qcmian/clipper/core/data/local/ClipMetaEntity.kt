@@ -1,5 +1,6 @@
 package com.qcmian.clipper.core.data.local
 
+import androidx.room3.ColumnInfo
 import androidx.room3.Entity
 import androidx.room3.Index
 import androidx.room3.PrimaryKey
@@ -20,6 +21,7 @@ import androidx.room3.PrimaryKey
 @Entity(
     tableName = "clip_meta",
     indices = [
+        Index(value = ["pinned", "pinnedAt"]),
         Index(value = ["pinned", "lastCopiedAt"]),
         Index(value = ["pinned", "firstCopiedAt"]),
         Index(value = ["pinned", "numberOfCopies"]),
@@ -50,6 +52,18 @@ data class ClipMetaEntity(
     val numberOfCopies: Int,
     /** `1` 表示已置顶。用整数而不是可空字符串，换来了索引里一个干净的等值前导列。 */
     val pinned: Int,
+    /**
+     * **置顶那一刻**的时间戳；未置顶时为 [NOT_PINNED_AT]。
+     *
+     * 置顶区按它降序，而不是按 [lastCopiedAt]：后者会被「激活 / 再复制一次」改写，置顶区
+     * 于是随着使用不断重排——`⌘1…⌘9` 的角标跟着乱跳，连续按同一个数字粘出来的东西都不一样。
+     * 钉住的东西按「什么时候钉的」排，使用它不该让它动。
+     *
+     * `defaultValue` 是给 `Migration(1, 2)` 用的：那一版用 `ALTER TABLE ... ADD COLUMN ...
+     * DEFAULT 0` 加列，Room 迁移后要拿实际表结构跟这里声明的比对，少了这个注解两边对不上。
+     */
+    @ColumnInfo(defaultValue = "0")
+    val pinnedAt: Long,
     /** 载荷的近似字节数，用于「内容大小」排序与存储上限。 */
     val payloadBytes: Long,
     /** 内容摘要，见 `contentKeyOf`。 */

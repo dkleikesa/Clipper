@@ -50,9 +50,11 @@ abstract class ClipHistoryDao {
     /**
      * 置顶区块：置顶是用户的显式选择、数量通常很少，因此不分页，一次取全。
      *
-     * 固定按 `lastCopiedAt` 降序——置顶的语义是「固定在那」，不该被筛选栏的排序方式左右。
+     * 固定按 `pinnedAt` 降序（最近置顶的在最上）——置顶的语义是「固定在那」：既不随筛选栏的
+     * 排序方式变，也不该被使用改写。**不能**退回 `lastCopiedAt`：激活或再复制一次都会更新它，
+     * 置顶区于是随着使用重排，`⌘1…⌘9` 的角标跟着乱跳。
      */
-    @Query("SELECT * FROM clip_meta WHERE pinned = 1 ORDER BY lastCopiedAt DESC")
+    @Query("SELECT * FROM clip_meta WHERE pinned = 1 ORDER BY pinnedAt DESC")
     abstract suspend fun loadPinned(): List<ClipMetaEntity>
 
     /**
@@ -199,6 +201,16 @@ abstract class ClipHistoryDao {
     abstract suspend fun maxLastCopiedAt(): Long?
 
     /**
+     * 历史里最大的 `pinnedAt`；没有任何置顶时为 `null`。
+     *
+     * 与 `lastCopiedAt` 同理：一次批量置顶要给每条发一个严格递增的时间戳（见
+     * `DefaultClipboardRepository.setPinned`），否则同一次置顶的几条分不出先后，顺序会随
+     * rowid 漂。
+     */
+    @Query("SELECT MAX(pinnedAt) FROM clip_meta")
+    abstract suspend fun maxPinnedAt(): Long?
+
+    /**
      * 标题为空的条目 id。
      *
      * 只服务于启动时的**回填**：`title` 是写入时派生好落盘的，因此新增的标题来源（从 HTML
@@ -208,8 +220,13 @@ abstract class ClipHistoryDao {
     @Query("SELECT id FROM clip_meta WHERE title = ''")
     abstract suspend fun idsWithEmptyTitle(): List<String>
 
-    @Query("UPDATE clip_meta SET pinned = :pinned WHERE id = :id")
-    abstract suspend fun updatePinned(id: String, pinned: Int)
+    /**
+     * 切换一条的置顶状态，连同 [pinnedAt]（置顶那一刻的时间戳，决定它在置顶区的先后）。
+     *
+     * 取消置顶写 [NOT_PINNED_AT]：这一列只在置顶期间有意义。
+     */
+    @Query("UPDATE clip_meta SET pinned = :pinned, pinnedAt = :pinnedAt WHERE id = :id")
+    abstract suspend fun updatePinned(id: String, pinned: Int, pinnedAt: Long)
 
     /** 仅供本类的事务方法内部使用，外部请用 [delete]。 */
     @Query("DELETE FROM clip_meta WHERE id IN (:ids)")

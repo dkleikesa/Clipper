@@ -3,6 +3,7 @@ package com.qcmian.clipper.core.data.source
 import androidx.room3.Room
 import androidx.room3.RoomDatabase
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import com.qcmian.clipper.core.data.local.CLIPPER_MIGRATIONS
 import com.qcmian.clipper.core.data.local.ClipperDatabase
 import com.qcmian.clipper.core.data.local.RoomClipStorageDataSource
 import java.io.File
@@ -19,7 +20,9 @@ private fun createDatabase(): ClipperDatabase {
     val file = databaseFile()
     file.parentFile?.mkdirs()
     return Room.databaseBuilder<ClipperDatabase>(name = file.absolutePath)
-        // schema 变更不做迁移：旧库不兼容时直接删除重建（历史内容都来自系统剪贴板，可再复制回来）。
+        // 有迁移就迁移（见 `CLIPPER_MIGRATIONS`）；只有真的没有路径时才删库重建。
+        // 别把这条当成「可以随便改 schema」的许可：重建是静默的，用户只会看到历史自己没了。
+        .addMigrations(*CLIPPER_MIGRATIONS)
         .fallbackToDestructiveMigration()
         .setDriver(BundledSQLiteDriver())
         // 回滚日志（TRUNCATE）代替 WAL：没有 -wal / -shm，全部数据都在主库文件里，

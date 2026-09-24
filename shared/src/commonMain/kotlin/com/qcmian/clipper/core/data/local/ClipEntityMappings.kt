@@ -15,6 +15,14 @@ internal const val PINNED = 1
 internal const val UNPINNED = 0
 
 /**
+ * `pinnedAt` 在「未置顶」时的取值。
+ *
+ * 这一列只在置顶期间有意义，取消置顶就清零：留着旧值会让「先取消、再重新置顶」拿到一个
+ * 过期的时间戳，从而排在它该在的位置之外（见 `ClipMetaEntity.pinnedAt`）。
+ */
+internal const val NOT_PINNED_AT = 0L
+
+/**
  * 文件路径之间的分隔符。
  *
  * 用 NUL 而不是 JSON：POSIX 路径**不可能**包含 NUL，拼接是安全的；而解析成本从
@@ -40,6 +48,8 @@ internal fun ClipMeta.toEntity(): ClipMetaEntity = ClipMetaEntity(
     lastCopiedAt = lastCopiedAt,
     numberOfCopies = numberOfCopies,
     pinned = if (isPinned) PINNED else UNPINNED,
+    // 新条目不可能一进来就是置顶的；置顶时间由 `setPinned` 现发（见 `NOT_PINNED_AT`）。
+    pinnedAt = NOT_PINNED_AT,
     payloadBytes = payloadBytes,
     contentKey = contentKey,
     hasRecognizedText = hasRecognizedText,
