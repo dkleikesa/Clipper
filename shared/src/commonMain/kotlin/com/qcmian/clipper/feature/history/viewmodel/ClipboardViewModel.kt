@@ -326,7 +326,7 @@ class ClipboardViewModel(
             ClipboardUiAction.Accept -> onAccept()
             // 面板被宿主隐藏时不再收起预览：开关是持久化的用户选择，
             // 只有用户主动切换才会翻转（见 `AppSettings.previewOpen`）。
-            ClipboardUiAction.Hidden -> Unit
+            ClipboardUiAction.Hidden -> onHidden()
         }
     }
 
@@ -587,16 +587,27 @@ class ClipboardViewModel(
             // 默认选中内容区（未置顶）第一条，而不是最顶上的置顶项（见 `defaultSelectionIndex`）。
             // 上一次会话留下的多选在这里收敛回单选：面板每打开一次，都是一次全新的选择。
             val index = it.results.defaultSelectionIndex()
+            // 这里**不**递增 `historyScrollToken`：回到顶部这件事已经在收起时做完了（见
+            // [onHidden]），打开时列表本就在第一条上，再让界面滚一次只会把那一跳画给用户看。
             it.copy(
                 historySelection = index,
                 footerSelection = -1,
                 selectionAnchor = index,
                 selectedIds = it.results.getOrNull(index)?.meta?.id?.let { id -> setOf(id) }.orEmpty(),
                 focusRequestToken = it.focusRequestToken + 1,
-                // 面板重新打开选中第一条：允许界面把它滚进可视区（回到列表顶部）。
-                historyScrollToken = it.historyScrollToken + 1,
             )
         }
+    }
+
+    /**
+     * 面板收起：把内容区滚回顶部这件事挪到这一刻（见 [ClipboardUiState.listResetToken]）。
+     *
+     * 收起时窗口正在消失，这一跳看不见；等下次打开，列表已经在第一条上，也就不会出现
+     * 「刚显示就看到列表滑一下」的闪动。内容是**瞬间**归位而非动画，同样是为了收起这一刻
+     * 不留下可见的动作。
+     */
+    private fun onHidden() {
+        _uiState.update { it.copy(listResetToken = it.listResetToken + 1) }
     }
 
     /** 松开修饰键时接受当前高亮的条目。 */

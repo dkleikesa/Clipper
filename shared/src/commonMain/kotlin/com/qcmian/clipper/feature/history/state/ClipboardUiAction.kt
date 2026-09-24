@@ -148,6 +148,9 @@ sealed interface ClipboardUiAction {
      * 宿主隐藏了面板（`FloatingPanel.close`）。
      *
      * 不再顺带收起预览：预览开关是用户的选择、已随设置持久化，见 `AppSettings.previewOpen`。
+     *
+     * 界面会把内容区归位到第一条（`ClipboardUiState.listResetToken`）：这一跳在窗口消失的
+     * 同时发生，看不见，下次打开时列表已经在顶部，不会再有「刚显示就滑一下」的闪动。
      */
     data object Hidden : ClipboardUiAction
 }
