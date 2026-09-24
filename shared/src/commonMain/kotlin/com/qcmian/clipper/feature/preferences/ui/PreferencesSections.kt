@@ -214,25 +214,10 @@ internal fun BehaviorSection(data: PreferencesUiData, actions: PreferencesAction
     }
 }
 
-/** 搜索分区里的开关表。 */
+/** 搜索设置的开关表；原「搜索」分区已并入「外观」，因此与外观开关并列。 */
 private val SearchSwitches = listOf(
     BooleanSetting("显示搜索框", { it.showSearch }, { value -> copy(showSearch = value) }),
 )
-
-@Composable
-internal fun SearchSection(data: PreferencesUiData, actions: PreferencesActions) {
-    val settings = data.settings
-    SettingsGroup {
-        SwitchSettings(settings, SearchSwitches, actions.onSettingsChange)
-        SegmentedBlock(
-            title = "匹配高亮",
-            values = HighlightMatch.entries,
-            selected = settings.highlightMatch,
-            label = { it.label },
-            onSelect = { value -> actions.onSettingsChange { it.copy(highlightMatch = value) } },
-        )
-    }
-}
 
 /** 外观分区里的开关表。 */
 private val AppearanceSwitches = listOf(
@@ -370,6 +355,18 @@ internal fun AppearanceSection(data: PreferencesUiData, actions: PreferencesActi
             onValueChange = { value ->
                 actions.onSettingsChange { it.copy(imageMaxHeight = value.roundToInt()) }
             },
+        )
+    }
+    // 原「搜索」分区：显示搜索框与匹配高亮改的都是界面长什么样，因此并到「外观」。
+    SettingsGroup {
+        GroupLabel("搜索")
+        SwitchSettings(settings, SearchSwitches, actions.onSettingsChange)
+        SegmentedBlock(
+            title = "匹配高亮",
+            values = HighlightMatch.entries,
+            selected = settings.highlightMatch,
+            label = { it.label },
+            onSelect = { value -> actions.onSettingsChange { it.copy(highlightMatch = value) } },
         )
     }
 }
