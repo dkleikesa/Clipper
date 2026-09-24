@@ -54,15 +54,19 @@ import com.qcmian.clipper.core.ui.theme.hintColor
  * - 行高与间距走 4dp 的倍数。
  */
 
-/** 设置页里的分区卡片：圆角容器 + 左上角主色分区标题，对应 macOS 系统设置的分组样式。 */
+/**
+ * 设置页里的一组设置：圆角容器 + 描边，**不带标题**。
+ *
+ * 标题不在这里，是因为「当前是哪个分区」已经由侧边栏的选中项与页面大标题说了两遍；
+ * 一张卡片再抄一遍就是同一句话出现三次。页内的次级分组用 [GroupLabel]。
+ */
 @Composable
-internal fun SectionCard(
-    title: String,
+internal fun SettingsGroup(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Surface(
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(8.dp),
         color = colors.surface,
         border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.28f)),
         modifier = Modifier.fillMaxWidth(),
@@ -73,18 +77,79 @@ internal fun SectionCard(
             Modifier
                 .fillMaxWidth()
                 .animateContentSize()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.sp,
-                color = colors.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(8.dp))
             content()
         }
+    }
+}
+
+/** 一组设置内部的小标题（如「外观」页里的窗口 / 列表显示）。 */
+@Composable
+internal fun GroupLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 1.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = 2.dp),
+    )
+}
+
+/** 可录制行尾部「清除」按钮所占的宽度（`Spacer` + `IconButton`），只读行用它对齐右边缘。 */
+private val ShortcutClearColumnWidth = 36.dp
+
+/**
+ * 键位胶囊：可录制行与只读速查行共用同一个形状，差别只在配色与描边。
+ *
+ * 「有描边」= 可以点开录制，「无描边」= 固定按键，两段胶囊因此一眼可辨，
+ * 而不必读小标题、也不会让用户对着一个点不动的胶囊发呆。文字用 hintColor 表示
+ * 「未绑定」（[dimmed]），与「有绑定」区分。
+ *
+ * @param onClick `null` 表示这一行不可交互（[dimmed] 与它无关：未绑定的行仍可点击去录制）。
+ */
+@Composable
+private fun ShortcutPill(
+    text: String,
+    recording: Boolean = false,
+    dimmed: Boolean = false,
+    outlined: Boolean = true,
+    onClick: (() -> Unit)? = null,
+) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .height(30.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(
+                if (recording) colors.primary.copy(alpha = 0.10f)
+                else colors.surfaceVariant.copy(alpha = 0.35f),
+            )
+            .then(
+                if (outlined) {
+                    Modifier.border(
+                        width = 1.dp,
+                        color = if (recording) colors.primary else colors.outline.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(6.dp),
+                    )
+                } else {
+                    Modifier
+                },
+            )
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            fontSize = 12.sp,
+            color = when {
+                recording -> colors.primary
+                dimmed -> MaterialTheme.hintColor
+                else -> colors.onSurface
+            },
+        )
     }
 }
 
@@ -113,39 +178,44 @@ internal fun ShortcutRow(
             color = colors.onSurface,
             modifier = Modifier.weight(1f),
         )
-        Box(
-            modifier = Modifier
-                .height(30.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(
-                    if (recording) colors.primary.copy(alpha = 0.10f)
-                    else colors.surfaceVariant.copy(alpha = 0.35f),
-                )
-                .border(
-                    width = 1.dp,
-                    color = if (recording) colors.primary else colors.outline.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(6.dp),
-                )
-                .clickable(onClick = onRecord)
-                .padding(horizontal = 12.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = if (recording) "按下新快捷键…" else spec?.label ?: "未设置",
-                fontSize = 12.sp,
-                color = when {
-                    recording -> colors.primary
-                    spec == null -> MaterialTheme.hintColor
-                    else -> colors.onSurface
-                },
-            )
-        }
+        ShortcutPill(
+            text = if (recording) "按下新快捷键…" else spec?.label ?: "未设置",
+            recording = recording,
+            dimmed = spec == null,
+            onClick = onRecord,
+        )
         Spacer(Modifier.width(8.dp))
         HoverTooltip("清除快捷键") {
             IconButton(onClick = onClear, enabled = spec != null, modifier = Modifier.size(28.dp)) {
                 ClipperIcon(ClipperIconKind.CLEAR, size = 12.dp, tint = colors.onSurfaceVariant)
             }
         }
+    }
+}
+
+/**
+ * 固定快捷键（不可录制）的一行：只说明，不可点。
+ *
+ * 与 [ShortcutRow] **同形状**（键位胶囊同一个构件），只是胶囊不描边、行尾没有 ✕，
+ * 右侧还留出等宽的空白让两段胶囊的右边缘落在同一条竖线上。用同一套美术而不是另做一套，
+ * 是因为这两段行在页面里是上下相邻的：颜色或圆角一旦不同，看起来就像两个不相干的组件。
+ */
+@Composable
+internal fun FixedShortcutRow(title: String, keys: String) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        ShortcutPill(text = keys, outlined = false)
+        // 与可录制行的 ✕ 列等宽：不这样做，只读行的胶囊会比上面那几行多出一截。
+        Spacer(Modifier.width(ShortcutClearColumnWidth))
     }
 }
 

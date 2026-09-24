@@ -30,6 +30,9 @@ enum class ShortcutProblem(val message: String) {
  *
  * 这些分支在 `HistoryKeyboard.resolveKeyActions` 里只看按键、不看修饰键，因此任何修饰键组合
  * 都命中它们——录给可录制快捷键只会「按下去没反应」。
+ *
+ * 集合比设置页的固定速查表（`core.ui.fixedShortcuts`）**更宽**：速查表只列面板真的用到的
+ * 那些按键，这里还额外拦住「方向键与翻页键」的全部键位（用户看到一颗方向键就想录，是常见误操作）。
  */
 private val PANEL_NAVIGATION_CHARACTERS = setOf(
     "\u2191", "\u2193", "\u2190", "\u2192",

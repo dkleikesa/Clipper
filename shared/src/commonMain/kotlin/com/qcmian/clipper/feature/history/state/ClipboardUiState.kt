@@ -8,9 +8,6 @@ import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.feature.preferences.state.ShortcutRecording
 
-/** 当前屏幕上显示的是哪个模态框（如果有）。 */
-enum class ClipboardDialog { PREFERENCES }
-
 /**
  * 「全文搜索」的状态机。它只在**有查询**时才有意义——没有查询词就没有要找的东西。
  *
@@ -118,15 +115,21 @@ data class ClipboardUiState(
     val supportsTextRecognition: Boolean = false,
     /** 宿主是否能退出应用，决定是否多出一行「退出」页脚。 */
     val showQuit: Boolean = false,
-    val dialog: ClipboardDialog? = null,
+    /**
+     * 偏好设置窗口是否打开。
+     *
+     * 它不是「面板里的一层对话框」：桌面端把它渲染成一个**独立窗口**（见
+     * `ClipperSettingsWindow`），因此这里只是一个布尔量——宿主据此显示 / 关闭那个窗口，
+     * 面板据此知道自己该收起。
+     */
+    val settingsOpen: Boolean = false,
     val confirmation: ClearConfirmation? = null,
     /**
      * 偏好设置里正在录制的快捷键。
      *
      * 宿主必须知道这件事：系统级热键（呼出面板）由 Carbon 派发，**不看焦点**，录制期间照旧会
      * 触发原动作——表现为「一边录快捷键、一边把面板切走 / 选中某一条」。界面内那几类快捷键
-     * 不受影响：对话框是场景里的一层，它拿到焦点后按键根本不会派发到面板（见
-     * `CanvasLayersComposeScene.processKeyEvent`）。
+     * 不受影响：设置是另一个窗口，按键根本派发不到面板。
      *
      * 状态机在 `ShortcutRecorder` 里，这里只是它的投影：设置页渲染录制态与失败原因，宿主读
      * [isRecordingShortcut]。
@@ -188,8 +191,13 @@ data class ClipboardUiState(
     val searchVisible: Boolean
         get() = settings.showSearch
 
-    /** 有对话框弹出时为 `true`，此时桌面端面板不得自动隐藏。 */
-    val isModalOpen: Boolean get() = dialog != null || confirmation != null
+    /**
+     * 面板之上有自己的模态框时为 `true`，此时桌面端面板不得自动隐藏。
+     *
+     * 只算清除确认框。偏好设置**不算**：它已经是独立窗口，在场时面板恰恰应当收起
+     * （见 `PanelPresentationController.onWindowLostFocus`）。
+     */
+    val isModalOpen: Boolean get() = confirmation != null
 
     /** 设置页正在录制快捷键；宿主据此让出系统级热键。 */
     val isRecordingShortcut: Boolean get() = shortcutRecording.isActive

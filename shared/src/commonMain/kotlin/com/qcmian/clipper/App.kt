@@ -9,7 +9,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
+import com.qcmian.clipper.core.ui.theme.ClipperTheme
+import com.qcmian.clipper.core.ui.theme.rememberClipperDarkTheme
 import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.feature.history.ui.HistoryScreen
@@ -18,17 +19,17 @@ import com.qcmian.clipper.host.HostUiState
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
-import androidx.compose.foundation.isSystemInDarkTheme
-import com.qcmian.clipper.core.settings.ThemeMode
-import com.qcmian.clipper.core.ui.theme.ClipperTheme
 import kotlinx.coroutines.launch
 
 /**
- * 所有目标共用的入口。
+ * 面板窗口的内容，也是所有目标共用的入口。
  *
- * 它用宿主提供的 [container] 创建状态持有者，并转发宿主的回调；真正的界面在 [HistoryScreen]，
- * 是状态的纯函数。
+ * 它把宿主的回调接到状态持有者上，真正的界面在 [HistoryScreen]，是状态的纯函数。
+ * 偏好设置不在这里——它有自己的窗口（见 `SettingsScreen`）。
  *
+ * @param viewModel 界面状态的持有者。**由宿主创建、并同时交给设置窗口**：两个窗口必须共享
+ *   同一个实例，否则在设置里改完偏好，回到面板看到的还是改之前的值。它也必须在面板窗口
+ *   之前就存在——设置窗口可能在面板从未显示过时就被打开。
  * @param container 由宿主（Android 上是 `Application`，其它目标是进程入口）持有的依赖图，
  *   因此它的存活时间超过任何一次组合。
  * @param onRequestHideWindow 让宿主在「自动粘贴」动作送达之前隐藏窗口，
@@ -45,6 +46,8 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun App(
+    /** 界面状态持有者；由宿主创建并在两个窗口之间共享。 */
+    viewModel: ClipboardViewModel,
     /** 应用级依赖图，由宿主创建（绝不由 composable 创建）。 */
     container: AppContainer,
     onRequestHideWindow: () -> Unit = {},
@@ -69,25 +72,11 @@ fun App(
      */
     statusItemActive: Boolean = panelVisible,
 ) {
-    // 状态持有者先于主题创建：主题模式本身取自用户偏好。
-    val viewModel = viewModel {
-        ClipboardViewModel(
-            repository = container.repository,
-            platform = container.platform,
-            useCases = container.useCases,
-            showQuit = onQuit != null,
-            // 设置页录制系统级快捷键时用它判断组合有没有被别的应用占用（见 `MacGlobalHotKey`）。
-            canUseGlobalShortcut = container.native::isGlobalShortcutAvailable,
-        )
-    }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // 主题模式：跟随系统 / 强制浅色 / 强制深色。
-    val darkTheme = when (state.settings.themeMode) {
-        ThemeMode.SYSTEM -> systemDarkTheme ?: isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
+    // 主题模式：跟随系统 / 强制浅色 / 强制深色。设置窗口用的是同一个算式（见
+    // `rememberClipperDarkTheme`），两个窗口因此不会一个深一个浅。
+    val darkTheme = rememberClipperDarkTheme(state.settings.themeMode, systemDarkTheme)
     ClipperTheme(darkTheme = darkTheme) {
         DisposableEffect(viewModel, onQuit) {
             viewModel.onRequestHideWindow = onRequestHideWindow
@@ -125,15 +114,22 @@ fun App(
         // 用一个投影取代十几个镜像字段：面向宿主的那部分状态以单个不可变值交给控制器，
         // 因此它只有一个数据源。
         SideEffect {
-            windowController?.setHostUiState(HostUiState(
-                settings = state.settings,
-                isStatusItemDisabled = state.isStatusItemDisabled,
-                isStatusItemActive = statusItemActive,
-                isWindowVisible = panelVisible,
-                isModalOpen = state.isModalOpen,
-                // 录制快捷键期间宿主必须把手从系统级热键上拿开（见 `HostUiState`）。
-                isRecordingShortcut = state.isRecordingShortcut,
-            ))
+            windowController?.setHostUiState(
+                HostUiState(
+                    settings = state.settings,
+                    isStatusItemDisabled = state.isStatusItemDisabled,
+                    isStatusItemActive = statusItemActive,
+                    isWindowVisible = panelVisible,
+                    isModalOpen = state.isModalOpen,
+                    // 录制快捷键期间宿主必须把手从系统级热键上拿开（见 `HostUiState`）。
+                    isRecordingShortcut = state.isRecordingShortcut,
+                    // 设置窗口是**独立窗口**：面板据此知道该收起。
+                    isSettingsWindowOpen = state.settingsOpen,
+                    // 原始系统外观（不是解析后的深浅色）：设置窗口用同一套算式自行解析，
+                    // 两个窗口的主题因此不会差一帧、也不会一个深一个浅。
+                    systemDark = systemDarkTheme,
+                ),
+            )
         }
 
         HistoryScreen(
@@ -142,8 +138,6 @@ fun App(
             onPreferredHeightChange = onPreferredHeightChange,
             onMinimumHeightChange = onMinimumHeightChange,
             applicationIcon = viewModel::applicationIcon,
-            // 设置页录制的按键由 ViewModel 的状态机处理（见 `ShortcutRecorder`）。
-            captureShortcutKey = viewModel::captureShortcutKey,
             previewHost = previewHost,
             modifier = Modifier.fillMaxSize(),
         )

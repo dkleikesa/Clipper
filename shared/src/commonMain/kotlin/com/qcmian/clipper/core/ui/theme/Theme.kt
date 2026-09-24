@@ -9,6 +9,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import com.qcmian.clipper.core.settings.ThemeMode
 
 private val Accent = Color(0xFF0A84FF)
 
@@ -55,6 +56,23 @@ private val DarkColors = darkColorScheme(
     onSurfaceVariant = Color(0xFFB4B4BD),
     outline = Color(0xFF4A4A52),
 )
+
+/**
+ * 该用深色还是浅色：主题偏好 + 系统外观。
+ *
+ * 面板与设置窗口是**两个独立的组合**，主题必须由同一个算式给出——各算各的，或者各拿一份
+ * 各自的系统外观，「跟随系统」时两个窗口就会深浅不一。
+ *
+ * @param systemDarkTheme 宿主提供的系统外观（桌面端不实时跟随 `isSystemInDarkTheme()`，
+ *   由原生通知驱动）；`null` 表示宿主未提供，退回 Compose 的判断。
+ */
+@Composable
+fun rememberClipperDarkTheme(themeMode: ThemeMode, systemDarkTheme: Boolean?): Boolean =
+    when (themeMode) {
+        ThemeMode.SYSTEM -> systemDarkTheme ?: isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
 
 @Composable
 fun ClipperTheme(

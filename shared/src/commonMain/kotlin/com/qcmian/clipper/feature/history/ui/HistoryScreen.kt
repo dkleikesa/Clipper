@@ -111,13 +111,6 @@ fun HistoryScreen(
     /** 窗口的下限高度：滑动区的下限加上置顶区与头部 / 页脚，手动拖拽时宿主不会低于它。 */
     onMinimumHeightChange: (Dp) -> Unit,
     applicationIcon: (String?) -> String?,
-    /**
-     * 设置页录制快捷键期间的一次按键；返回 `true` 表示已被录制器消费。
-     *
-     * 它由宿主直接提供（`ClipboardViewModel.captureShortcutKey`），而不是走 [onAction]：录制器
-     * 要读最新状态、返回值也要同帧拿到，否则按键会晚一帧才被拦住。
-     */
-    captureShortcutKey: (KeyEvent) -> Boolean = { false },
     previewHost: PreviewHostPolicy = PreviewHostPolicy(),
     modifier: Modifier = Modifier,
 ) {
@@ -155,7 +148,8 @@ fun HistoryScreen(
     // 搜索框是面板的常驻输入点，光标
     // 应当一直可见、随时可输入。但点击面板内的任何按钮（预览开关、行内操作、页脚……）都会
     // 把焦点从搜索框抢走，光标消失，用户得再点一次输入框。因此每次「有实质的」交互之后把
-    // 焦点请回来；设置 / 清除确认弹窗打开期间除外——那时焦点属于弹窗，关闭后自动恢复。
+    // 焦点请回来；清除确认弹窗打开期间除外——那时焦点属于弹窗，关闭后自动恢复。
+    // （偏好设置不在此列：它是另一个窗口，面板这边收起即可。）
     var refocusToken by remember { mutableStateOf(0) }
     // 预览开关直接翻转设置，没有「画面里此刻有没有预览」这一层判定：界面显示什么只由
     // [ClipboardUiState.previewOpen] 决定，一次点击因此必定对应一次开 / 关，不存在被吃掉的点击。
@@ -757,7 +751,6 @@ fun HistoryScreen(
     HistoryDialogs(
         state = state,
         onAction = onUiAction,
-        captureShortcutKey = captureShortcutKey,
     )
 }
 
