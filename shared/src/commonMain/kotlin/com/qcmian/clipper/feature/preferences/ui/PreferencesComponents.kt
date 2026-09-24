@@ -313,6 +313,8 @@ internal fun SliderRow(
                 color = colors.onSurfaceVariant,
             )
         }
+        // 标题与滑杆之间留 5dp：滑杆自身的高度大半是给拇指的留白，紧贴标题会显得挤在一起。
+        Spacer(Modifier.height(5.dp))
         val interactionSource = remember { MutableInteractionSource() }
         Slider(
             value = value,
