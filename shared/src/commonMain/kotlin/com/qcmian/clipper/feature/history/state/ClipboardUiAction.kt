@@ -88,6 +88,9 @@ sealed interface ClipboardUiAction {
      */
     data object CopySelection : ClipboardUiAction
 
+    /** 粘贴选中集（右键菜单里的「粘贴」）。同理，必须是粘贴而与修饰键映射无关。 */
+    data object PasteSelection : ClipboardUiAction
+
     data class RunFooter(val action: FooterAction) : ClipboardUiAction
 
     /** `Esc`：清空搜索并关闭面板，与 `KeyChord.close` 完全一致。 */
@@ -128,7 +131,7 @@ sealed interface ClipboardUiAction {
     data class StartShortcutRecording(val slot: ShortcutSlot) : ClipboardUiAction
 
     /**
-     * 结束录制（按下 ⌘.、录制成功由录制器自己收尾，这一条用于对话框离开屏幕）。
+     * 结束录制（再点一次那条快捷键、录制成功由录制器自己收尾，这一条用于对话框离开屏幕）。
      *
      * 不收回它系统级热键会一直哑着。
      */

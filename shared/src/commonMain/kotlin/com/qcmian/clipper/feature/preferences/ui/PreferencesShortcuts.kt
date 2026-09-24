@@ -6,8 +6,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.qcmian.clipper.core.domain.action.ClipAction
-import com.qcmian.clipper.core.domain.action.modifierFlagsOf
+import com.qcmian.clipper.core.settings.ActivateAction
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.ShortcutGroup
 import com.qcmian.clipper.core.settings.ShortcutSlot
@@ -38,9 +37,6 @@ private fun globalScopeHint(): String {
  *
  * 所有快捷键——包括面板内置的导航键、`⏎`、`⎋`、`⌘,`、`⌘1…⌘9`——都是 [ShortcutSlot]，
  * 因此这一页没有「能改的」与「不能改的」两段，只有一种行。
- *
- * 派生交互（`⇧` 连选、`⏎` 的修饰键映射）写在各行的灰色小字里：它们不是单独的键，而是
- * 某条绑定按住不同修饰键时的含义，改绑定不影响它们。
  */
 @Composable
 internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActions) {
@@ -61,11 +57,11 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
                 val isRecording = recording.slot == slot
                 ShortcutRow(
                     title = slot.title,
-                    hint = slotHint(slot, settings),
+                    hint = slot.hint,
                     spec = settings.shortcut(slot),
                     recording = isRecording,
-                    // 正在录制的这一行，再点一次即取消：`⌘.` 之外的另一条退出路径，
-                    // 免得用户按不动（取消键不是 Esc，见 `ShortcutRecorder.onKeyEvent`）。
+                    // 正在录制的这一行，再点一次即取消：这是取消录制的**唯一**按键方式
+                    // （没有「取消录制」的快捷键，见 `ShortcutRecorder`）。
                     onRecord = {
                         if (isRecording) {
                             actions.onCancelShortcutRecording()
@@ -75,6 +71,11 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
                     },
                     onClear = { actions.onSettingsChange { it.withShortcut(slot, null) } },
                 )
+                // 激活键的组合映射紧跟在它后面：这是「按不同修饰键会做什么」的直接答案，
+                // 比原来那行灰色小字（只是把推导结果复述一遍）更好读，也比它更可控。
+                if (slot == ShortcutSlot.ACTIVATE) {
+                    ActivateMappingRows(settings, actions)
+                }
             }
         }
     }
@@ -83,10 +84,8 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
     Text(
         text = when {
             // 被拒绝时录制**没有**退出，就地告诉他原因、并继续等下一个组合。
-            problem != null -> "${problem.message}请换一个组合，或按 ⌘. 取消。"
-            recording.isActive ->
-                "请按下新的快捷键（至少要按一个修饰键，方向键等导航键除外）；" +
-                    "取消录制请按 ⌘. 或再点一次这个胶囊。"
+            problem != null -> "${problem.message}请换一个组合，或再点一次胶囊取消。"
+            recording.isActive -> "请按下新的快捷键（至少要按一个修饰键，方向键等导航键除外）；再点一次这个胶囊可取消。"
             // 呼出键被清除之后没有全局热键了，得说清楚还能从哪打开面板。
             settings.popupShortcut == null -> "呼出面板的快捷键已清除，可以从菜单栏图标打开面板。"
             else -> "点击快捷键即可重新录制，右侧垃圾桶清除绑定；" + globalScopeHint()
@@ -101,28 +100,47 @@ internal fun ShortcutsSection(data: PreferencesUiData, actions: PreferencesActio
     )
 }
 
-/**
- * 某条槽位的灰色小字说明。
- *
- * 多数槽位是静态的（见 [ShortcutSlot.hint]）；激活键是唯一需要现算的——它按住 `⌘` / `⌥` /
- * `⌥⇧` 时分别对应复制 / 粘贴 / 去格式，映射随「默认粘贴 / 去格式」偏好变化，因此这里用
- * [modifierFlagsOf] 现推一份，与按键解析共用同一份规则，不会漂移。
- */
-private fun slotHint(slot: ShortcutSlot, settings: AppSettings): String? =
-    if (slot == ShortcutSlot.ACTIVATE) activationHint(settings) else slot.hint
+/** 激活键带某个修饰键时做什么；标题就是那个组合。 */
+private class ActivateMapping(
+    val title: String,
+    val read: (AppSettings) -> ActivateAction,
+    val write: AppSettings.(ActivateAction) -> AppSettings,
+)
 
-/** 激活键的修饰键映射，如 `⌘⏎ 复制 / ⌥⏎ 粘贴 / ⌥⇧⏎ 去格式`。 */
-private fun activationHint(settings: AppSettings): String? {
-    val key = settings.activateShortcut?.character
-        ?: return "按住 ⌘ / ⌥ / ⌥⇧ 决定复制、粘贴或去格式"
-    val parts = listOf(
-        ClipAction.COPY to "复制",
-        ClipAction.PASTE to "粘贴",
-        ClipAction.PASTE_WITHOUT_FORMATTING to "去格式",
-    ).mapNotNull { (action, label) ->
-        modifierFlagsOf(action, settings)
-            .takeIf { it.isNotEmpty() }
-            ?.let { "$it$key $label" }
+/** 三条组合的读写；声明顺序即显示顺序。 */
+private val ActivateMappings = listOf(
+    ActivateMapping(
+        "⌘ + 激活键",
+        { it.activateWithCommand },
+        { value -> copy(activateWithCommand = value) },
+    ),
+    ActivateMapping(
+        "⌥ + 激活键",
+        { it.activateWithOption },
+        { value -> copy(activateWithOption = value) },
+    ),
+    ActivateMapping(
+        "⌥⇧ + 激活键",
+        { it.activateWithShiftOption },
+        { value -> copy(activateWithShiftOption = value) },
+    ),
+)
+
+/**
+ * 激活键的三条修饰键映射。
+ *
+ * 取代了原先「`⌘` / `⌥` 的含义由『自动粘贴』推导、且两者对调」的做法：现在每条组合各自选
+ * 复制 / 粘贴 / 去格式，那两个开关只管不带修饰键的激活键。
+ */
+@Composable
+private fun ActivateMappingRows(settings: AppSettings, actions: PreferencesActions) {
+    ActivateMappings.forEach { mapping ->
+        SegmentedBlock(
+            title = mapping.title,
+            values = ActivateAction.entries,
+            selected = mapping.read(settings),
+            label = { it.label },
+            onSelect = { value -> actions.onSettingsChange { mapping.write(it, value) } },
+        )
     }
-    return parts.takeIf { it.isNotEmpty() }?.joinToString(" / ")
 }

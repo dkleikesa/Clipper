@@ -1,5 +1,6 @@
 package com.qcmian.clipper.core.domain.action
 
+import com.qcmian.clipper.core.settings.ActivateAction
 import com.qcmian.clipper.core.settings.AppSettings
 
 /**
@@ -12,41 +13,23 @@ enum class ClipAction { DEFAULT, COPY, PASTE, PASTE_WITHOUT_FORMATTING, UNKNOWN 
  * 为当前按下的确切修饰键组合解析出动作。
  * [meta] 是 `⌘`（没有该键的平台上是 `Ctrl`）。
  *
- * 偏好项 `pasteByDefault` 与 `removeFormattingByDefault` 都会改变每一种组合的含义，
- * 因此这里需要覆盖全部十二种情况。
+ * 带修饰键的三条组合（`⌘` / `⌥` / `⌥⇧`）由用户在设置里**直接指定**
+ * （[AppSettings.activateWithCommand] / [AppSettings.activateWithOption] /
+ * [AppSettings.activateWithShiftOption]）；**不带修饰键**的那一条是 `DEFAULT`，它的粘贴与去格式
+ * 仍然由 `pasteByDefault` / `removeFormattingByDefault` 决定。
+ *
+ * `⌘⇧` 与「只按 `⇧`」等其余组合一律 `UNKNOWN`（面板保持不变）：它们没有对应的设置项。
  */
-fun defaultAction(settings: AppSettings, shift: Boolean, alt: Boolean, meta: Boolean): ClipAction {
-    val paste = settings.pasteByDefault
-    val removeFormatting = settings.removeFormattingByDefault
-
-    return when {
+fun defaultAction(settings: AppSettings, shift: Boolean, alt: Boolean, meta: Boolean): ClipAction =
+    when {
         // ⌘
-        meta && !alt && !shift -> when {
-            !paste -> ClipAction.COPY
-            !removeFormatting -> ClipAction.PASTE
-            else -> ClipAction.PASTE_WITHOUT_FORMATTING
-        }
+        meta && !alt && !shift -> settings.activateWithCommand.toClipAction()
 
         // ⌥
-        alt && !meta && !shift -> when {
-            !paste && !removeFormatting -> ClipAction.PASTE
-            !paste && removeFormatting -> ClipAction.PASTE_WITHOUT_FORMATTING
-            else -> ClipAction.COPY
-        }
+        alt && !meta && !shift -> settings.activateWithOption.toClipAction()
 
         // ⌥⇧
-        alt && shift && !meta -> when {
-            !paste && !removeFormatting -> ClipAction.PASTE_WITHOUT_FORMATTING
-            !paste && removeFormatting -> ClipAction.PASTE
-            else -> ClipAction.UNKNOWN
-        }
-
-        // ⌘⇧
-        meta && shift && !alt -> when {
-            paste && !removeFormatting -> ClipAction.PASTE_WITHOUT_FORMATTING
-            paste && removeFormatting -> ClipAction.PASTE
-            else -> ClipAction.UNKNOWN
-        }
+        alt && shift && !meta -> settings.activateWithShiftOption.toClipAction()
 
         // 完全不按修饰键：按 `removeFormattingByDefault` 处理，
         // 且只有 `pasteByDefault` 开启时才粘贴。
@@ -54,6 +37,12 @@ fun defaultAction(settings: AppSettings, shift: Boolean, alt: Boolean, meta: Boo
 
         else -> ClipAction.UNKNOWN
     }
+
+/** 设置里的动作（三选一）→ 按键解析用的动作。 */
+fun ActivateAction.toClipAction(): ClipAction = when (this) {
+    ActivateAction.COPY -> ClipAction.COPY
+    ActivateAction.PASTE -> ClipAction.PASTE
+    ActivateAction.PASTE_WITHOUT_FORMATTING -> ClipAction.PASTE_WITHOUT_FORMATTING
 }
 
 /**
@@ -98,14 +87,25 @@ private val MODIFIER_COMBOS = listOf(
 )
 
 /**
- * 会触发 [action] 的修饰键组合，
- * 偏好设置窗口用它来解释当前的映射关系。
+ * 会触发 [action] 的修饰键组合（`⌘` / `⌥` / `⌥⇧` / `⌘⇧` 中的第一个）。
  *
  * 由 [defaultAction] 反推，而不是另写一张表：正反两个方向共用同一份规则，改映射不会漂移。
- * 一个动作可能被多个组合命中（取决于两个 `*ByDefault` 偏好），取最简的那个。
+ * 多个组合指向同一动作时取最简的那个（`MODIFIER_COMBOS` 已按此排序）。
  */
 fun modifierFlagsOf(action: ClipAction, settings: AppSettings): String =
     MODIFIER_COMBOS
         .firstOrNull { defaultAction(settings, it.shift, it.alt, it.meta) == action }
         ?.label
         .orEmpty()
+
+/**
+ * 触发 [action] 的那条激活组合（修饰键 + 激活键本身），例如 `⌘⏎`；没有对应组合时为空串。
+ *
+ * 右键菜单用它现算「复制 / 粘贴」旁边该显示什么键位：映射由设置指定，写死 `↵` / `⌥↵`
+ * 会在用户改过映射之后失真。
+ */
+fun activateComboLabel(action: ClipAction, settings: AppSettings): String {
+    val modifiers = modifierFlagsOf(action, settings)
+    val key = settings.activateShortcut?.character ?: return ""
+    return if (modifiers.isEmpty()) "" else modifiers + key
+}

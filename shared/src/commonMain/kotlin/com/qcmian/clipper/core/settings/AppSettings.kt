@@ -53,6 +53,19 @@ enum class PopupPosition(val label: String) {
 }
 
 /**
+ * 激活键（「激活选中项」那一条）配上修饰键之后做什么。
+ *
+ * `⌘ + 激活键` / `⌥ + 激活键` / `⌥⇧ + 激活键` 三条各选一个动作。它取代了原来「由
+ * [AppSettings.pasteByDefault] / [AppSettings.removeFormattingByDefault] 推导组合含义」的做法：
+ * 那两个开关现在只管**不带修饰键**的激活键，组合的含义由用户直接指定。
+ */
+enum class ActivateAction(val label: String) {
+    COPY("复制"),
+    PASTE("粘贴"),
+    PASTE_WITHOUT_FORMATTING("去格式"),
+}
+
+/**
  * 用户可录制的快捷键， +
  * `KeyboardShortcuts.Shortcut`。[character] 是渲染出来的按键（`"C"`、`"⌫"`、`" "`）。
  */
@@ -100,8 +113,18 @@ data class AppSettings(
     val filterTypes: Set<ClipFilterType> = ClipFilterType.entries.toSet(),
 
     // 行为
+    /** 只作用于**不带修饰键**的激活键：直接按它是否触发一次粘贴。 */
     val pasteByDefault: Boolean = false,
+    /** 只作用于**不带修饰键**的激活键：直接按它是否去掉格式。 */
     val removeFormattingByDefault: Boolean = false,
+    /**
+     * 激活键配 `⌘` / `⌥` / `⌥⇧` 时各自的动作，三条独立可配（见 [ActivateAction]）。
+     *
+     * 默认值就是原来的推导结果：`⌘` 复制、`⌥` 粘贴、`⌥⇧` 去格式。
+     */
+    val activateWithCommand: ActivateAction = ActivateAction.COPY,
+    val activateWithOption: ActivateAction = ActivateAction.PASTE,
+    val activateWithShiftOption: ActivateAction = ActivateAction.PASTE_WITHOUT_FORMATTING,
     /**
      * 连续粘贴时每条之后补一个裸回车：多数目标端要一次「提交 / 换行」才会腾出下一处落点
      * （终端执行、聊天发送、Excel 下移一格）。

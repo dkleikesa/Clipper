@@ -1,6 +1,5 @@
 package com.qcmian.clipper.feature.preferences.viewmodel
 
-import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -34,6 +33,10 @@ import kotlinx.coroutines.flow.update
  *
  * 状态写在 [ClipboardUiState.shortcutRecording]（与 `HistorySearchController` 一样，本类与
  * [ClipboardViewModel] 共用同一份状态，不额外造第二份）。
+ *
+ * **没有「取消录制」的按键**：`⎋` 本身就是默认的「清空搜索 / 关闭面板」，把它占作取消键，
+ * 用户就再也没法把 `⎋` 录回绑定里。取消改由界面承担——再点一次那条正在录制的行
+ * （见 `ShortcutRow`），关掉设置窗口同样会收回录制。
  *
  * @param updateSettings 落盘一次绑定；与设置页其它改动走同一条路径，因此窗口 / 托盘 / 热键
  *   的连带副作用都由既有观察者处理。
@@ -78,16 +81,6 @@ internal class ShortcutRecorder(
 
         // 只认「按下」，且不把修饰键本身当作一次录制：按住 ⌘ 应当继续等后面的键。
         if (event.type != KeyEventType.KeyDown || modifiers.isModifierKey(event)) return true
-
-        // 取消录制 = `⌘.`（macOS 的惯例取消键）。
-        //
-        // 取消**刻意不是** `Esc`：`⎋` 本身就是默认的「清空搜索 / 关闭面板」，把它排除在可录制
-        // 之外，用户就再也没法把它录回来了。一个键不能既当输入又当取消，因此这里让位给 `⌘.`。
-        // （例外：`⌘.` 本身不提供录制，见上面的判断。）
-        if (event.key == Key.Period && event.isMetaPressed) {
-            cancel()
-            return true
-        }
 
         // 没有可录制字符的按键（大写锁定、无映射的键……）：不进也不退，继续等。
         val character = shortcutCharacterOf(event) ?: return true

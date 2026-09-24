@@ -49,8 +49,9 @@ import kotlin.math.roundToInt
 internal fun SelectionContextMenu(
     at: Offset,
     selectionCount: Int,
-    copyHint: String,
-    pasteHint: String,
+    /** 复制 / 粘贴的键位提示；映射里没有对应组合时为 `null`（那一项就不显示提示）。 */
+    copyHint: String?,
+    pasteHint: String?,
     allPinned: Boolean,
     pinHint: String?,
     deleteHint: String?,
