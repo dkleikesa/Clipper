@@ -9,11 +9,9 @@ import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -49,8 +47,6 @@ class DesktopShellViewModel(
      * `PanelPresentationController.isSettingsWindowOpen`：投影会晚一帧，判定失焦原因时不能信）。
      */
     isSettingsWindowOpen: () -> Boolean = { false },
-    /** 设置窗口开合的变化流：关闭时据此决定要不要把面板放回来（见 [observeSettingsWindow]）。 */
-    private val settingsOpen: Flow<Boolean> = flowOf(false),
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(DesktopShellUiState())
     val uiState: StateFlow<DesktopShellUiState> = _uiState.asStateFlow()
@@ -103,7 +99,6 @@ class DesktopShellViewModel(
         viewModelScope.launch { geometry.observeUserResize() }
         viewModelScope.launch { presentation.observeToggleRequests() }
         viewModelScope.launch { presentation.observeOutsideClicks() }
-        viewModelScope.launch { observeSettingsWindow() }
         viewModelScope.launch { observeSystemAppearance() }
     }
 
@@ -147,21 +142,6 @@ class DesktopShellViewModel(
         // 主库并删除 -wal / -shm，下次启动不再需要恢复，也不会留下膨胀的日志文件。
         runBlocking { container.repository.close() }
         panel.requestExit()
-    }
-
-    /**
-     * 设置窗口关闭时，把此前「为它让位」而收起的面板放回来。
-     *
-     * 于是 `Esc` 的语义连成一条：设置开着时先关设置、面板回到眼前，再按一次才关面板
-     * （见 ROADMAP）。面板若是被用户明确关掉的（托盘、点击别处、`Esc`），标记已被清掉，
-     * 这里不会把它重新弹出来。
-     *
-     * 只对「关」这一侧做事：打开设置时面板的让位由 `PanelPresentationController` 在失焦时处理。
-     */
-    private suspend fun observeSettingsWindow() {
-        settingsOpen.collect { open ->
-            if (!open && presentation.consumeHiddenForSettings()) presentation.restorePanel()
-        }
     }
 
     /**

@@ -23,8 +23,6 @@ import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.awt.Dimension
 import java.awt.event.WindowEvent
@@ -71,12 +69,6 @@ fun ApplicationScope.ClipperWindow(
         state = windowState,
     ) {
 
-        // 设置窗口的开合：设置关闭后要把面板放回眼前（见 `DesktopShellViewModel`）。
-        // 在 `viewModel { }` 之外建流，因为那个工厂不是 composable，不能 `remember`。
-        val settingsOpen = remember(clipboardViewModel) {
-            clipboardViewModel.uiState.map { it.settingsOpen }.distinctUntilChanged()
-        }
-
         // 内容组合由窗口提供 ViewModelStoreOwner：窗口隐藏时组合保留、store 不销毁。
         val viewModel = viewModel {
             DesktopShellViewModel(
@@ -98,7 +90,6 @@ fun ApplicationScope.ClipperWindow(
                 // 直读状态持有者，而不是 `WindowController` 那份晚一帧的投影：面板失焦的那一刻
                 // 正是要判断「这次是不是设置窗口抢的」（见 `PanelPresentationController`）。
                 isSettingsWindowOpen = { clipboardViewModel.uiState.value.settingsOpen },
-                settingsOpen = settingsOpen,
             )
         }
         val uiState by viewModel.uiState.collectAsStateWithLifecycle()

@@ -57,14 +57,6 @@ internal class PanelPresentationController(
     private var lastOutsideHideAtMillis = 0L
 
     /**
-     * 面板这一次收起是不是「给设置窗口让位」。
-     *
-     * 是的话，设置窗口关闭时要把面板放回来——用户从面板打开设置、改完再按 Esc，
-     * 看到的应当还是那个面板，而不是一片空桌面（见 [restorePanel]）。
-     */
-    private var hiddenForSettings = false
-
-    /**
      * 全局热键在面板隐藏时按下：只做表现层该记的账（抓前台应用 + 标记非托盘呼出），
      * 可见性与热键「打开」由 `GlobalHotKeyController` 自己写——避免两个方向互相调用。
      */
@@ -101,8 +93,6 @@ internal class PanelPresentationController(
      */
     fun hidePanel(restoreFocus: Boolean = true, notifyHidden: Boolean = true) {
         val pid = previousAppPid
-        // 「给设置让位」的收起要记住，设置关闭时才能把面板放回原处。其余收起是真正的关闭。
-        hiddenForSettings = !notifyHidden
         state.update {
             it.copy(windowVisible = false, popupMode = PopupMode.TOGGLE, panelOpenedByTray = false)
         }
@@ -116,33 +106,6 @@ internal class PanelPresentationController(
             MacKeyboard.pasteTargetPid = pid
             runCatching { MacWorkspace.activate(pid) }
         }
-    }
-
-    /**
-     * 取出并清空「面板这次是为设置让位而收起」的标记。
-     *
-     * 设置窗口关闭时读它：为真才把面板放回来（见 [restorePanel]），否则说明面板是用户
-     * 明确关掉的，别自作主张再弹出来。
-     */
-    fun consumeHiddenForSettings(): Boolean {
-        val value = hiddenForSettings
-        hiddenForSettings = false
-        return value
-    }
-
-    /**
-     * 设置窗口关闭后把面板放回原处：用户从面板打开设置、改完退出，回到的应当还是那个面板
-     * （也因此 `Esc` 能接着把面板关掉，而不是在一片空桌面上再按一次没反应）。
-     *
-     * 走的是与热键打开相同的通道（`hotkey.requestOpen`），但不算托盘呼出：几何锚点不该切到
-     * 菜单栏图标上。
-     */
-    fun restorePanel() {
-        if (state.value.windowVisible) return
-        state.update {
-            it.copy(windowVisible = true, popupMode = PopupMode.TOGGLE, panelOpenedByTray = false)
-        }
-        hotkey.requestOpen()
     }
 
     fun onWindowGainedFocus() {
