@@ -1,94 +1,137 @@
 package com.qcmian.clipper.cli
 
-import com.qcmian.clipper.protocol.CliCommand
+import com.qcmian.clipper.protocol.CliExitCode
 import com.qcmian.clipper.protocol.PROTOCOL_VERSION
 import com.qcmian.clipper.protocol.TITLE_CHAR_LIMIT
 
 /**
  * `--help` 的渲染。
  *
- * 内容是**纯粹从 [Commands] 的 spec 生成**的，没有一个字是手写的命令说明——
- * 这样加一个 `--limit` 的取值上限时，帮助里不会漏改。
+ * 除全局开关与「输出」「退出码」两段说明外，内容全部从 [Commands] 的 spec 生成，
+ * 因此改一个取值上限时帮助不会漏改。
  *
- * 输出是给人读的纯文本，不是 JSON：帮助是散文，套进信封只会更难读，
- * 而 Agent 读 `--help` 本来就是为了理解语义。
+ * 版式按命令行惯例排：描述 → 用法 → 命令 / 参数 / 选项 → 示例 → 退出码。
+ * 两列布局的列宽一律按最宽标签算，不手写空格（手写的那些一遇中文就会歪）。
  */
 object Help {
 
     fun overview(): String = buildString {
-        appendLine("clipper — 查询与操作 Clipper 的剪贴板历史")
+        appendLine("查询与操作 Clipper 的剪贴板历史")
         appendLine()
-        appendLine("用法：clipper <命令> [参数…]")
+        appendLine("用法：clipper <命令> [选项]")
         appendLine()
         appendLine("命令：")
-
-        // 按名字对齐，让 Agent 一眼扫完。
-        val width = Commands.ALL.maxOf { it.name.length }
-        Commands.ALL.forEach { spec ->
-            appendLine("  ${spec.name.padEnd(width)}  ${spec.summary}")
-        }
-
+        appendTwoColumn(Commands.ALL.map { it.name }, Commands.ALL.map { it.summary })
         appendLine()
-        appendLine("全局开关：")
-        appendLine("  --pretty           缩进输出；默认紧凑（不缩进、不输出默认值，省 token）")
-        appendLine("  --timeout <毫秒>   等待 app 响应的上限，默认 $DEFAULT_TIMEOUT_MILLIS")
-        appendLine("  -h, --help         看总览；`clipper <命令> --help` 看单条命令")
+        appendLine("选项：")
+        appendTwoColumn(GLOBAL_OPTIONS.map { it.label }, GLOBAL_OPTIONS.map { it.description })
         appendLine()
         appendLine("输出：")
-        appendLine("  一律是同一形状的 JSON 信封：")
+        appendLine("  JSON 格式，错误同时出现在 stdout 与退出码里：")
         appendLine("""    {"ok":true,"data":…}""")
         appendLine("""    {"ok":false,"error":{"code":"NOT_FOUND","message":"…"}}""")
-        appendLine("  错误同时出现在 stdout 与退出码里——只读 stdout 也能拿到详情。")
+        appendLine("  列表与搜索只给截断后的 title（最多 $TITLE_CHAR_LIMIT 字符），要全文用 clipper get <id>；")
+        appendLine("  二进制内容（图片 / PDF）不经过 stdout，响应里的 path 就是它的落盘位置。")
         appendLine()
-        appendLine("  列表与搜索只给截断后的 title（最多 $TITLE_CHAR_LIMIT 字符）；要全文用 `clipper get <id>`。")
-        appendLine("  二进制内容（图片 / PDF）**不经过 stdout**：响应里的 path 就是它的落盘位置。")
-        appendLine("  `get --raw` 只直出文本；`get --format <html|rtf|pdf>` 把附加表示导出成文件并给路径。")
-        appendLine()
-        appendLine("退出码：0 成功 · 2 用法错误 · 3 未找到 · 4 app 未运行 · 5 超时 · 1 其他")
+        appendLine("退出码：")
+        appendTwoColumn(EXIT_CODES.map { it.first.toString() }, EXIT_CODES.map { it.second })
         appendLine()
         appendLine("协议版本：$PROTOCOL_VERSION")
     }
 
     fun forCommand(spec: CommandSpec): String = buildString {
-        appendLine("clipper ${spec.name} — ${spec.summary}")
+        appendLine(spec.summary)
         appendLine()
-        appendLine("用法：clipper ${spec.name}${spec.usageSuffix()}")
+        appendLine("用法：${spec.synopsis()}")
 
-        if (spec.positionals.isNotEmpty()) {
+        val positionals = spec.positionals.map { it.name + if (it.variadic) "…" else "" }
+        val options = spec.options.map { it.label() }
+        // 两段共用同一列宽，免得「参数」与「选项」的说明列各对齐各的。
+        val column = (positionals + options).maxOfOrNull { it.length }?.plus(2) ?: 0
+
+        if (positionals.isNotEmpty()) {
             appendLine()
             appendLine("参数：")
-            val labels = spec.positionals.map { "  ${it.name}" + if (it.variadic) "…" else "" }
-            val column = labels.maxOf { it.length } + 2
-            spec.positionals.forEachIndexed { index, positional ->
-                appendLine(labels[index].padEnd(column) + positional.description)
-            }
+            appendTwoColumn(positionals, spec.positionals.map { it.description }, column)
         }
 
-        if (spec.options.isNotEmpty()) {
+        if (options.isNotEmpty()) {
             appendLine()
             appendLine("选项：")
-            // 列宽必须按「渲染后的标签」算，含 `<值>` 后缀——只按选项名算的话，
-            // 带取值的选项会把说明列整体挤歪。
-            val labels = spec.options.map {
-                "  --${it.name}" + if (it.kind == ValueKind.FLAG) "" else " <值>"
-            }
-            val column = labels.maxOf { it.length } + 2
-            spec.options.forEachIndexed { index, option ->
-                appendLine(labels[index].padEnd(column) + option.description)
-                // 取值约束另起一行，避免把说明列撑得很宽、读起来要来回扫。
-                val constraints = buildList {
-                    option.choices?.let { add(it.joinToString(" / ")) }
-                    option.range?.let { add("${it.first}..${it.last}") }
-                }
-                if (constraints.isNotEmpty()) {
-                    appendLine(" ".repeat(column) + "（${constraints.joinToString("；")}）")
-                }
-            }
+            appendTwoColumn(options, spec.options.map { it.describe() }, column)
         }
 
-        if (spec.name == CliCommand.LIST) {
+        // 全局开关对每个命令都有效，与该命令有没有自己的选项无关。
+        appendLine()
+        appendLine("全局选项：-h / --pretty / --timeout，见 clipper --help")
+
+        if (spec.examples.isNotEmpty()) {
             appendLine()
-            appendLine("示例：clipper list --kind image --limit 5")
+            appendLine("示例：")
+            spec.examples.forEach { appendLine("  $it") }
+        }
+    }
+
+    /** 两列布局：标签列按最宽标签对齐，说明列统一起点。 */
+    private fun StringBuilder.appendTwoColumn(
+        labels: List<String>,
+        descriptions: List<String>,
+        column: Int = labels.maxOf { it.length } + 2,
+    ) {
+        labels.forEachIndexed { index, label ->
+            appendLine("  " + label.padEnd(column) + descriptions[index])
         }
     }
 }
+
+/** 选项在用法与列表里的写法：`--limit <N>`；[ValueKind.FLAG] 没有取值。 */
+private fun OptionSpec.label(): String =
+    "--$name" + if (kind == ValueKind.FLAG) "" else " $valueLabel"
+
+/** 说明后面缀上取值约束：`最多返回多少条（1..200，默认 20）`。 */
+private fun OptionSpec.describe(): String {
+    val constraints = buildList {
+        choices?.let { add(it.joinToString(" / ")) }
+        range?.let { add("${it.first}..${it.last}") }
+        defaultValue?.let { add("默认 $it") }
+    }
+    return if (constraints.isEmpty()) description else "$description（${constraints.joinToString("，")}）"
+}
+
+/** 只给 `--help` 用的全局开关条目；解析在 [ArgParser] 里手工做。 */
+private data class HelpOption(
+    val name: String,
+    val description: String,
+    val short: String? = null,
+    val valueLabel: String? = null,
+) {
+    /** `-h, --help` 与 `    --pretty`：有没有短名，长选项都落在同一列。 */
+    val label: String
+        get() = (short?.let { "-$it, " } ?: "    ") + "--$name" + (valueLabel?.let { " $it" } ?: "")
+}
+
+private val GLOBAL_OPTIONS = listOf(
+    HelpOption(
+        name = "help",
+        short = "h",
+        description = "显示总览；写在某个命令后面（clipper list --help）看该命令的详情",
+    ),
+    HelpOption(
+        name = "pretty",
+        description = "缩进输出；默认紧凑（不缩进、不输出默认值，省 token）",
+    ),
+    HelpOption(
+        name = "timeout",
+        valueLabel = "<MS>",
+        description = "等待 app 响应的上限（毫秒，默认 $DEFAULT_TIMEOUT_MILLIS）",
+    ),
+)
+
+private val EXIT_CODES = listOf(
+    CliExitCode.OK to "成功（空结果也算成功）",
+    CliExitCode.ERROR to "其他错误",
+    CliExitCode.USAGE to "用法错误（参数缺失或非法）",
+    CliExitCode.NOT_FOUND to "未找到",
+    CliExitCode.NO_DAEMON to "app 未运行（连不上 socket）",
+    CliExitCode.TIMEOUT to "超时",
+)

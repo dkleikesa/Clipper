@@ -28,10 +28,17 @@ data class OptionSpec(
     val name: String,
     val kind: ValueKind,
     val description: String,
+    /** 用法里的取值占位符（不含尖括号），如 `N`、`TYPE`；省略时用选项名的大写。 */
+    val valueName: String? = null,
     /** 取值闭区间；`null` 表示不限制。只对 [ValueKind.NUMBER] 有意义。 */
     val range: IntRange? = null,
     val choices: List<String>? = null,
-)
+    /** 未给出时的取值；只影响 `--help` 的显示，解析器另有兜底。 */
+    val defaultValue: String? = null,
+) {
+    /** 取值占位符，如 `<N>`；[ValueKind.FLAG] 没有取值，用不到它。 */
+    val valueLabel: String get() = "<${valueName ?: name.uppercase()}>"
+}
 
 data class PositionalSpec(
     val name: String,
@@ -47,6 +54,8 @@ data class CommandSpec(
     val options: List<OptionSpec> = emptyList(),
     /** 不能同时出现的开关组；声明式写在 spec 里，校验与将来的 MCP schema 都直接取用。 */
     val mutuallyExclusive: List<List<String>> = emptyList(),
+    /** `--help` 里的示例，每条写全 `clipper …`。 */
+    val examples: List<String> = emptyList(),
 ) {
     val acceptsVariadic: Boolean get() = positionals.any { it.variadic }
 
@@ -63,7 +72,9 @@ object Commands {
         name = "limit",
         kind = ValueKind.NUMBER,
         description = "最多返回多少条",
+        valueName = "N",
         range = 1..MAX_LIMIT,
+        defaultValue = DEFAULT_LIMIT.toString(),
     )
 
     val ALL: List<CommandSpec> = listOf(
@@ -76,30 +87,41 @@ object Commands {
                     name = "kind",
                     kind = ValueKind.TEXT,
                     description = "只看某类型",
+                    valueName = "TYPE",
                     choices = listOf("text", "image", "file", "richtext"),
                 ),
                 OptionSpec(
                     name = "sort",
                     kind = ValueKind.TEXT,
                     description = "排序字段",
+                    valueName = "FIELD",
                     choices = listOf("lastCopiedAt", "firstCopiedAt", "copies", "size"),
                 ),
                 OptionSpec(
                     name = "order",
                     kind = ValueKind.TEXT,
                     description = "排序方向",
+                    valueName = "ORDER",
                     choices = listOf("desc", "asc"),
                 ),
                 OptionSpec("pinned", ValueKind.FLAG, "只看置顶项"),
                 OptionSpec("unpinned", ValueKind.FLAG, "只看未置顶项"),
             ),
             mutuallyExclusive = listOf(listOf("pinned", "unpinned")),
+            examples = listOf(
+                "clipper list --kind image --limit 5",
+                "clipper list --sort copies",
+            ),
         ),
         CommandSpec(
             name = CliCommand.SEARCH,
             summary = "在历史里搜索（匹配标题与正文）",
-            positionals = listOf(PositionalSpec("query", "搜索词；多个词之间是 AND")),
+            positionals = listOf(PositionalSpec("query", "搜索词；多个词之间是 AND，含空格时加引号")),
             options = listOf(LIMIT),
+            examples = listOf(
+                "clipper search \"发票 报销\"",
+                "clipper search 截图 --limit 50",
+            ),
         ),
         CommandSpec(
             name = CliCommand.GET,
@@ -112,11 +134,13 @@ object Commands {
                     name = "format",
                     kind = ValueKind.TEXT,
                     description = "把某种附加表示导出成文件，响应里给路径",
+                    valueName = "FORMAT",
                     choices = listOf("html", "rtf", "pdf"),
                 ),
             ),
             // `--format` 给文件路径，`--raw` / `--ocr` 直出文本；同给会静默给错东西，直接拒绝。
             mutuallyExclusive = listOf(listOf("format", "raw"), listOf("format", "ocr")),
+            examples = listOf("clipper get <id> --raw", "clipper get <id> --format pdf"),
         ),
         CommandSpec(
             name = CliCommand.COPY,
