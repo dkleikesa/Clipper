@@ -31,7 +31,12 @@ CLIPPER="$SKILL_DIR/script/clipper"
 
 ## 命令失败时先做环境检查
 
-**退出码 4 / `DAEMON_UNAVAILABLE` = Clipper.app 没在运行**，不是命令写错。按顺序处理：
+先看清是哪一种，两种的处理方式完全相反：
+
+- **`UNSUPPORTED`，信息里提到「允许访问剪贴板历史」**：用户在设置里关掉了这项授权。此时 `ping` 仍然能通，说明 app 正在运行——**不要去启动它，也不要反复重试**，直接告诉用户去「设置 → AI 服务 → 命令行工具」把「允许访问剪贴板历史」打开，然后再继续。
+- **退出码 4 / `DAEMON_UNAVAILABLE`**：Clipper.app 没在运行（不是命令写错），按下面处理。
+
+**Clipper.app 没在运行时**，按顺序处理：
 
 1. 启动它：`open -a Clipper`，等 1–2 秒后重试原命令。
 2. `open -a Clipper` 失败（说明没装，通常在 `/Applications/Clipper.app` 或 `~/Applications/Clipper.app`）：告诉用户「读剪贴板历史需要先装 Clipper.app」，**并先问用户要不要下载**。
