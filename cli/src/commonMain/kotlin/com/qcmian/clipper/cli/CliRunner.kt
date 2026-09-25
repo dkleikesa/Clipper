@@ -20,7 +20,8 @@ internal object CliRunner {
     fun run(argv: List<String>, transport: DaemonTransport): Int {
         return when (val outcome = ArgParser.parse(argv)) {
             is ParseOutcome.Help -> {
-                println(outcome.command?.let(Help::forCommand) ?: Help.overview())
+                // print 而非 println：帮助文本自带结尾换行，再补一个会多出一行空行。
+                print(outcome.command?.let(Help::forCommand) ?: Help.overview())
                 CliExitCode.OK
             }
 

@@ -87,8 +87,12 @@ object ArgParser {
 
         val spec = Commands.BY_NAME[rest[0]]
             ?: return ParseOutcome.Failure(
-                message = "未知命令：${rest[0]}",
-                hint = usageHint(null),
+                message = if (rest[0].startsWith("-")) {
+                    "未知选项：${rest[0]}"
+                } else {
+                    "未知命令：${rest[0]}"
+                },
+                hint = commandsHint(),
             )
 
         if (help) return ParseOutcome.Help(spec)
@@ -201,21 +205,24 @@ object ArgParser {
 
     private fun usageHint(spec: CommandSpec?): String =
         if (spec == null) {
-            "可用命令：${Commands.ALL.joinToString("、") { it.name }}；用 --help 看总览"
+            "用法：clipper <命令> [选项]；用 clipper --help 看总览"
         } else {
-            "用法：clipper ${spec.name}${spec.usageSuffix()}；用 clipper ${spec.name} --help 看详情"
+            "用法：${spec.synopsis()}；用 clipper ${spec.name} --help 看详情"
         }
+
+    /** 命令名写错时，列出全部命令比再贴一遍用法更有用。 */
+    private fun commandsHint(): String =
+        "可用命令：${Commands.ALL.joinToString("、") { it.name }}；用 clipper --help 看总览"
 }
 
-/** 拼接 spec 的用法后缀，`--help` 与错误提示共用，避免两处写法不一致。 */
-internal fun CommandSpec.usageSuffix(): String = buildString {
+/**
+ * 用法行：`clipper list [选项]`、`clipper get [选项] <id>`。
+ *
+ * 不逐个展开选项——那会让这行长得没法读，细节本来就在 `--help` 里。
+ * `--help` 与错误提示共用这一个函数，两处不会写歪。
+ */
+internal fun CommandSpec.synopsis(): String = buildString {
+    append("clipper ").append(name)
+    if (options.isNotEmpty()) append(" [选项]")
     positionals.forEach { append(if (it.variadic) " <${it.name}>…" else " <${it.name}>") }
-    options.forEach { option ->
-        append(
-            when (option.kind) {
-                ValueKind.FLAG -> " [--${option.name}]"
-                else -> " [--${option.name} <${option.name}>]"
-            }
-        )
-    }
 }
