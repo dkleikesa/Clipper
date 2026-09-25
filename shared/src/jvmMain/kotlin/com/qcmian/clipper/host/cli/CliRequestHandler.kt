@@ -35,30 +35,62 @@ internal class CliRequestHandler(
 ) {
     private val startedAtMillis: Long = System.currentTimeMillis()
 
-    suspend fun handle(request: CliRequest): CliResponse = when (request.cmd) {
-        CliCommand.PING -> CliCodec.success(
-            CliPingView(
-                appVersion = appVersion,
-                protocolVersion = PROTOCOL_VERSION,
-                uptimeMillis = System.currentTimeMillis() - startedAtMillis,
+    /**
+     * 分发一条请求。
+     *
+     * `ping` 走在授权检查**之前**（见 [dispatch]）：CLI 靠它区分「app 没在运行」与「用户关掉了
+     * 授权」，而这两种情况给用户的下一步动作完全不同（启动应用 vs 去设置里打开开关）。探活若
+     * 也被挡掉，两条路径就都只剩「连不上」，skill 只能猜。
+     */
+    suspend fun handle(request: CliRequest): CliResponse =
+        if (request.cmd == CliCommand.PING) ping() else dispatch(request)
+
+    /**
+     * 除探活外的全部命令都要过这道授权。
+     *
+     * 开关关掉时**不**停掉监听，而是逐条拒绝：停掉监听的话 CLI 只会看到连不上，把「用户不允许」
+     * 误报成「app 没在运行」，反过来把用户引去启动一个已经在运行的应用。拒绝走
+     * [CliErrorCode.UNSUPPORTED]（「命令认识，但当前状态做不到」），而不是新造一个错误码——
+     * 旧版 CLI 不认识新码时只会照常打印，不值得为它升级协议。
+     *
+     * 授权是现读的（`repository.settings` 是状态流），用户在设置里一关，下一条命令就不再放行，
+     * 不需要重启应用。
+     */
+    private suspend fun dispatch(request: CliRequest): CliResponse {
+        if (!container.repository.settings.value.allowCliAccess) {
+            return CliCodec.failure(
+                code = CliErrorCode.UNSUPPORTED,
+                message = "用户已在 Clipper 设置里关闭「允许访问剪贴板历史」",
+                hint = "不要反复重试；等用户在「设置 → AI 服务 → 命令行工具」里打开它之后再调用",
             )
-        )
+        }
 
-        CliCommand.LIST -> list(request)
-        CliCommand.SEARCH -> search(request)
-        CliCommand.GET -> get(request)
-        CliCommand.COPY -> copy(request)
-        CliCommand.PIN -> setPinned(request, pinned = true)
-        CliCommand.UNPIN -> setPinned(request, pinned = false)
-        CliCommand.DELETE -> delete(request)
-        CliCommand.STATS -> CliCodec.success(stats())
+        return when (request.cmd) {
+            CliCommand.LIST -> list(request)
+            CliCommand.SEARCH -> search(request)
+            CliCommand.GET -> get(request)
+            CliCommand.COPY -> copy(request)
+            CliCommand.PIN -> setPinned(request, pinned = true)
+            CliCommand.UNPIN -> setPinned(request, pinned = false)
+            CliCommand.DELETE -> delete(request)
+            CliCommand.STATS -> CliCodec.success(stats())
 
-        else -> CliCodec.failure(
-            code = CliErrorCode.UNKNOWN_COMMAND,
-            message = "不认识命令「${request.cmd}」",
-            hint = "可用命令：${CliCommand.ALL.joinToString("、")}",
-        )
+            else -> CliCodec.failure(
+                code = CliErrorCode.UNKNOWN_COMMAND,
+                message = "不认识命令「${request.cmd}」",
+                hint = "可用命令：${CliCommand.ALL.joinToString("、")}",
+            )
+        }
     }
+
+    /** 探活：不碰数据层，也不看授权开关，因此「仓库没就绪」「用户关掉了 CLI」时都能回答。 */
+    private fun ping(): CliResponse = CliCodec.success(
+        CliPingView(
+            appVersion = appVersion,
+            protocolVersion = PROTOCOL_VERSION,
+            uptimeMillis = System.currentTimeMillis() - startedAtMillis,
+        )
+    )
 
     // -------------------------------------------------------------------------------------
     // 读

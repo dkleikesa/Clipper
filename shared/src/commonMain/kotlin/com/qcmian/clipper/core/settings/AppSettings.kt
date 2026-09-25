@@ -117,6 +117,18 @@ data class AppSettings(
     val clipboardCheckIntervalMillis: Int = 500,
     /** 把应用注册为开机自启项。 */
     val launchAtLogin: Boolean = false,
+    /**
+     * 允许外部进程经本机 socket 访问 Clipper：`clipper` 命令与 AI 助手据此搜索历史、导出图片与
+     * OCR 文本，并把条目写回剪贴板、置顶或删除。设置页在「AI 服务 → 命令行工具」。
+     *
+     * 关掉之后监听照旧，但除 `ping` 外的每条命令都以 `UNSUPPORTED` 失败并附上去哪里打开。
+     * 之所以不索性停掉监听：那样 CLI 只能看到「连不上」，会把「用户不允许」误报成
+     * 「app 没在运行」，把用户引去启动一个已经在运行的应用。`ping` 因此不计入这条限制——
+     * 它是 CLI 用来区分这两种情形的唯一依据。
+     *
+     * 默认允许，与引入这项设置之前的行为一致；它是一道**可撤回的授权**，不是默认关闭的闸门。
+     */
+    val allowCliAccess: Boolean = true,
 
     // 快捷键
     /**

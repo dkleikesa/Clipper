@@ -33,6 +33,10 @@ import kotlinx.coroutines.runBlocking
  * 生命周期跟着应用走：[start] 在组合根调用一次，[close] 在退出路径调用。它自己不起线程池
  * 之外的任何东西，也不碰 UI。
  *
+ * 监听本身**不看设置**：用户关掉「允许访问剪贴板历史」时，这里照旧收连接，由
+ * [CliRequestHandler] 逐条拒绝（`ping` 除外）。授权判定放在请求那一层，是为了让 CLI 能把
+ * 「用户不允许」与「app 没在运行」分开报给用户。
+ *
  * **实例是一次性的**：两个线程池在 [close] 里会被关掉，之后 [start] 不再可用
  * （`watchdog` 会抛 `RejectedExecutionException`）。重启进程会新建一个实例，那才是正常路径。
  *
