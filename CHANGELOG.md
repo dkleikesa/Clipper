@@ -1,5 +1,18 @@
 # 更新日志
 
+## [1.2.0] - 2026-09-25
+
+### 新增
+
+- **应用新增 CLI 跨进程通信支持**：Clipper 运行期间在 `~/.clipper/clipper.sock` 上监听本机请求，交给命令行与 AI 助手调用
+- **`clipper` 命令行工具**：Kotlin/Native 原生二进制（约 2.2 MB，无 JDK 依赖），提供 `list` / `search` / `get` / `copy` / `pin` / `unpin` / `delete` / `stats` / `ping` 九条命令；命令调用的是运行中的应用，因此需 Clipper 正在运行
+- **AI skill 随包发布**：release 资产新增 `clipper-skill-<版本>.zip`，内含 `SKILL.md`、协议参考与配套版本的二进制，放入 skills 目录即可使用
+- **「允许访问剪贴板历史」开关**（设置 → AI 服务 → 命令行工具）：默认开启，可随时撤销授权；关闭后除探活 `ping` 外，各命令均返回「已关闭授权」
+
+### 安全
+
+- 本机命令行通道仅当前用户可连：`~/.clipper/clipper.sock` 所在目录权限 `0700`、socket 权限 `0600`
+
 ## [1.1.0] - 2026-09-25
 
 ### 新增
@@ -45,5 +58,6 @@
 - 全局热键呼出面板、托盘图标开关、`⌘P` 暂停记录
 - 显示开关：十六进制色块、特殊符号、来源应用图标、图片最大高度
 
+[1.2.0]: https://github.com/dkleikesa/Clipper/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/dkleikesa/Clipper/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/dkleikesa/Clipper/releases/tag/v1.0.0
