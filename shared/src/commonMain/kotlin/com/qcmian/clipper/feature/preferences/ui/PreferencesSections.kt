@@ -374,12 +374,31 @@ private fun recognitionSwitches(data: PreferencesUiData) = listOf(
     ),
 )
 
+/**
+ * 外部通道的开关表。
+ *
+ * 与上面那条并列放在「AI 服务」里，是因为典型的调用方就是 AI 助手（skill 里的 `clipper`），
+ * 而不是面板上的任何操作。
+ */
+private val ExternalAccessSwitches = listOf(
+    BooleanSetting(
+        "允许 clipper CLI 访问剪贴板历史",
+        { it.allowCliAccess },
+        { value -> copy(allowCliAccess = value) },
+        description = "通过 clipper 命令给 AI 提供剪切板历史访问能力，关闭后这些操作一律被拒绝。",
+    ),
+)
+
 @Composable
 internal fun RecognitionSection(data: PreferencesUiData, actions: PreferencesActions) {
     val settings = data.settings
     val switches = remember(data.supportsTextRecognition) { recognitionSwitches(data) }
     SettingsGroup {
         SwitchSettings(settings, switches, actions.onSettingsChange)
+    }
+    // 另一件事：上面那条决定「进历史的内容长什么样」，这条决定「外面能不能读它」。
+    SettingsGroup {
+        SwitchSettings(settings, ExternalAccessSwitches, actions.onSettingsChange)
     }
 }
 
