@@ -15,6 +15,7 @@ import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
+import com.qcmian.clipper.host.cli.CliServer
 import kotlinx.coroutines.flow.first
 
 /**
@@ -41,6 +42,11 @@ fun main() {
     // 启动后那一秒里按快捷键等于按了个寂寞。
     val container = AppContainer()
     container.repository.start()
+
+    // CLI 服务：把上面这同一份数据层暴露给 `clipper` 命令，供 agent 与脚本调用。
+    // 放在组合之外启动，与数据加载同时进行——它不依赖窗口，也不该等窗口。
+    // 退出时的收尾（停线程、删 socket 文件）由它自己挂的 shutdown hook 负责。
+    CliServer(container).start()
 
     application {
         val windowController = remember { WindowController() }
