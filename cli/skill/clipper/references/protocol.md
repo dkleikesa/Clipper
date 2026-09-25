@@ -99,10 +99,10 @@
 ## ping → CliPingView
 
 ```json
-{"ok":true,"data":{"appVersion":"1.1.0","protocolVersion":1,"uptimeMillis":2190352}}
+{"ok":true,"data":{"appVersion":"1.2.0","protocolVersion":1,"uptimeMillis":2190352}}
 ```
 
-探活用。它不碰数据层，因此仓库还没就绪时也能回答。
+探活用。它不碰数据层，因此仓库还没就绪时也能回答；也不受「允许访问剪贴板历史」开关限制，是 CLI 区分「app 没在运行」与「用户关掉了授权」的依据。
 
 ## copy / pin / unpin / delete → CliAffectedView
 

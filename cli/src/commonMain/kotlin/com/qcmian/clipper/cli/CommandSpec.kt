@@ -115,7 +115,7 @@ object Commands {
         ),
         CommandSpec(
             name = CliCommand.SEARCH,
-            summary = "在历史里搜索（匹配标题与正文）",
+            summary = "在历史里搜索（只匹配标题）",
             positionals = listOf(PositionalSpec("query", "搜索词；多个词之间是 AND，含空格时加引号")),
             options = listOf(LIMIT),
             examples = listOf(
@@ -164,7 +164,7 @@ object Commands {
         ),
         CommandSpec(
             name = CliCommand.STATS,
-            summary = "历史概况：条数、类型分布、占用",
+            summary = "历史概况：总条数、置顶数与存储占用",
         ),
         CommandSpec(
             name = CliCommand.PING,
