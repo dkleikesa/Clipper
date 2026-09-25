@@ -24,7 +24,7 @@
 | `BAD_REQUEST` | 请求本身不合法（参数缺失、取值非法、互斥开关同给） |
 | `UNKNOWN_COMMAND` | 命令名不认识（通常是旧 app 遇到新 CLI） |
 | `NOT_FOUND` | 目标条目不存在 |
-| `UNSUPPORTED` | 命令认识但当前状态做不到 |
+| `UNSUPPORTED` | 命令认识但当前状态做不到。关闭设置里的「允许访问剪贴板历史」（AI 服务 → 命令行工具）后，除 `ping` 外的每条命令都返回它 |
 | `INTERNAL` | 服务端异常 |
 | `DAEMON_UNAVAILABLE` | CLI 侧产生：连不上 app（没运行或 socket 权限不对） |
 | `TIMEOUT` | CLI 侧产生：等待响应超时 |
