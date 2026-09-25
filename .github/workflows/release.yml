@@ -23,8 +23,8 @@ permissions:
 
 jobs:
   release:
-    name: 构建并发布 macOS 安装包
-    # 打包目标为 .dmg，必须在 macOS 上执行
+    name: 构建并发布 macOS 安装包、CLI 与 skill
+    # 两个产物都只能在 macOS 上打：.dmg 靠 Compose Desktop，CLI 要链 macosArm64 原生二进制
     runs-on: macos-latest
     timeout-minutes: 45
 
@@ -80,12 +80,24 @@ jobs:
             -PappVersion=${{ steps.version.outputs.version }} \
             --stacktrace
 
+      # CLI 与 skill 同一个 zip 发布：distribution 插件把 clipper 二进制放进 skill 目录内部
+      # （skill/clipper/script/clipper），解压后把 skill/clipper 整个拷进 ~/.codebuddy/skills/
+      # 即可用，二进制随行，用户不必自己装 clipper。版本号必须一起传，否则包名会退回
+      # gradle.properties 里的默认值、与 tag 脱节。
+      - name: 打包 CLI 与 skill
+        run: |
+          ./gradlew :cli:distZip \
+            -PappVersion=${{ steps.version.outputs.version }} \
+            --stacktrace
+
       - name: 生成 SHA-256 校验和
         run: |
           set -euo pipefail
-          cd desktopApp/build/compose/binaries/main-release/dmg
-          shasum -a 256 ./*.dmg > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          mkdir -p dist
+          # 逐个目录 shasum：校验和里只留文件名，用户下载到同一个目录后 `shasum -a 256 -c` 即可。
+          (cd desktopApp/build/compose/binaries/main-release/dmg && shasum -a 256 ./*.dmg) > dist/SHA256SUMS.txt
+          (cd cli/build/distributions && shasum -a 256 ./*.zip) >> dist/SHA256SUMS.txt
+          cat dist/SHA256SUMS.txt
 
       - name: 从 CHANGELOG 生成本版发布说明
         env:
@@ -119,5 +131,6 @@ jobs:
           generate_release_notes: true
           files: |
             desktopApp/build/compose/binaries/main-release/dmg/*.dmg
-            desktopApp/build/compose/binaries/main-release/dmg/SHA256SUMS.txt
+            cli/build/distributions/*.zip
+            dist/SHA256SUMS.txt
           fail_on_unmatched_files: true

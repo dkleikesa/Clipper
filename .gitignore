@@ -20,3 +20,5 @@ node_modules/
 
 # 发布流程产物（由 release.yml 从 CHANGELOG.md 生成）
 RELEASE_NOTES.md
+# 本地照 release.yml 跑一遍时会产出校验和目录
+/dist/

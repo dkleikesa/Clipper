@@ -53,7 +53,12 @@ version = providers.gradleProperty("appVersion").get()
  */
 distributions {
     main {
-        distributionBaseName.set("clipper")
+        // 压缩包与解压后的顶层目录都叫 `clipper-skill-<版本>`：包里整体就是一个自包含的 skill
+        // （`skill/clipper/` 下有 SKILL.md、references，二进制在里面），CLI 是它的载荷而不是
+        // 主体，名字照着内容走。顺带也把 Release 页上的三份东西分开——`Clipper-<版本>.dmg`、
+        // 本包、GitHub 自动生成的 `Source code (zip)`，前两者只差大小写时很容易拿错。
+        // 里面的命令本身仍叫 `clipper`（见上面的 rename）。
+        distributionBaseName.set("clipper-skill")
         contents {
             from(layout.buildDirectory.file("bin/macosArm64/releaseExecutable/clipper.kexe")) {
                 // `.kexe` 只是 KGP 给原生可执行文件加的后缀，分发时用 `clipper` 这个名字。
