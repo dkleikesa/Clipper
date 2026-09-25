@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.kotlinSerialization)
+    id("distribution")
 }
 
 kotlin {
@@ -38,3 +39,31 @@ kotlin {
         }
     }
 }
+
+/** 版本号与桌面端同源（`gradle.properties` 的 `appVersion`），免得包名版本与 tag 脱节。 */
+version = providers.gradleProperty("appVersion").get()
+
+/**
+ * 分发包内容：release 可执行文件 + 许可证。
+ *
+ * 归档这一步用 Gradle 自带的 `distribution` 插件（`distZip` / `distTar` / `installDist`），
+ * 它只负责把 `contents` 摆成 `<名字>-<版本>/` 再归档，与 JVM 无关，原生二进制同样适用。
+ * Kotlin 插件自己只到 `link*Executable*` 为止：链接出裸二进制之后，归档、执行位、
+ * 版本号进文件名这些它都不管。
+ */
+distributions {
+    main {
+        distributionBaseName.set("clipper")
+        contents {
+            from(layout.buildDirectory.file("bin/macosArm64/releaseExecutable/clipper.kexe")) {
+                // `.kexe` 只是 KGP 给原生可执行文件加的后缀，分发时用 `clipper` 这个名字。
+                rename { "clipper" }
+                filePermissions { unix("0755") }
+            }
+        }
+    }
+}
+
+//// `contents` 里的路径要到执行期才解析，因此显式让归档任务等链接完成。
+//tasks.matching { it.name in listOf("distZip", "distTar", "installDist") }
+//    .configureEach { dependsOn("linkReleaseExecutableMacosArm64") }
