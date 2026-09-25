@@ -94,3 +94,22 @@ tasks.register<JavaExec>("seedData") {
     mainClass.set("com.qcmian.clipper.desktop.SeedDataKt")
     classpath = sourceSets["main"].runtimeClasspath
 }
+
+/**
+ * 开发用：**无界面**启动数据层 + CLI 服务端，见 `CliServerDev.kt`。
+ *
+ * `user.home` 被指到 `build/devhome`，于是数据库与 socket 都落在这个一次性目录里，
+ * 不碰用户真实的 `~/.clipper/`。CLI 侧加同样一条即可连上：
+ *
+ * ```
+ * CLIPPER_OPTS="-Duser.home=$PWD/desktopApp/build/devhome" \
+ *   cli/build/install/clipper/bin/clipper list
+ * ```
+ */
+tasks.register<JavaExec>("devCliServer") {
+    group = "application"
+    description = "无界面启动 CLI 服务端（数据落在 desktopApp/build/devhome）"
+    mainClass.set("com.qcmian.clipper.desktop.CliServerDevKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    systemProperty("user.home", layout.buildDirectory.dir("devhome").get().asFile.absolutePath)
+}

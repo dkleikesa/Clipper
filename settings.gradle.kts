@@ -83,3 +83,10 @@ plugins {
 
 include(":desktopApp")
 include(":shared")
+
+// CLI 与 app 之间的共享契约。刻意与 :shared 分开：:cli 只依赖它，
+// 于是 CLI 的运行时 classpath 上不会出现 Compose / Skiko / Room / JNA。
+include(":protocol")
+
+// 供 agent 与脚本调用的瘦客户端；数据与业务规则都在 app 里，见 :protocol。
+include(":cli")
