@@ -152,7 +152,7 @@ cd Clipper
 | 命令 | 用途 |
 | --- | --- |
 | `clipper list` | 列出历史；`--limit`（默认 20，上限 200）、`--kind`、`--sort`、`--order`、`--pinned` |
-| `clipper search <关键词>` | 搜标题（正文开头 / 图片 OCR 文字 / 文件路径）；多词之间是 AND，含空格要加引号 |
+| `clipper search <关键词>` | 搜标题（正文开头 / 图片 OCR 文字 / 文件路径）；加 `--deep` 连正文一起搜（慢）；多词之间是 AND，含空格要加引号 |
 | `clipper get <id>` | 取单条全文；`--raw` 直出文本、`--ocr` 直出识别原文、`--format html/rtf/pdf` 导出附件 |
 | `clipper copy <id>` | 把它写回系统剪贴板，效果与面板里的「激活」相同 |
 | `clipper pin` / `unpin <id>` | 置顶 / 取消置顶 |
@@ -162,6 +162,7 @@ cd Clipper
 ```bash
 clipper list --limit 5
 clipper search "发票 报销" --limit 10
+clipper search 会议纪要 --deep --timeout 20000   # 正文也搜一遍，慢；默认 5 秒常常不够
 clipper get 6ad4733b3feb1bd7c41c4e3cd8d9a073 --raw
 ```
 

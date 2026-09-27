@@ -39,6 +39,15 @@ data class CliRequest(
     /** 搜索词（`search`）。 */
     val query: String? = null,
 
+    /**
+     * 是否连**正文**一起搜（`search`）。
+     *
+     * 默认（省略）只匹配标题：标题在内存里，一次调用是纯 CPU 的毫秒级操作。置为 `true` 后
+     * 服务端还会分批读库，把正文与图片识别原文也过一遍——**慢得多**，而且可能只跑完一部分
+     * （见 [CliListView.deepSearchTruncated]）。因此它必须是调用方显式要的。
+     */
+    val deep: Boolean? = null,
+
     /** 类型筛选（`list`）：`text` / `image` / `file` / `richtext`。 */
     val kind: String? = null,
     /** 排序字段（`list`）：对应 `SortBy` 的取值。 */

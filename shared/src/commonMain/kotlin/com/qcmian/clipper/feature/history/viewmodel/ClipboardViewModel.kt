@@ -7,6 +7,7 @@ import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.SearchResult
+import com.qcmian.clipper.core.domain.search.ClipDeepSearch
 import com.qcmian.clipper.core.domain.search.ClipSearch
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.ClipFilterType
@@ -40,7 +41,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
@@ -727,14 +727,12 @@ class ClipboardViewModel(
     /**
      * 对**正文**再搜一次当前查询。
      *
-     * 正文留在库里（它就是「标题之外的那部分」，一条可能几十 KB，不可能常驻内存），因此这里
-     * **分批**读：每批几百个 id，读出来立刻匹配、只留下命中的分数与区间，正文随即丢弃。于是
-     * 峰值内存只与「一批的大小」成正比，与历史总量无关。
+     * 正文留在库里（它就是「标题之外的那部分」，一条可能几十 KB，不可能常驻内存），这里只
+     * 负责挑出「该扫哪些条目」并把结果接回界面状态；**分批读库、匹配、丢弃正文**那一段在
+     * [ClipDeepSearch] 里，与 CLI 那条路径共用——它的形状由存储决定，两边各写一份迟早会漂。
      *
-     * 与 [refresh] 一样跑在后台，并允许被后一次输入取消——但取消点不同：这里的每一批都经过
-     * `repository.texts` 的挂起点，协程取消天然生效，不需要像标题匹配那样在循环里自检。
-     *
-     * 已经匹配过标题的条目直接跳过：它们就在列表里，再扫一遍正文没有意义。
+     * 与 [refresh] 一样允许被后一次输入取消（[deepSearchJob] 被取消时 [ClipDeepSearch] 抛
+     * 出取消异常）。已经匹配过标题的条目直接跳过：它们就在列表里，再扫一遍正文没有意义。
      */
     private fun runDeepSearch() {
         val query = _uiState.value.appliedQuery
@@ -755,40 +753,18 @@ class ClipboardViewModel(
 
         deepSearchJob = viewModelScope.launch {
             val metaById = unpinned.associateBy { it.id }
-            val found = ArrayList<SearchResult>()
-            val seen = HashSet<String>()
-            var scannedChars = 0L
-
-            for (chunk in pending.chunked(DEEP_SEARCH_BATCH)) {
-                if (!isActive) return@launch
-
-                val texts = repository.texts(chunk)
-                if (texts.isEmpty()) continue
-
-                scannedChars += texts.sumOf { it.text.length.toLong() }
-                val hits = withContext(Dispatchers.Default) {
-                    ClipSearch.searchTexts(query, texts.map { it.text }) { !isActive }
-                }
-                for (hit in hits) {
-                    if (found.size >= DEEP_SEARCH_MAX_HITS) break
-                    val text = texts[hit.index]
-                    val meta = metaById[text.id] ?: continue
-                    // 同一个条目的两段正文是两条候选，只留匹配更好的那条：命中已按分数降序，
-                    // 所以第一次见到的就是最好的。
-                    if (!seen.add(text.id)) continue
-                    // 不带高亮区间：命中区间是相对**正文**算的，而这一行渲染的是标题，
-                    // 两者不是同一份文本，区间不能直接用。
-                    found += SearchResult(meta)
-                }
-
-                // 两道闸门：结果够多，或正文读得够多。后者防的是一条超长正文（或一个很大的库）
-                // 把一次点击拖成几秒——用户要的是「再看看有没有」，不是把整个库读完。
-                if (found.size >= DEEP_SEARCH_MAX_HITS || scannedChars >= DEEP_SEARCH_MAX_CHARS) break
-            }
-
-            if (!isActive) return@launch
-            deepResults = found
-            _uiState.update { it.copy(deepSearch = DeepSearchState.DONE, deepSearchHits = found.size) }
+            // 「分批读库、匹配、丢弃正文」那一段与 CLI 共用（见 `ClipDeepSearch`）：它的形状由
+            // 存储决定，两边各写一份迟早会漂。这里只把命中的 id 还原成结果——命中已按分数降序，
+            // 所以顺序直接可用（同一个条目的两段正文在那里已按 id 去重）。
+            val outcome = ClipDeepSearch.search(
+                query = query,
+                candidateIds = pending,
+                readTexts = { ids -> repository.texts(ids) },
+            )
+            // 不带高亮区间：命中区间是相对**正文**算的，而这一行渲染的是标题，两者不是同一份
+            // 文本，区间不能直接用。
+            deepResults = outcome.ids.mapNotNull { id -> metaById[id]?.let { SearchResult(it) } }
+            _uiState.update { it.copy(deepSearch = DeepSearchState.DONE, deepSearchHits = deepResults.size) }
             // 交给 [refresh] 这条统一路径去拼结果：它会在**写入状态的那一刻**逐条校验是否还在
             // （搜索期间可能被删掉），也顺带处理与标题命中的重复。这里自己拼一份则绕开了那些
             // 校验，还多出一次「谁后落地」的竞态。
@@ -878,24 +854,8 @@ class ClipboardViewModel(
     private companion object {
         const val STATUS_DURATION_MILLIS = 1_600L
 
-        /**
-         * 全文搜索每批取多少条正文。
-         *
-         * 一批就是一次 `IN` 查询的规模。几百条让往返次数可接受，又保证单批的正文（哪怕都是
-         * 长文本）只占几 MB——这就是「不全读进内存」的落点。
-         */
-        const val DEEP_SEARCH_BATCH = 200
-
-        /** 全文搜索最多从正文里补多少条：用户要的是「再看看有没有」，不是一份新列表。 */
-        const val DEEP_SEARCH_MAX_HITS = 200
-
-        /**
-         * 全文搜索最多读多少字符的正文。
-         *
-         * 上一条限的是**结果数**，这一条限的是**工作量**：正文里没有命中时结果数永远不涨，
-         * 只有字符预算能拦住它把整个库读完。
-         */
-        const val DEEP_SEARCH_MAX_CHARS = 16L * 1024 * 1024
+        // 全文搜索的三项预算（批次大小、命中上限、字符上限）在 `ClipDeepSearch` 里：
+        // 界面与 CLI 共用同一份，放在这里就会各自演化成两个不同的上限。
 
         /**
          * 预览内容的加载防抖。

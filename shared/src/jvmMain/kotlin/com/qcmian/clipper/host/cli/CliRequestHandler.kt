@@ -2,6 +2,7 @@ package com.qcmian.clipper.host.cli
 
 import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.domain.model.ClipMeta
+import com.qcmian.clipper.core.domain.search.ClipDeepSearch
 import com.qcmian.clipper.core.domain.search.ClipSearch
 import com.qcmian.clipper.core.domain.usecase.SelectResult
 import com.qcmian.clipper.core.settings.SortOrder
@@ -130,19 +131,38 @@ internal class CliRequestHandler(
     }
 
     /**
-     * 搜索**只匹配标题**，与界面首屏的行为一致（见 `ClipSearch`：它明说「不触碰载荷」）。
+     * 搜索默认**只匹配标题**，与界面首屏的行为一致（见 `ClipSearch`：它明说「不触碰载荷」）。
+     * 标题在存储里最长 1000 字符（`ClipItem.MAX_TITLE_LENGTH`），覆盖了绝大多数
+     * 「找上次复制的那段东西」的场景，而且整条路径是纯 CPU、毫秒级。
      *
-     * 界面在用户滚到底之后才会继续去正文里找一轮；CLI 不做那一轮——它意味着把整份历史的
-     * 正文按批读进来，对一次命令行调用来说代价太高。标题在存储里最长 1000 字符
-     * （`ClipItem.MAX_TITLE_LENGTH`），覆盖了绝大多数「找上次复制的那段东西」的场景。
+     * 请求带 `deep` 时再补上界面里那个「在正文中继续搜索」入口做的事：正文留在库里、只能
+     * 分批读出来匹配（见 [ClipDeepSearch]），因此**慢得多**，而且有预算——撞到上限就停下，
+     * 结果里用 `deepSearchTruncated` 如实说明「可能还有」。
+     *
+     * 顺序与界面一致：标题命中在前、正文命中在后。界面把正文命中**追加**在末尾是怕用户丢失
+     * 浏览位置，CLI 沿用同一个顺序只是为了两边对同一次查询给出同一种排列。
      */
-    private fun search(request: CliRequest): CliResponse {
+    private suspend fun search(request: CliRequest): CliResponse {
         val query = request.query
         if (query.isNullOrBlank()) {
             return CliCodec.failure(CliErrorCode.BAD_REQUEST, "缺少搜索词", "用法：clipper search <query>")
         }
-        val hits = ClipSearch.search(query, allMetas())
-        return page(hits.map { it.meta }, request.limit)
+
+        val metas = allMetas()
+        val titleHits = ClipSearch.search(query, metas)
+        if (request.deep != true) return page(titleHits.map { it.meta }, request.limit)
+
+        // 已经按标题命中的条目不再扫正文：它已经在结果里了，再读一遍库没有意义。
+        val shown = titleHits.mapTo(HashSet(titleHits.size)) { it.meta.id }
+        val candidates = metas.filter { it.id !in shown }
+        val outcome = ClipDeepSearch.search(
+            query = query,
+            candidateIds = candidates.map { it.id },
+            readTexts = { ids -> container.repository.texts(ids) },
+        )
+        val byId = candidates.associateBy { it.id }
+        val merged = titleHits.map { it.meta } + outcome.ids.mapNotNull { byId[it] }
+        return page(merged, request.limit, deep = true, deepTruncated = outcome.truncated)
     }
 
     private suspend fun get(request: CliRequest): CliResponse {
@@ -248,7 +268,12 @@ internal class CliRequestHandler(
         container.repository.pinned.value + container.repository.unpinned.value
 
     /** 统一处理截断与总数，让 `list` / `search` 的口径不可能不一致。 */
-    private fun page(metas: List<ClipMeta>, requested: Int?): CliResponse {
+    private fun page(
+        metas: List<ClipMeta>,
+        requested: Int?,
+        deep: Boolean = false,
+        deepTruncated: Boolean = false,
+    ): CliResponse {
         val limit = (requested ?: DEFAULT_LIMIT).coerceIn(1, MAX_LIMIT)
         val page = metas.take(limit)
         return CliCodec.success(
@@ -256,6 +281,8 @@ internal class CliRequestHandler(
                 items = page.map(CliViewMapper::summary),
                 total = metas.size,
                 truncated = metas.size > limit,
+                deepSearch = deep,
+                deepSearchTruncated = deepTruncated,
             )
         )
     }

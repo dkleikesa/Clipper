@@ -144,8 +144,27 @@ data class CliListView(
      * Agent 靠它判断「还有更多」——`items.size < total` 就说明撞到 [CliRequest.limit] 了。
      */
     val total: Int,
-    /** 本次是否因为 [CliRequest.limit] 而截断。 */
+    /**
+     * 本次是否因为 [CliRequest.limit] 而截断。
+     *
+     * 与 [deepSearchTruncated] 是两件事：这一条说的是**结果被切短了**，那一条说的是
+     * **搜索本身没跑完**。
+     */
     val truncated: Boolean = false,
+    /**
+     * 本次搜索是否扫过正文（即请求带了 [CliRequest.deep]）。
+     *
+     * 出现它只说明「`items` 里可能有正文命中」，不断言正文里一定还有更多。默认 `false`
+     * 时不写出——那时结果是纯标题命中。
+     */
+    val deepSearch: Boolean = false,
+    /**
+     * 正文搜索是否因预算（命中条数 / 读取字符数）**提前结束**。
+     *
+     * 为 `true` 时「后面可能还有命中」：本次结果不能当成完整结果。它只在 [deepSearch]
+     * 为真时可能出现——没扫过正文的调用不会因为预算而停。
+     */
+    val deepSearchTruncated: Boolean = false,
 )
 
 /**

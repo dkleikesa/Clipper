@@ -42,9 +42,17 @@
 | --- | --- | --- |
 | `items` | CliView[] | 条目数组 |
 | `total` | Int | **筛选条件下的总数**，不是返回条数 |
-| `truncated` | Boolean | 是否因 `--limit` 被截断；false 时不出现 |
+| `truncated` | Boolean | 是否因 `--limit` 被截断（**结果被切短**）；false 时不出现 |
+| `deepSearch` | Boolean | 本次扫过正文（请求带 `deep`），`items` 里可能有正文命中；false 时不出现 |
+| `deepSearchTruncated` | Boolean | 正文搜索因预算**提前结束**：后面可能还有命中，不能当完整结果；false 时不出现 |
 
 `--limit` 默认 20、上限 200（CLI 与服务端双向夹紧）。**没有 offset**，只能取「从头开始的连续一段」；要更早的数据就反转排序：`--sort lastCopiedAt --order asc`。
+
+### search --deep
+
+默认**只匹配标题**。加 `--deep`（请求字段 `deep`）才把正文与图片识别原文也分批读一遍：标题命中在前、正文命中在后，已按标题命中的条目不再重复出现。
+
+它是**有预算的**——最多补 200 条正文命中、最多读 16 MB 正文，撞到任一条就停下并给出 `deepSearchTruncated`。这条路径要读库，明显比标题搜索慢，默认 5 秒常常不够：需要放宽 `--timeout`（如 `--timeout 20000`；服务端单连接上限 30 秒，别设得更大）。
 
 ## CliView（条目）
 
@@ -114,7 +122,7 @@
 
 ## 请求形状（诊断用）
 
-CLI 发给 app 的请求是扁平结构：`cmd` 决定用哪些字段（`id` / `ids` / `query` / `kind` / `sort` / `order` / `pinned` / `limit` / `format`），其余留 `null`。
+CLI 发给 app 的请求是扁平结构：`cmd` 决定用哪些字段（`id` / `ids` / `query` / `deep` / `kind` / `sort` / `order` / `pinned` / `limit` / `format`），其余留 `null`。
 
 `--raw` / `--ocr` **不出现在请求里**：它们只改 CLI 打印什么，不改服务端返回什么——响应里本来就带完整正文。
 

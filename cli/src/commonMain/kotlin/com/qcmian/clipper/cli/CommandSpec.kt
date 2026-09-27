@@ -115,12 +115,20 @@ object Commands {
         ),
         CommandSpec(
             name = CliCommand.SEARCH,
-            summary = "在历史里搜索（只匹配标题）",
+            summary = "在历史里搜索（默认只匹配标题）",
             positionals = listOf(PositionalSpec("query", "搜索词；多个词之间是 AND，含空格时加引号")),
-            options = listOf(LIMIT),
+            options = listOf(
+                LIMIT,
+                OptionSpec(
+                    name = "deep",
+                    kind = ValueKind.FLAG,
+                    description = "正文也搜一遍：慢得多，必要时放宽 --timeout（结果里会给 deepSearchTruncated）",
+                ),
+            ),
             examples = listOf(
                 "clipper search \"发票 报销\"",
                 "clipper search 截图 --limit 50",
+                "clipper search 会议纪要 --deep --timeout 20000",
             ),
         ),
         CommandSpec(
@@ -212,6 +220,9 @@ fun ParsedArgs.toRequest(): CliRequest = when (command.name) {
         cmd = CliCommand.SEARCH,
         query = positionals.first(),
         limit = intOption("limit") ?: DEFAULT_LIMIT,
+        // 只在真的要搜正文时才写出这个字段：`null` 会被省略，旧版 app 因此看到一个
+        // 它本来就认识的请求，而不是一个带未知字段的请求。
+        deep = if (flag("deep")) true else null,
     )
 
     CliCommand.GET -> CliRequest(

@@ -67,11 +67,14 @@ clipper list --pinned                  # 只看置顶；--unpinned 与之互斥
 
 ```bash
 clipper search "发票 报销" --limit 10   # 多个词是 AND，含空格要引号
+clipper search 会议纪要 --deep --timeout 20000   # 正文也搜一遍：慢，默认 5 秒常常不够
 clipper get <id>                       # JSON，含完整 text
 clipper get <id> --raw                 # 只输出正文，便于直接喂给别的命令
 ```
 
-`search` 只匹配标题（正文开头 / 图片 OCR 文字 / 文件路径），**不搜正文深处**。找不到就换更短的词，或先 `list` 一批自己筛。
+`search` 默认只匹配标题（正文开头 / 图片 OCR 文字 / 文件路径），**不搜正文深处**。找不到就换更短的词，或先 `list` 一批自己筛。
+
+加 `--deep` 才会在**正文**里再找一轮：它要分批读库，明显更慢，所以只在默认搜索确实不够时用。结果里标题命中在前、正文命中在后，响应里的 `deepSearch` 为 `true`；若同时出现 `deepSearchTruncated`，说明预算用尽、**后面可能还有命中**，别当完整结果。
 
 ### 图片 / 文件 / 富文本
 
@@ -116,7 +119,8 @@ clipper ping    # appVersion / protocolVersion / uptimeMillis
 | --- | --- |
 | 解析或截断 `id` | 它是 32 位十六进制随机串，不透明；只做原样传递 |
 | 把 `title` 当全文 | 最多 200 字符且已被转义；要正文用 `get` |
-| 以为 `search` 会搜正文 | 只匹配标题；必要时先 `list` 拉一批再本地筛 |
+| 以为 `search` 会搜正文 | 默认只匹配标题；要正文就加 `--deep`（慢），或先 `list` 拉一批再本地筛 |
+| 把 `--deep` 的结果当完整结果 | 看 `deepSearchTruncated`；为 true 说明扫描被预算截断，后面可能还有 |
 | 拿 `items.size` 当总数 | 看 `total`；`items.size < total` 就是被 `--limit` 截断了 |
 | 想取第 201 条之后 | 没有 offset；改排序（`--sort lastCopiedAt --order asc`）或加 `--kind` 缩小范围 |
 | 排序字段写成中文或下划线 | 取值是 camelCase：`lastCopiedAt` / `firstCopiedAt` / `copies` / `size` |
