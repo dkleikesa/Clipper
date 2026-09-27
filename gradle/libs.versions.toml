@@ -11,6 +11,8 @@ ksp = "2.3.12"
 material3 = "1.11.0-alpha07"
 room3 = "3.0.2"
 sqlite = "2.7.0"
+# 带加密能力（SQLite3MultipleCiphers，兼容 SQLCipher 4 格式）的 SQLite JDBC 驱动。
+willena-sqlite-jdbc = "3.53.2.0"
 
 [libraries]
 androidx-lifecycle-viewmodelCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
@@ -30,7 +32,7 @@ jna-platform = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }
 androidx-room3-runtime = { module = "androidx.room3:room3-runtime", version.ref = "room3" }
 androidx-room3-compiler = { module = "androidx.room3:room3-compiler", version.ref = "room3" }
 androidx-sqlite = { module = "androidx.sqlite:sqlite", version.ref = "sqlite" }
-androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqlite" }
+willena-sqlite-jdbc = { module = "io.github.willena:sqlite-jdbc", version.ref = "willena-sqlite-jdbc" }
 
 [plugins]
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }

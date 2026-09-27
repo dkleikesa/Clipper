@@ -131,6 +131,21 @@ sealed interface ClipboardUiAction {
     data object ConfirmClear : ClipboardUiAction
     data object DismissClear : ClipboardUiAction
 
+    // ------------------------------------------------------------------ 数据库加密
+    /**
+     * 设置页的「数据库加密」开关被切换：[enabled] 是用户想要的目标状态。
+     *
+     * 它只打开密码框，真正的换钥发生在用户确认口令之后（见 [ConfirmDatabaseEncryption]）：
+     * 加密涉及整库重写，不能在拨动开关的同一下发生。
+     */
+    data class RequestDatabaseEncryption(val enabled: Boolean) : ClipboardUiAction
+
+    /** 密码框确认：[passphrase] 是用户输入的新口令（关闭加密时为空串）。 */
+    data class ConfirmDatabaseEncryption(val passphrase: String) : ClipboardUiAction
+
+    /** 关闭密码框（取消 / `Esc`）。 */
+    data object DismissDatabaseEncryption : ClipboardUiAction
+
     // ------------------------------------------------------------------ 宿主驱动
     /** 全局热键打开了面板（`Popup.handleFirstKeyDown`）。 */
     data object Opened : ClipboardUiAction

@@ -80,6 +80,22 @@ internal fun StorageSection(data: PreferencesUiData, actions: PreferencesActions
             }
         }
     }
+    // 加密是存储属性，因此与容量、清除同属「存储与数据」一页。开关只打开密码框，
+    // 真正的换钥（整库重写）发生在用户确认口令之后——见 `PreferencesActions.onConfirmDatabaseEncryption`。
+    if (data.supportsDatabaseEncryption) {
+        SettingsGroup {
+            GroupLabel("安全")
+            SwitchRow(
+                title = "数据库加密",
+                checked = data.databaseEncrypted,
+                description = if (data.databaseEncrypted) {
+                    "历史与偏好以 SQLCipher 加密落盘；口令不保存，每次启动都要重新输入。"
+                } else {
+                    "开启后历史与偏好将加密落盘；口令不保存，每次启动都要重新输入。"
+                },
+            ) { enabled -> actions.onSetDatabaseEncryption(enabled) }
+        }
+    }
 }
 
 /**

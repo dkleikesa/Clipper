@@ -52,6 +52,13 @@ fun SettingsScreen(
             },
             onCancelShortcutRecording = { onAction(ClipboardUiAction.CancelShortcutRecording) },
             onShortcutKeyEvent = captureShortcutKey,
+            onSetDatabaseEncryption = { enabled ->
+                onAction(ClipboardUiAction.RequestDatabaseEncryption(enabled))
+            },
+            onConfirmDatabaseEncryption = { passphrase ->
+                onAction(ClipboardUiAction.ConfirmDatabaseEncryption(passphrase))
+            },
+            onDismissDatabaseEncryption = { onAction(ClipboardUiAction.DismissDatabaseEncryption) },
         )
     }
 
@@ -64,6 +71,9 @@ fun SettingsScreen(
                 screenCount = state.screenCount,
                 supportsLaunchAtLogin = state.supportsLaunchAtLogin,
                 supportsTextRecognition = state.supportsTextRecognition,
+                supportsDatabaseEncryption = state.supportsDatabaseEncryption,
+                databaseEncrypted = state.databaseEncrypted,
+                encryptionPrompt = state.encryptionPrompt,
                 shortcutRecording = state.shortcutRecording,
                 hasConfirmation = state.confirmation != null,
             ),
@@ -81,6 +91,18 @@ fun SettingsScreen(
                 comment = request.comment,
                 onConfirm = { onAction(ClipboardUiAction.ConfirmClear) },
                 onDismiss = { onAction(ClipboardUiAction.DismissClear) },
+            )
+        }
+
+        // 数据库加密的密码框与清除确认框同属「设置页之上的模态层」，两者不会同时开着
+        // （前者由开关触发，后者由按钮触发）。
+        state.encryptionPrompt?.let { prompt ->
+            DatabaseEncryptionDialog(
+                prompt = prompt,
+                onConfirm = { passphrase ->
+                    onAction(ClipboardUiAction.ConfirmDatabaseEncryption(passphrase))
+                },
+                onDismiss = { onAction(ClipboardUiAction.DismissDatabaseEncryption) },
             )
         }
     }

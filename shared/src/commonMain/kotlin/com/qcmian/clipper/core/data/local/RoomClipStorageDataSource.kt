@@ -3,7 +3,11 @@ package com.qcmian.clipper.core.data.local
 import androidx.room3.executeSQL
 import androidx.room3.useReaderConnection
 import androidx.room3.useWriterConnection
+import androidx.sqlite.SQLiteException
 import com.qcmian.clipper.core.data.source.ClipStorageDataSource
+import com.qcmian.clipper.core.data.source.EncryptionBackup
+import com.qcmian.clipper.core.data.source.SQLCIPHER_SCHEME
+import com.qcmian.clipper.core.data.source.SessionKey
 import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.ClipPayload
 import com.qcmian.clipper.core.domain.model.ClipText
@@ -22,6 +26,10 @@ import com.qcmian.clipper.core.util.encodeJson
 internal class RoomClipStorageDataSource(
     private val database: ClipperDatabase,
     private val databaseBytes: () -> Long? = { null },
+    /** 会话密钥的同步点；`null` 表示当前平台不支持加密（见 [supportsEncryption]）。 */
+    private val sessionKey: SessionKey? = null,
+    /** 换钥前后的备份 / 回滚；`null` 表示不做这层保险。 */
+    private val backup: EncryptionBackup? = null,
 ) : ClipStorageDataSource {
     private val history = database.clipHistoryDao()
     private val preferences = database.appSettingsDao()
@@ -170,6 +178,66 @@ internal class RoomClipStorageDataSource(
         )
     }
 
+    override val supportsEncryption: Boolean get() = sessionKey != null
+
+    override val isEncrypted: Boolean get() = sessionKey?.encrypted ?: false
+
+    /**
+     * `PRAGMA rekey` 一次性把整库按新口令重写：
+     *
+     * - `null`（空口令）即解密回标准明文库；
+     * - 明文库也能直接加密，不需要先导出再重建。
+     *
+     * 四条顺序都是必须的：
+     *
+     * - **先收掉残留事务**。`rekey` 内部含一次 `VACUUM`，SQLite 明确拒绝在事务中做这件事
+     *   （`cannot VACUUM from within a transaction`）。而驱动在提交失败后会把事务层级强制归零
+     *   （见 `SqlCipherDriver.ConnectionState.resetDepth`）——层级归零之后 Room 回收连接时
+     *   不再补一次回滚，于是那条**单连接**会一直卡在事务里，之后每次 rekey 都注定失败。
+     *   这里主动补一次回滚；没有事务时 SQLite 会回一句 `no transaction is active`，属正常。
+     * - **备份必须在拿到写连接、且回滚之后**。库是 TRUNCATE（回滚日志）模式：写事务进行中，
+     *   主库文件里是**半提交**的页，原始页只在 `-journal` 里。若在那时拷文件，`.bak` 本身就是
+     *   不一致的——真回滚回去等于把坏快照写回主库。持有写连接保证没有并发写事务，前面的回滚
+     *   再保证没有残留事务，此时的一次文件拷贝才是干净的已提交快照。
+     * - **`cipher` 必须在 `rekey` 之前**：只写 `rekey` 会沿用连接的旧方案，与驱动建连接时注入的
+     *   方案（[SQLCIPHER_SCHEME]）对不上，下次开库就会报 `file is not a database`。
+     * - **最后才更新会话口令**：失败时不能把新口令留在内存里，否则下次开库用它必然打不开。
+     */
+    override suspend fun rekey(newPassphrase: String?): Result<Unit> {
+        val session = sessionKey
+            ?: return Result.failure(UnsupportedOperationException("当前平台不支持数据库加密"))
+        if (closed) return Result.failure(IllegalStateException("数据库已关闭"))
+
+        val snapshot = backup
+        // 备份成功与否在写连接的块里才定下来，因此用一个 var 带出块外。
+        var backedUp = false
+        val result = runCatching {
+            val key = newPassphrase ?: ""
+            database.useWriterConnection { connection ->
+                try {
+                    connection.executeSQL("ROLLBACK TRANSACTION")
+                } catch (_: SQLiteException) {
+                    // 本来就没有事务——正是常态。
+                }
+                // 到这里连接上既无并发写事务、也无残留事务，文件才是「干净的已提交状态」。
+                backedUp = snapshot != null && snapshot.snapshot()
+                connection.executeSQL("PRAGMA cipher = '${SQLCIPHER_SCHEME}'")
+                connection.executeSQL("PRAGMA rekey = ${sqlLiteral(key)}")
+            }
+            session.update(newPassphrase)
+        }
+        if (backedUp) {
+            val files = checkNotNull(snapshot)
+            if (result.isSuccess) {
+                files.discard()
+            } else {
+                // 回滚文件；连接那边已经不可信，调用方应当提示用户重启（见 `ClipboardViewModel`）。
+                files.restore()
+            }
+        }
+        return result
+    }
+
     // 注意：参数不能与该方法同名，否则这里的调用会解析成方法自身。
     override fun storageBytes(): Long? = databaseBytes()
 
@@ -252,3 +320,11 @@ internal class RoomClipStorageDataSource(
         const val CACHE_SIZE_KB = 65_536L
     }
 }
+
+/**
+ * 把口令写成 SQL 字符串字面量（单引号翻倍）。
+ *
+ * `PRAGMA` 语句不支持绑定参数，只能拼字符串，因此这里必须自己转义——否则一个带单引号的
+ * 口令就是一次 SQL 注入，且会表现为「设了 A 口令、实际却是另一个」这种极难排查的错。
+ */
+private fun sqlLiteral(value: String): String = "'" + value.replace("'", "''") + "'"

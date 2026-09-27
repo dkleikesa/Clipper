@@ -35,6 +35,20 @@ data class ClearConfirmation(
 )
 
 /**
+ * 数据库加密（或解密）的密码框状态；`null` 表示框没开着。
+ *
+ * 口令**不落盘**：它只在这条消息的生命周期里存在，换钥成功后即随密码框一起消失。
+ */
+data class EncryptionPrompt(
+    /** `true` = 开启加密（要用户设一个新口令），`false` = 关闭加密（解密回明文）。 */
+    val enabled: Boolean,
+    /** 整库正在重写（`PRAGMA rekey`）；此期间输入与按钮都置灰。 */
+    val working: Boolean = false,
+    /** 上一次尝试的失败原因；`null` 表示还没失败过。 */
+    val error: String? = null,
+)
+
+/**
  * 历史界面的完整不可变描述。
  *
  * UI 只渲染这个对象，除此之外什么都不读；每一次用户交互都以 [ClipboardUiAction] 的形式回传。
@@ -113,6 +127,12 @@ data class ClipboardUiState(
     val supportsLaunchAtLogin: Boolean = false,
     /** 宿主是否能做图片文字识别；为假时偏好设置里的识别开关会被禁用。 */
     val supportsTextRecognition: Boolean = false,
+    /** 宿主是否支持数据库加密；为假时设置页不显示「数据库加密」那一项。 */
+    val supportsDatabaseEncryption: Boolean = false,
+    /** 数据库当前是否加密（设置页开关的状态）。 */
+    val databaseEncrypted: Boolean = false,
+    /** 数据库加密的密码框；`null` 表示关着。 */
+    val encryptionPrompt: EncryptionPrompt? = null,
     /** 宿主是否能退出应用，决定是否多出一行「退出」页脚。 */
     val showQuit: Boolean = false,
     /**

@@ -1,16 +1,23 @@
 package com.qcmian.clipper
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.qcmian.clipper.core.data.source.isClipperDatabaseLocked
 import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.desktop.domain.InitialPanelHeight
 import com.qcmian.clipper.desktop.ui.ClipperSettingsWindow
 import com.qcmian.clipper.desktop.ui.ClipperTray
 import com.qcmian.clipper.desktop.ui.ClipperWindow
+import com.qcmian.clipper.desktop.ui.DatabaseUnlockWindow
 import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.host.HotkeyController
@@ -29,65 +36,90 @@ import kotlinx.coroutines.flow.first
  *   `ViewModelStoreOwner` 持有；托盘只有一次点击请求，直接内联在 [ClipperTray] 里。
  *   界面状态持有者（`ClipboardViewModel`）则在这里创建——面板与设置窗口共用同一份。
  * - 通道：[WindowController] 承载窗口事件（显示 / 隐藏 / 退出）与面板投影，
- *   [HotkeyController] 承载热键按键意图，二者都由 [App]（shared）消费。
+ *   [HotkeyController] 承载热键按键意图，二者都由 `App`（shared）消费。
  * - View（`desktop/ui`）：[ClipperWindow] / [ClipperSettingsWindow] / [ClipperTray]
  *   只渲染并转发事件。
+ *
+ * 数据库加密时先过一次**解锁门禁**：口令没通过之前连依赖图都不建——见 [ClipperApplication]。
  */
 fun main() {
     hideFromDock()
 
+    // 加密库没有口令根本打不开，因此「要不要先解锁」必须在建依赖图**之前**决定；而判据只能
+    // 来自库文件头——偏好设置本身就在库里，没解锁时读不到。
+    val locked = isClipperDatabaseLocked()
+
+    application {
+        var unlocked by remember { mutableStateOf(!locked) }
+
+        // 解锁窗与主界面**互斥**：解锁前 container / CLI 服务都还没建（连不上库也就没得监听）。
+        if (unlocked) {
+            ClipperApplication()
+        } else {
+            DatabaseUnlockWindow(onUnlocked = { unlocked = true })
+        }
+    }
+}
+
+/**
+ * 主界面：依赖图、面板、设置窗口与托盘。
+ *
+ * 之所以从 [main] 里抽出来，是因为它必须等数据库解锁之后才允许开始。
+ */
+@Composable
+private fun ApplicationScope.ClipperApplication() {
     // 依赖图在组合之外建好，并立刻开始加载数据：Room 首次打开数据库（含 WAL 恢复）实测要
     // 几百毫秒，让它与 AWT / Skiko 初始化、首次组合**并行**跑完。放在组合里的话，数据加载
     // 要等窗口内容组合完成才开始，全局热键（它要等真实偏好就绪才注册）就会晚半秒多——
     // 启动后那一秒里按快捷键等于按了个寂寞。
-    val container = AppContainer()
-    container.repository.start()
+    val container = remember { AppContainer() }
 
-    // CLI 服务：把上面这同一份数据层暴露给 `clipper` 命令，供 agent 与脚本调用。
-    // 放在组合之外启动，与数据加载同时进行——它不依赖窗口，也不该等窗口。
-    // 退出时的收尾（停线程、删 socket 文件）由它自己挂的 shutdown hook 负责。
-    CliServer(container).start()
-
-    application {
-        val windowController = remember { WindowController() }
-        val hotkeyController = remember { HotkeyController() }
-
-        // 界面状态持有者在**应用作用域**创建，而不是在某个窗口的内容里：偏好设置是独立窗口，
-        // 面板与它必须共享同一份状态，否则在设置里改完偏好、回到面板看到的还是改之前的值；
-        // 它也因此能在面板从未显示过时先一步存在。
-        //
-        // `showQuit = true`：桌面端始终能退出（对应 `App` 的 `onQuit` 非空）。
-        val clipboardViewModel = remember(container) {
-            ClipboardViewModel(
-                repository = container.repository,
-                platform = container.platform,
-                useCases = container.useCases,
-                showQuit = true,
-                // 设置页录制系统级快捷键时用它判断组合有没有被别的应用占用。
-                canUseGlobalShortcut = container.native::isGlobalShortcutAvailable,
-            )
-        }
-
-        // 窗口状态属于 UI 层，由宿主创建后交给窗口的 ViewModel 读写。
-        val windowState = rememberWindowState(
-            width = Popup.contentWidth,
-            height = InitialPanelHeight,
-            position = WindowPosition(Alignment.Center),
-        )
-
-        // 退出：窗口 ViewModel 落盘完成后置位，由应用根结束进程；
-        // `exitApplication()` 只能在应用作用域里调用。
-        LaunchedEffect(windowController) {
-            windowController.exitRequested.first { it }
-            exitApplication()
-        }
-
-        // 两个窗口是**兄弟**：面板有自己的 ViewModel（宿主 owner），设置窗口直接渲染
-        // 共用状态持有者里那一份设置。托盘只负责点击弹出面板。
-        ClipperWindow(windowState, container, windowController, hotkeyController, clipboardViewModel)
-        ClipperSettingsWindow(clipboardViewModel, windowController)
-        ClipperTray(windowController)
+    LaunchedEffect(container) {
+        container.repository.start()
+        // CLI 服务：把上面这同一份数据层暴露给 `clipper` 命令，供 agent 与脚本调用。
+        // 与数据加载同时启动——它不依赖窗口，也不该等窗口。
+        // 退出时的收尾（停线程、删 socket 文件）由它自己挂的 shutdown hook 负责。
+        CliServer(container).start()
     }
+
+    val windowController = remember { WindowController() }
+    val hotkeyController = remember { HotkeyController() }
+
+    // 界面状态持有者在**应用作用域**创建，而不是在某个窗口的内容里：偏好设置是独立窗口，
+    // 面板与它必须共享同一份状态，否则在设置里改完偏好、回到面板看到的还是改之前的值；
+    // 它也因此能在面板从未显示过时先一步存在。
+    //
+    // `showQuit = true`：桌面端始终能退出（对应 `App` 的 `onQuit` 非空）。
+    val clipboardViewModel = remember(container) {
+        ClipboardViewModel(
+            repository = container.repository,
+            platform = container.platform,
+            useCases = container.useCases,
+            showQuit = true,
+            // 设置页录制系统级快捷键时用它判断组合有没有被别的应用占用。
+            canUseGlobalShortcut = container.native::isGlobalShortcutAvailable,
+        )
+    }
+
+    // 窗口状态属于 UI 层，由宿主创建后交给窗口的 ViewModel 读写。
+    val windowState = rememberWindowState(
+        width = Popup.contentWidth,
+        height = InitialPanelHeight,
+        position = WindowPosition(Alignment.Center),
+    )
+
+    // 退出：窗口 ViewModel 落盘完成后置位，由应用根结束进程；
+    // `exitApplication()` 只能在应用作用域里调用。
+    LaunchedEffect(windowController) {
+        windowController.exitRequested.first { it }
+        exitApplication()
+    }
+
+    // 两个窗口是**兄弟**：面板有自己的 ViewModel（宿主 owner），设置窗口直接渲染
+    // 共用状态持有者里那一份设置。托盘只负责点击弹出面板。
+    ClipperWindow(windowState, container, windowController, hotkeyController, clipboardViewModel)
+    ClipperSettingsWindow(clipboardViewModel, windowController)
+    ClipperTray(windowController)
 }
 
 /**

@@ -9,13 +9,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.awtEventOrNull
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.input.pointer.PointerId
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ApplicationScope
@@ -112,49 +107,8 @@ fun ApplicationScope.ClipperSettingsWindow(
             window.minimumSize = SettingsWindowMinimumSize
         }
 
-        // 拖动自绘标题栏移动窗口。
-        //
-        // 用「按下点 + 屏幕坐标」而不是累加窗口内的增量：笔触事件的坐标是**窗口内相对坐标**，
-        // 而我们每挪一次窗口，同一个屏幕点对应的相对坐标就跟着变——增量要靠「窗口的移动晚于
-        // 事件的投递」才凑得回来，一旦时序不同就会越拖越偏。屏幕坐标不受自己的移动影响，
-        // 因此这里只记一次「按下时光标相对窗口左上角的偏移」，之后每次都按绝对位置摆放。
-        val dragTitleBar = remember(window) {
-            Modifier.pointerInput(window) {
-                awaitEachGesture {
-                    // 找到「按下」的那一次事件，并记下光标相对窗口左上角的抓取偏移。
-                    //
-                    // 循环而不是直接取第一次事件：`awaitEachGesture` 只保证「上一轮手势已经
-                    // 结束」，块里的第一个事件可能只是一次悬停移动（没有任何按下的指针）。
-                    // 也不能先 `awaitFirstDown` 再回头找事件——`awtEventOrNull` 挂在
-                    // `PointerEvent` 上，而不是 `PointerInputChange` 上。
-                    var pressedId: PointerId? = null
-                    var grabX = 0
-                    var grabY = 0
-                    while (pressedId == null) {
-                        val event = awaitPointerEvent()
-                        val pressed = event.changes.firstOrNull { it.pressed } ?: continue
-                        // 非鼠标来源（触控 / 笔）没有 AWT 事件，也就没有屏幕坐标可用。
-                        val mouse = event.awtEventOrNull ?: return@awaitEachGesture
-                        val origin = window.locationOnScreen
-                        grabX = mouse.xOnScreen - origin.x
-                        grabY = mouse.yOnScreen - origin.y
-                        pressedId = pressed.id
-                    }
-                    // 循环退出时它必然非空；收进 `val` 是为了让后面的循环拿到一个非空类型。
-                    val draggingId = pressedId
-
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == draggingId } ?: break
-                        if (!change.pressed) break
-                        val mouse = event.awtEventOrNull ?: continue
-                        // 消费掉手势：否则它还会往下传给标题栏底下的东西。
-                        change.consume()
-                        window.setLocation(mouse.xOnScreen - grabX, mouse.yOnScreen - grabY)
-                    }
-                }
-            }
-        }
+        // 拖动自绘标题栏移动窗口（手势本身与解锁窗共用，见 `rememberTitleBarDragModifier`）。
+        val dragTitleBar = rememberTitleBarDragModifier(window)
 
         // 每次成为 key window 都把键盘焦点补到内容组件上：点过标题栏、从别的应用切回来之后，
         // AWT 的焦点所有者会退回窗口框架，不补一次按键就又收不到了（见 [focusKeyboardTarget]）。

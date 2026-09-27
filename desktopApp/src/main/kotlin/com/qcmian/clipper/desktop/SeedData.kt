@@ -1,6 +1,7 @@
 package com.qcmian.clipper.desktop
 
 import com.qcmian.clipper.core.data.source.createClipStorageDataSource
+import com.qcmian.clipper.core.data.source.unlockClipperDatabase
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipMeta
@@ -26,8 +27,8 @@ import kotlinx.coroutines.runBlocking
  * 开发用：往真实数据库里灌一批测试数据。
  *
  * 走的是应用自己的 `ClipStorageDataSource`，因此落盘的 schema、JSON 列格式与索引都和生产
- * 路径完全一致——用 `sqlite3` 手工拼 INSERT 会绕开 Room 的 identity hash 校验，下次启动
- * 会被 `fallbackToDestructiveMigration` 当成旧库清掉。
+ * 路径完全一致——用 `sqlite3` 手工改 schema 会绕开 Room 的 identity hash 校验，下次启动
+ * 会因校验不通过而直接报错打不开（构建器已不再挂破坏性迁移，不会再静默清库）。
  *
  * 运行：`./gradlew :desktopApp:seedData`
  *
@@ -70,6 +71,14 @@ fun main() {
 }
 
 private fun seed() = runBlocking {
+    // 加密库要先解锁才能连上：口令从环境变量 / 系统属性给（这是开发工具，不做交互）。
+    // 例：`CLIPPER_DB_PASSPHRASE=xxx ./gradlew :desktopApp:seedData`
+    val passphrase = System.getenv("CLIPPER_DB_PASSPHRASE") ?: System.getProperty("clipper.db.passphrase")
+    if (passphrase != null && !unlockClipperDatabase(passphrase)) {
+        println("口令不正确，无法打开已加密的数据库。")
+        return@runBlocking
+    }
+
     val storage = createClipStorageDataSource()
     try {
         storage.initialise()

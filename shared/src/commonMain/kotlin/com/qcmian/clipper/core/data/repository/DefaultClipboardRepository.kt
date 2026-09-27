@@ -111,6 +111,10 @@ class DefaultClipboardRepository(
     override val supportsApplicationInfo: Boolean get() = native.supportsApplicationInfo
     override val supportsTextRecognition: Boolean get() = native.supportsTextRecognition
     override val clipboardPollIntervalMillis: Int get() = clipboard.pollIntervalMillis.toInt()
+    override val supportsDatabaseEncryption: Boolean get() = storage.supportsEncryption
+    override val databaseEncrypted: Boolean get() = storage.isEncrypted
+
+    override suspend fun rekeyDatabase(passphrase: String?): Result<Unit> = storage.rekey(passphrase)
 
     override fun start() {
         if (started) return

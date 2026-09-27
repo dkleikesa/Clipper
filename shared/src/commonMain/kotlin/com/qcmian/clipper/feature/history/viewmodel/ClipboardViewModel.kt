@@ -27,6 +27,7 @@ import com.qcmian.clipper.feature.history.state.ClearConfirmation
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.state.ClipboardUiState
 import com.qcmian.clipper.feature.history.state.DeepSearchState
+import com.qcmian.clipper.feature.history.state.EncryptionPrompt
 import com.qcmian.clipper.feature.history.state.defaultSelectionIndex
 import com.qcmian.clipper.feature.preferences.state.ShortcutRecording
 import com.qcmian.clipper.feature.preferences.viewmodel.ShortcutRecorder
@@ -327,6 +328,13 @@ class ClipboardViewModel(
             ClipboardUiAction.ConfirmClear -> confirmClear()
             ClipboardUiAction.DismissClear -> _uiState.update { it.copy(confirmation = null) }
 
+            is ClipboardUiAction.RequestDatabaseEncryption ->
+                _uiState.update { it.copy(encryptionPrompt = EncryptionPrompt(enabled = action.enabled)) }
+
+            is ClipboardUiAction.ConfirmDatabaseEncryption -> setDatabaseEncryption(action.passphrase)
+            ClipboardUiAction.DismissDatabaseEncryption ->
+                _uiState.update { it.copy(encryptionPrompt = null) }
+
             ClipboardUiAction.Opened -> onOpened()
             ClipboardUiAction.Cycle -> navigation.moveNext(allowCycle = true)
             ClipboardUiAction.Accept -> onAccept()
@@ -578,6 +586,48 @@ class ClipboardViewModel(
         _uiState.update { it.copy(confirmation = null) }
     }
 
+    /**
+     * 打开 / 关闭数据库加密。
+     *
+     * 实际的整库重写由底层 `PRAGMA rekey` 完成（见 `ClipStorageDataSource.rekey`），这里只驱动
+     * 它、把「进行中」与失败原因透给密码框。口令来自用户输入、不落盘，因此这里不做任何缓存。
+     *
+     * 加密成功之后把新状态写回界面（[ClipboardUiState.databaseEncrypted]）：存储层的会话密钥
+     * 已经换成新值，但界面状态的这一份是投影，不会自己变。
+     */
+    private fun setDatabaseEncryption(passphrase: String) {
+        val prompt = _uiState.value.encryptionPrompt ?: return
+        if (prompt.working) return
+        _uiState.update { it.copy(encryptionPrompt = prompt.copy(working = true, error = null)) }
+        viewModelScope.launch {
+            // 关闭加密不需要口令：连接上本来就带着当前口令，空口令即解密。
+            val target = passphrase.takeIf { prompt.enabled }
+            platform.rekeyDatabase(target).fold(
+                onSuccess = {
+                    _uiState.update {
+                        it.copy(
+                            encryptionPrompt = null,
+                            databaseEncrypted = platform.databaseEncrypted,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    // 失败时存储层已经把库文件回滚到操作前（见 `ClipStorageDataSource.rekey`），
+                    // 但连接上的状态已不可信，因此顺手把「重启」一并说清楚。
+                    _uiState.update {
+                        it.copy(
+                            encryptionPrompt = prompt.copy(
+                                working = false,
+                                error = "换钥失败：${error.message ?: "未知错误"}。数据已回滚，" +
+                                    "请重启应用后再试。",
+                            ),
+                        )
+                    }
+                },
+            )
+        }
+    }
+
     // ---------------------------------------------------------------------------------
     // 宿主事件
     // ---------------------------------------------------------------------------------
@@ -799,6 +849,9 @@ class ClipboardViewModel(
         screenCount = platform.screenCount,
         supportsLaunchAtLogin = platform.supportsLaunchAtLogin,
         supportsTextRecognition = platform.supportsTextRecognition,
+        supportsDatabaseEncryption = platform.supportsDatabaseEncryption,
+        // 现读存储层的实况：换钥成功后这里跟着变（见 `setDatabaseEncryption`）。
+        databaseEncrypted = platform.databaseEncrypted,
     )
 
     /**

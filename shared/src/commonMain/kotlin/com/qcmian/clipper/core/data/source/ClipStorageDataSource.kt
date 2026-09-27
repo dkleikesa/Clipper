@@ -8,6 +8,45 @@ import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.SortOrder
 
 /**
+ * SQLCipher 4 兼容的加密方案名。
+ *
+ * 三处必须一致：驱动建连接时注入的方案、`PRAGMA rekey` 重写整库时用的方案，以及开库时
+ * 用来判定的方案头。不一致的典型症状是「用对的口令也报 `file is not a database`」。
+ */
+internal const val SQLCIPHER_SCHEME = "sqlcipher"
+
+/**
+ * 会话级数据库密钥的读写口。
+ *
+ * **只在内存里**：实现方（见桌面端的 `DatabaseKey`）把口令存在内存，绝不落盘，因此每次
+ * 启动都要让用户重新输入一次。换钥成功后由 [ClipStorageDataSource.rekey] 回写到这里。
+ */
+interface SessionKey {
+    /** 当前是否加密。 */
+    val encrypted: Boolean
+
+    /** 记录新口令；`null` 表示已解密为明文。 */
+    fun update(passphrase: String?)
+}
+
+/**
+ * 换钥（整库重写）前后的保命动作。
+ *
+ * `PRAGMA rekey` 会把整个文件按新口令重写一遍，中途失败（磁盘满、进程被杀）理论上可能让文件
+ * 不可用——官方文档因此建议先备份。换钥前留一份拷贝，成功即丢弃，失败就换回去。
+ */
+interface EncryptionBackup {
+    /** 备份当前库文件；返回是否成功（失败不拦住换钥，只是少了一层保险）。 */
+    fun snapshot(): Boolean
+
+    /** 用备份覆盖当前库文件。 */
+    fun restore()
+
+    /** 丢弃备份。 */
+    fun discard()
+}
+
+/**
  * 剪贴板历史与用户偏好的持久化。
  *
  * 与拆分后的数据模型对齐：
@@ -129,6 +168,27 @@ interface ClipStorageDataSource {
     suspend fun loadSettings(): AppSettings
 
     suspend fun saveSettings(settings: AppSettings)
+
+    // -----------------------------------------------------------------------------------
+    // 加密
+    // -----------------------------------------------------------------------------------
+
+    /** 平台是否支持数据库加密（能拿到会话密钥）；为假时设置页不显示那一项。 */
+    val supportsEncryption: Boolean get() = false
+
+    /** 数据库当前是否加密。 */
+    val isEncrypted: Boolean get() = false
+
+    /**
+     * 换数据库密钥；[newPassphrase] 为 `null` 时解密回标准明文库。
+     *
+     * 两个方向的迁移都由底层 `PRAGMA rekey` **一次性重写整库**完成，不需要导出重建；成功之后
+     * 实现方会把新口令写回 [SessionKey]，后续新开的连接即用它。
+     *
+     * 注意：`rekey` 是对整库的重写（代价与库大小成正比），且不能在事务里执行——因此它只在
+     * 用户显式切换设置时触发，不放在任何热路径上。
+     */
+    suspend fun rekey(newPassphrase: String?): Result<Unit> = Result.success(Unit)
 
     // -----------------------------------------------------------------------------------
     // 存储维护

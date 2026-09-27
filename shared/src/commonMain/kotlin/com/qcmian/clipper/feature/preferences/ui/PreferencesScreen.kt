@@ -14,10 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
@@ -50,9 +48,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.ShortcutSlot
-import com.qcmian.clipper.core.ui.components.HoverTooltip
+import com.qcmian.clipper.core.ui.components.ClipperTitleBar
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
+import com.qcmian.clipper.feature.history.state.EncryptionPrompt
 import com.qcmian.clipper.feature.preferences.state.ShortcutRecording
 
 /**
@@ -68,6 +67,12 @@ data class PreferencesUiData(
     val screenCount: Int,
     val supportsLaunchAtLogin: Boolean,
     val supportsTextRecognition: Boolean,
+    /** 宿主是否支持数据库加密；为假时「存储与数据」页不显示那一项。 */
+    val supportsDatabaseEncryption: Boolean = false,
+    /** 数据库当前是否加密（开关的状态）。 */
+    val databaseEncrypted: Boolean = false,
+    /** 数据库加密的密码框；`null` 表示关着。 */
+    val encryptionPrompt: EncryptionPrompt? = null,
     /**
      * 正在录制的快捷键。
      *
@@ -104,6 +109,12 @@ data class PreferencesActions(
      * **最新**状态、返回值也要同帧拿到，否则按键会晚一帧才被拦住。
      */
     val onShortcutKeyEvent: (KeyEvent) -> Boolean = { false },
+    /** 切换「数据库加密」开关；`true` = 开启，`false` = 关闭（只打开密码框，尚未换钥）。 */
+    val onSetDatabaseEncryption: (Boolean) -> Unit = {},
+    /** 加密密码框确认；参数是用户输入的口令（关闭加密时为空串）。 */
+    val onConfirmDatabaseEncryption: (String) -> Unit = {},
+    /** 关闭加密密码框。 */
+    val onDismissDatabaseEncryption: () -> Unit = {},
 )
 
 /** 侧边栏宽度：放得下最长的一页名（「存储与数据」），再宽就是白占地方。 */
@@ -183,10 +194,17 @@ fun PreferencesScreen(
     val keyHandler: (KeyEvent) -> Boolean = { event ->
         when {
             actions.onShortcutKeyEvent(event) -> true
-            // `Esc` 关闭设置窗口；确认框开着时只关确认框。排在录制之后：录制期间所有按键
-            // （含 `Esc`——它本身就可以被录成绑定）都由录制器消费，取消录制要再点一次那一行。
+            // `Esc` 关闭设置窗口；确认框 / 加密密码框开着时只关那一层。排在录制之后：录制期间
+            // 所有按键（含 `Esc`——它本身就可以被录成绑定）都由录制器消费，取消录制要再点一次那一行。
             event.type == KeyEventType.KeyDown && event.key == Key.Escape -> {
-                if (data.hasConfirmation) actions.onDismissConfirmation() else actions.onDismiss()
+                val prompt = data.encryptionPrompt
+                when {
+                    data.hasConfirmation -> actions.onDismissConfirmation()
+                    prompt != null && !prompt.working -> actions.onDismissDatabaseEncryption()
+                    // 换钥是整库重写，半途中断的状态不可知，因此进行中吞掉 `Esc`。
+                    prompt != null -> Unit
+                    else -> actions.onDismiss()
+                }
                 true
             }
 
@@ -264,53 +282,20 @@ fun PreferencesScreen(
 // ---------------------------------------------------------------------------------
 
 /**
- * 自绘标题栏：标题 + 关闭按钮，两者之间的那一段可以按住拖动整个窗口。
+ * 设置窗口的标题栏。
  *
- * 拖拽区刻意只覆盖标题那一段（[titleBarDragModifier] 挂在一个 `weight(1f)` 的容器上），
- * 而不是整条标题栏：关闭按钮若落在拖拽区里，小幅移动就会被判成拖动、点不中。
+ * 外形与交互都在共享的 [ClipperTitleBar] 里（解锁窗用的是同一个），这里只负责给出本窗口的
+ * 文案与关闭含义。
  */
 @Composable
 private fun PreferencesTitleBar(dragModifier: Modifier, onClose: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(TitleBarHeight)
-            .background(colors.surface)
-            .padding(start = 16.dp, end = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .then(dragModifier),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            Text(
-                text = "设置",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.onSurface,
-            )
-        }
-        HoverTooltip("关闭设置") {
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(colors.surfaceVariant.copy(alpha = 0.5f))
-                    .clickable(onClick = onClose),
-                contentAlignment = Alignment.Center,
-            ) {
-                ClipperIcon(ClipperIconKind.CLEAR, size = 13.dp, tint = colors.onSurfaceVariant)
-            }
-        }
-    }
+    ClipperTitleBar(
+        title = "设置",
+        closeTooltip = "关闭设置",
+        onClose = onClose,
+        dragModifier = dragModifier,
+    )
 }
-
-/** 标题栏高度：与 macOS 常规工具栏一致的量级，够放下 28dp 的关闭按钮又不占地方。 */
-private val TitleBarHeight = 40.dp
 
 // ---------------------------------------------------------------------------------
 // 侧边栏

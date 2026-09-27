@@ -201,6 +201,25 @@ interface ClipboardPlatform {
     /** 是否能进行图片文字识别。 */
     val supportsTextRecognition: Boolean
 
+    /** 宿主是否支持数据库加密；为假时设置页不显示「数据库加密」那一项。 */
+    val supportsDatabaseEncryption: Boolean
+
+    /**
+     * 数据库当前是否加密。
+     *
+     * 它是**会话内**的实况，而不是一条持久化偏好：加密与否由库文件头决定，而设置本身就在
+     * 库里——没有口令时读不到那份设置。
+     */
+    val databaseEncrypted: Boolean
+
+    /**
+     * 换数据库密钥；[passphrase] 为 `null` 时解密回标准明文库。
+     *
+     * 由设置页的「数据库加密」开关驱动，底层是一次整库重写（`PRAGMA rekey`）。口令来自用户
+     * 输入、**不落盘**，因此每次启动都要重新输入一次。
+     */
+    suspend fun rekeyDatabase(passphrase: String?): Result<Unit>
+
     /** 把 [snapshot] 放入系统剪贴板。平台不支持时返回 `false`。 */
     fun writeClipboard(snapshot: ClipboardSnapshot): Boolean
 

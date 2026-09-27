@@ -42,7 +42,9 @@ kotlin {
         jvmMain.dependencies {
             implementation(libs.kotlinx.coroutinesSwing)
             implementation(libs.jna.platform)
-            implementation(libs.androidx.sqlite.bundled)
+            // 桌面端的 SQLite 驱动换成带加密能力的 JDBC 实现（见 `SqlCipherDriver`）：
+            // androidx 自带的 `sqlite-bundled` 没有注入密钥的入口，加密就无从下手。
+            implementation(libs.willena.sqlite.jdbc)
             // CLI / app 之间的线上契约。只进 `jvmMain`：`:cli` 永远不该看到这个模块的
             // 其余依赖，而 `:protocol` 也刻意不含任何重依赖。
             implementation(project(":protocol"))

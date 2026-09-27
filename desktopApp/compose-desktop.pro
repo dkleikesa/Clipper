@@ -5,8 +5,10 @@
 -keep class com.sun.jna.** { *; }
 
 
-# Bundled SQLite 通过 JNI 绑定 Kotlin 顶层 native 方法；不得改名或裁剪。
--keep class androidx.sqlite.driver.bundled.** { *; }
+# SQLCipher 驱动：`org.sqlite.JDBC` 由 Class.forName 反射加载，`SQLiteConfig` 用来传密钥；
+# 其原生库在运行时从 jar 内解压，也不得改名或裁剪。
+-keep class org.sqlite.** { *; }
+-dontwarn org.sqlite.**
 
 # macOS 原生层将 Kotlin 回调注册到 Objective-C 运行时；回调方法由 JNA 反射发现。
 -keep class com.qcmian.clipper.core.platform.macos.** { *; }
