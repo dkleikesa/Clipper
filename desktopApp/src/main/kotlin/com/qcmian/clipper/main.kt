@@ -21,6 +21,7 @@ import com.qcmian.clipper.desktop.ui.DatabaseUnlockWindow
 import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.host.HotkeyController
+import com.qcmian.clipper.host.SingleInstance
 import com.qcmian.clipper.host.WindowController
 import com.qcmian.clipper.host.cli.CliServer
 import kotlinx.coroutines.flow.first
@@ -44,6 +45,14 @@ import kotlinx.coroutines.flow.first
  */
 fun main() {
     hideFromDock()
+
+    // 单实例闸门，必须在碰任何共享资源（库、热键、socket）之前。macOS 只在 LaunchServices
+    // 那层去重，`open -n` / 直接跑二进制 / `gradlew run` 都会绕开它起出第二个进程；抢不到锁
+    // 就地退出，别让它去开同一份库、注册同一套热键。详见 [SingleInstance]。
+    if (!SingleInstance.acquire()) {
+        System.err.println("[clipper] 已有另一个实例在运行，本次启动退出")
+        return
+    }
 
     // 加密库没有口令根本打不开，因此「要不要先解锁」必须在建依赖图**之前**决定；而判据只能
     // 来自库文件头——偏好设置本身就在库里，没解锁时读不到。
