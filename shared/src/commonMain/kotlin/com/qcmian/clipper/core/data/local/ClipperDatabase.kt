@@ -16,8 +16,9 @@ import androidx.room3.RoomDatabaseConstructor
  * 版本号从 `1` 开始：应用尚未发布，schema 在开发期几经推翻（单表 → 双表 → 列类型与编码
  * 的调整），没有必要为一版都没发出去的结构留下版本历史。首次发布之后再按正常迁移递增。
  *
- * **每次 +1 都必须同时在 [CLIPPER_MIGRATIONS] 里补一条迁移**：构建器上还挂着
- * `fallbackToDestructiveMigration()`，缺迁移的版本变化会把整库静默删掉重建。
+ * **每次 +1 都必须同时在 [CLIPPER_MIGRATIONS] 里补一条迁移**：缺失时 Room 会直接抛错、
+ * 应用起不来（但不动数据）。构建器上**没有** `fallbackToDestructiveMigration()`，
+ * 原因见 [CLIPPER_MIGRATIONS] 的说明。
  *
  * `2`：`clip_meta` 增加 `pinnedAt`（置顶区的固定顺序，见 [ClipMetaEntity.pinnedAt]）。
  */

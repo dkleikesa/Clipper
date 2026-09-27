@@ -83,8 +83,8 @@ compose.desktop {
 /**
  * 开发用：往真实数据库里灌一批测试数据，见 `SeedData.kt`。
  *
- * 走应用自己的存储层而不是手工 SQL——手工拼的 INSERT 绕开了 Room 的 identity hash 校验，
- * 下次启动会被 `fallbackToDestructiveMigration` 当成旧库整个清掉。
+ * 走应用自己的存储层而不是手工 SQL——手工改 schema 绕开了 Room 的 identity hash 校验，
+ * 下次启动会因校验不通过而直接报错打不开。
  *
  * **会先清空现有历史。**
  */

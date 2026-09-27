@@ -497,7 +497,7 @@ fun HistoryScreen(
  * 鼠标点击条目时执行的动作。
  *
  * `⌥` / `⌥⇧` 点击是固定的两条粘贴手势（对应快捷键里那两条粘贴），不带修饰键时读设置里的
- * 「鼠标单击条目」（[AppSettings.clickAction]，默认激活）。鼠标因此不会被改键带走：点击做什么
+ * 「鼠标单击条目」（[AppSettings.clickAction]，默认直接粘贴）。鼠标因此不会被改键带走：点击做什么
  * 只由这一项决定，`⌘` / `⇧` 点击仍然只管多选与连续选中。
  */
 private fun clickAction(settings: AppSettings, modifiers: PointerModifiers): ClipAction = when {

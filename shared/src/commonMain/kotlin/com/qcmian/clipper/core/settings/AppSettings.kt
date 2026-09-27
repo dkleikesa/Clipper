@@ -156,14 +156,14 @@ data class AppSettings(
     /** 默认 `⌘1`：配合 `1…9` 快速**粘贴**前九个置顶项（见 `ShortcutSlot.QUICK_SELECT`）。 */
     val quickSelectShortcut: ShortcutSpec? = ShortcutSlot.QUICK_SELECT.default,
     /**
-     * 鼠标**单击**条目时做什么，默认「激活」（复制）。
+     * 鼠标**单击**条目时做什么，默认「直接粘贴」（上屏）。
      *
      * 上面那四种按法各有一条绑定，但鼠标**不**读它们：手势与按键是两套输入，让点击去跟着某条
      * 绑定走，用户改一次按键就会连带改掉点击行为。因此这里单给一个四选一。
      *
      * `⌥` / `⌥⇧` 点击另有固定含义（直接粘贴 / 去格式粘贴），不经过这一项。
      */
-    val clickAction: ClipAction = ClipAction.COPY,
+    val clickAction: ClipAction = ClipAction.PASTE,
     val pauseShortcut: ShortcutSpec? = ShortcutSlot.PAUSE.default,
     val pinShortcut: ShortcutSpec? = ShortcutSlot.PIN.default,
     val deleteShortcut: ShortcutSpec? = ShortcutSlot.DELETE.default,
