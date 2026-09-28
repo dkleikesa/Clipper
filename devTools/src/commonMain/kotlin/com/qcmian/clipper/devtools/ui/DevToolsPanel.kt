@@ -50,6 +50,7 @@ import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
+import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.registry.DevToolsRegistry
 import com.qcmian.clipper.feature.history.ui.components.StatusToast
 import kotlinx.coroutines.delay
@@ -85,7 +86,9 @@ fun DevToolsPanel(
     //
     // 探测结果**不进状态、也不交给工具**：它是面板对「这条内容是什么」的判断，只有渲染用得着；
     // 工具能不能吃某段内容由它自己声明的 `acceptedDataTypes` 决定，不需要别人告诉它。
-    val detected = remember(item) { registry.detectTypes(item?.previewText.orEmpty()) }
+    // 探测的是「工具实际会看到的文本」而不是 `previewText`：文件类条目要读文件内容再判类型，
+    // 否则一个 .json 文件只会因为路径被判成纯文本、推不出 JSON 工具（见 `devToolText`）。
+    val detected = remember(item) { registry.detectTypes(item?.devToolText().orEmpty()) }
 
     var query by remember { mutableStateOf("") }
     var selectedId by remember { mutableStateOf<String?>(null) }

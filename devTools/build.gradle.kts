@@ -29,6 +29,11 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             // JSON 工具的解析 / 排版直接用它，不引入第二个 JSON 实现。
             implementation(libs.kotlinx.serialization.json)
+            // 读文件（文件类剪贴板条目）走它，读逻辑因此留在 commonMain，不必为文件系统开 expect/actual。
+            implementation(libs.kotlinx.io.core)
+            // XML 工具的解析 / 排版：供 `XML.v1.recommended()/compact()` 的缩进配置与底层的流式读写。
+            // 取代原先 JVM-only 的 `javax.xml` 实现（见 `XmlFormat`）。
+            implementation(libs.xmlutil.serialization)
         }
     }
 }

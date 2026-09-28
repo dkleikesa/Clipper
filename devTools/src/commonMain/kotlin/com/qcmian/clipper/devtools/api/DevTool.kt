@@ -84,11 +84,11 @@ interface DevTool {
      *   或历史为空）。工具应当把它「灌」进自己的输入区——惯用写法见 `JsonDevTool`：一个
      *   `remember` 的输入状态配一个 `LaunchedEffect(input)`。
      *
-     *   拿到的是**整条 [ClipItem]**，不是一段正文。按需自取：[ClipItem.previewText] 是「这一条
-     *   该怎么当文本看」（识别原文 → 文件路径 → 正文 → 附加表示提取的文字 → 标题），
-     *   [ClipItem.image] 是图片字节，[ClipItem.contents] 是 HTML / RTF 这些表示的原始字节。
-     *   其余字段（[ClipItem.pin]、[ClipItem.numberOfCopies]、时间戳…）是剪贴板历史的记账信息，
-     *   工具不该用。
+     *   拿到的是**整条 [ClipItem]**，不是一段正文。要文本时用 [devToolText]：它给出「这一条
+     *   该怎么当文本看」（识别原文 → **文件内容** → 正文 → 附加表示提取的文字 → 标题）；直接
+     *   读 [ClipItem.previewText] 对文件类条目只会拿到路径。其余按需自取：[ClipItem.image] 是
+     *   图片字节，[ClipItem.contents] 是 HTML / RTF 这些表示的原始字节。其余字段（[ClipItem.pin]、
+     *   [ClipItem.numberOfCopies]、时间戳…）是剪贴板历史的记账信息，工具不该用。
      */
     @Composable
     fun Content(input: ClipItem?, host: DevToolHost)

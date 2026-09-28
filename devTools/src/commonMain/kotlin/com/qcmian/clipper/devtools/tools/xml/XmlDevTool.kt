@@ -25,6 +25,7 @@ import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
+import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolEditor
@@ -34,11 +35,10 @@ import com.qcmian.clipper.devtools.ui.components.DevToolMessage
  * XML 格式化 / 压缩工具。
  *
  * 与 [com.qcmian.clipper.devtools.tools.json.JsonDevTool] 结构完全一致——它演示的是插件接口的
- * 另一种来源：解析能力并非纯 Kotlin，而是经 `expect`/`actual` 落到 JDK 的 `javax.xml` 上
- * （见 [formatXml]）。插件本身仍然是 commonMain 里的一段普通 Compose 代码。
+ * 另一种来源：解析能力来自 kotlinx.serialization 的 XML 格式实现 xmlutil（见 [formatXml]），
+ * 而不是 JDK 自带的 `javax.xml`。插件本身仍然是 commonMain 里的一段普通 Compose 代码。
  */
 internal object XmlDevTool : DevTool {
-    private const val INDENT_WIDTH = 4
 
     override val metadata: DevToolMetadata = DevToolMetadata(
         id = "xml",
@@ -59,7 +59,7 @@ internal object XmlDevTool : DevTool {
         var note by remember { mutableStateOf<String?>(null) }
 
         LaunchedEffect(input) {
-            val text = input?.previewText ?: return@LaunchedEffect
+            val text = input?.devToolText() ?: return@LaunchedEffect
             source = text
             output = ""
             error = null
@@ -97,7 +97,7 @@ internal object XmlDevTool : DevTool {
                     title = "格式化",
                     enabled = source.isNotBlank(),
                     primary = true,
-                    onClick = { apply(formatXml(source, INDENT_WIDTH), "已格式化") },
+                    onClick = { apply(formatXml(source), "已格式化") },
                 )
                 DevToolActionSpacer()
                 DevToolButton(

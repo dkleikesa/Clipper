@@ -25,6 +25,7 @@ import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
+import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolEditor
@@ -57,7 +58,7 @@ internal object JsonDevTool : DevTool {
         // 每次主面板交进来一份新的剪贴板内容就整块替换：输入、结果与提示都属于「上一份内容」，
         // 留着会让用户以为结果是对新内容算出来的。
         LaunchedEffect(input) {
-            val text = input?.previewText ?: return@LaunchedEffect
+            val text = input?.devToolText() ?: return@LaunchedEffect
             source = text
             output = ""
             error = null
