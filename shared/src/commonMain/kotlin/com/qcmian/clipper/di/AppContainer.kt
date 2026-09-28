@@ -49,6 +49,10 @@ class AppContainer(
     val repository: ClipboardRepository = defaultRepository
     val platform: ClipboardPlatform = defaultRepository
 
+    // 开发者工具**不在这里**：插件表（`:devTools` 模块的 `DevToolsRegistry`）依赖 `:shared` 复用
+    // 这里的 UI 原子与主题，方向是单向的，因此它放不进这个依赖图，由桌面端的组合根自己建
+    // （见 `main.kt`）。剪贴板这边只把一条 `ClipItem` 放进状态，见 `ClipboardUiState.devToolsItem`。
+
     private val clearHistoryUseCase = ClearHistoryUseCase(repository)
 
     val useCases = ClipboardUseCases(

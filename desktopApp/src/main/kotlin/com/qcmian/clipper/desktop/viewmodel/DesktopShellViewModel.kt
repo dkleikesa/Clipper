@@ -47,6 +47,11 @@ class DesktopShellViewModel(
      * `PanelPresentationController.isSettingsWindowOpen`：投影会晚一帧，判定失焦原因时不能信）。
      */
     isSettingsWindowOpen: () -> Boolean = { false },
+    /**
+     * 开发者工具窗口此刻是否开着；与 [isSettingsWindowOpen] 同一来路（直读状态持有者，
+     * 而不是晚一帧的 `HostUiState` 投影）。
+     */
+    isDevToolsWindowOpen: () -> Boolean = { false },
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(DesktopShellUiState())
     val uiState: StateFlow<DesktopShellUiState> = _uiState.asStateFlow()
@@ -65,6 +70,7 @@ class DesktopShellViewModel(
         panel = panel,
         hotkey = hotkey,
         isSettingsWindowOpen = isSettingsWindowOpen,
+        isDevToolsWindowOpen = isDevToolsWindowOpen,
     )
 
     /** 窗口几何：定位、尺寸、预览停靠、用户拖拽。 */

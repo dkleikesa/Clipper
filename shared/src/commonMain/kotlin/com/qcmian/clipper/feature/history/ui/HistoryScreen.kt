@@ -468,6 +468,12 @@ fun HistoryScreen(
                     contextMenuAt = null
                     onUiAction(ClipboardUiAction.PasteSelection)
                 },
+                // 打开的是**独立窗口**（`ClipperDevToolsWindow`）：动作带上条目内容由状态持有者
+                // 负责（见 `ClipboardViewModel.openDevTools`），界面这边只需先收起右键菜单。
+                onOpenDevTools = {
+                    contextMenuAt = null
+                    onUiAction(ClipboardUiAction.OpenDevTools)
+                },
                 onTogglePin = {
                     contextMenuAt = null
                     onUiAction(ClipboardUiAction.TogglePinSelected)

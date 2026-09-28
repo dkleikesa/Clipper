@@ -88,8 +88,10 @@ fun ApplicationScope.ClipperWindow(
                 // （见 `WindowSizing.minimumWindowSizeOf`）。
                 applyMinimumSize = { width, height -> window.minimumSize = Dimension(width, height) },
                 // 直读状态持有者，而不是 `WindowController` 那份晚一帧的投影：面板失焦的那一刻
-                // 正是要判断「这次是不是设置窗口抢的」（见 `PanelPresentationController`）。
+                // 正是要判断「这次是不是设置窗口 / 开发者工具窗口抢的」
+                // （见 `PanelPresentationController`）。
                 isSettingsWindowOpen = { clipboardViewModel.uiState.value.settingsOpen },
+                isDevToolsWindowOpen = { clipboardViewModel.uiState.value.devToolsOpen },
             )
         }
         val uiState by viewModel.uiState.collectAsStateWithLifecycle()

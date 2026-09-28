@@ -139,6 +139,14 @@ data class AppSettings(
      * 因此设置页里每一行都可录制。
      */
     val popupShortcut: ShortcutSpec? = ShortcutSlot.POPUP.default,
+    /**
+     * 打开 / 关闭开发者工具窗口，默认 `⇧⌘D`。
+     *
+     * 与 [popupShortcut] 一样是**系统级**的（见 [ShortcutSlot.global]）：开发者工具最常用的
+     * 时机是「刚从别处复制了一段内容、想马上看看」，那时面板并没有焦点，只在面板内匹配的绑定
+     * 到不了。
+     */
+    val devToolsShortcut: ShortcutSpec? = ShortcutSlot.DEV_TOOLS.default,
     val closeShortcut: ShortcutSpec? = ShortcutSlot.CLOSE.default,
     val openSettingsShortcut: ShortcutSpec? = ShortcutSlot.OPEN_SETTINGS.default,
     val movePreviousShortcut: ShortcutSpec? = ShortcutSlot.MOVE_PREVIOUS.default,

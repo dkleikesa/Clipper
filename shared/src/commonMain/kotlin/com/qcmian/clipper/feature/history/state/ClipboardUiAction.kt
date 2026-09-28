@@ -131,6 +131,26 @@ sealed interface ClipboardUiAction {
     data object ConfirmClear : ClipboardUiAction
     data object DismissClear : ClipboardUiAction
 
+    // ------------------------------------------------------------------ 开发者工具
+    /**
+     * 用**当前选中条目**的内容打开开发者工具窗口。
+     *
+     * 内容刻意不随动作携带：正文只留在库里，要按条目 id 现取（见
+     * `ClipboardViewModel.openDevTools`）——列表里流动的元数据里没有它。
+     */
+    data object OpenDevTools : ClipboardUiAction
+
+    /** 关闭开发者工具窗口（窗口标题栏的关闭按钮）。 */
+    data object CloseDevTools : ClipboardUiAction
+
+    /**
+     * 打开 / 关闭开发者工具窗口（`⇧⌘D` 这条系统级快捷键）。
+     *
+     * 与 [OpenDevTools] 分开，是因为它要能**从后台**触发：宿主在面板没有焦点时也会发它，此时
+     * 开与关得由当前状态决定，不能只表达「打开」。
+     */
+    data object ToggleDevTools : ClipboardUiAction
+
     // ------------------------------------------------------------------ 数据库加密
     /**
      * 设置页的「数据库加密」开关被切换：[enabled] 是用户想要的目标状态。

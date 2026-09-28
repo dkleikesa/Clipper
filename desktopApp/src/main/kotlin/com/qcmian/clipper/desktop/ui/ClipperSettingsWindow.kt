@@ -9,18 +9,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
 import com.qcmian.clipper.core.ui.theme.rememberClipperDarkTheme
 import com.qcmian.clipper.desktop.domain.SETTINGS_WINDOW_TITLE
+import com.qcmian.clipper.desktop.domain.isOnScreen
+import com.qcmian.clipper.desktop.domain.screenCenterLocation
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.feature.preferences.ui.SettingsScreen
@@ -54,7 +54,9 @@ private val SettingsWindowMinimumSize = Dimension(640, 420)
  * 显隐完全由状态决定（见 `ClipboardUiState.settingsOpen`）：标题栏的关闭按钮只是把意图发回
  * 状态持有者，状态一变窗口才消失——与面板的显隐是同一种单向数据流。
  *
- * 窗口只隐藏、不销毁：下次打开时尺寸、位置、选中的分区都还在原处。
+ * 窗口只隐藏、不销毁：下次打开时尺寸、位置、选中的分区都还在原处——唯一的例外是它跑到别的
+ * 屏幕上去了（多屏下鼠标换了一块屏），那时才会被挪回鼠标所在屏幕的中央（见下面那个
+ * `LaunchedEffect`）。
  */
 @Composable
 fun ApplicationScope.ClipperSettingsWindow(
@@ -67,10 +69,13 @@ fun ApplicationScope.ClipperSettingsWindow(
         viewModel.uiState.map { it.settingsOpen }.distinctUntilChanged()
     }.collectAsState(initial = viewModel.uiState.value.settingsOpen)
 
-    val windowState = rememberWindowState(
-        size = SettingsWindowSize,
-        position = WindowPosition(Alignment.Center),
-    )
+    // 位置不在这里给：多屏时必须落在**鼠标所在的那块屏幕**上，而 `WindowPosition(Alignment.Center)`
+    // 是 Compose 按主屏算的——在副屏上唤出设置，窗口会跑到主屏去。定位交给下面那个
+    // `LaunchedEffect`（见 `screenCenterLocation`）。
+    val windowState = rememberWindowState(size = SettingsWindowSize)
+
+    // 是否已经摆过一次位置：首次显示一律居中，之后只在窗口跑到别的屏幕上时才挪（见下面）。
+    var placed by remember { mutableStateOf(false) }
 
     Window(
         // 关闭请求不自己去藏窗口：把意图发回状态持有者，由状态决定窗口的存亡。
@@ -129,7 +134,26 @@ fun ApplicationScope.ClipperSettingsWindow(
         //
         // 与面板同样的理由放到后台线程：macOS 对刚启动的应用会延迟处理「激活自己」，
         // 那条同步调用会让界面卡在重组里（见 `ClipperWindow`）。
+        // 窗口隐藏时也仍在组合里，所以这个副作用在**挂载那一刻**就先跑了一次（那时 `visible`
+        // 还是 false、窗口还没露过面）——定位实际发生在那一刻，而不是「首次显示」时。
         LaunchedEffect(visible) {
+            // 定位（多屏）：窗口必须落在**鼠标所在的那块屏幕**上（索引 0 = 活动屏幕，见
+            // `screenBounds`），否则在副屏上呼出设置，它会跑到主屏去。
+            //
+            // 但只在两种情况才挪：
+            // - **首次**（窗口刚挂载、位置还是平台给的默认值，见上）一律居中；
+            // - 此后只有窗口**不在鼠标那块屏上**时才挪。用户把它拖到顺手的位置之后，下次打开
+            //   应当还在原处——「窗口只隐藏、不销毁」这条承诺不能因为多屏修复而被破坏。
+            //   副屏被拔掉时窗口坐标会落到屏幕外，同样由这里把它拉回来。
+            //
+            // 用 `setLocation` 一步到位，而不是写 `windowState.position`：后者要等下一帧才落到
+            // 窗口上，多屏下能看到窗口先出现在主屏、再跳过来（面板的 `applyBounds` 出于同样的
+            // 理由用 `setBounds`）。这一步排在 `if (!visible)` 之前，因此窗口显示出来时已经摆好。
+            if (!placed || !isOnScreen(window.bounds, screenIndex = 0)) {
+                placed = true
+                val location = screenCenterLocation(SettingsWindowSize, screenIndex = 0)
+                window.setLocation(location.x, location.y)
+            }
             if (!visible) return@LaunchedEffect
             launch(Dispatchers.IO) { runCatching { MacWorkspace.activateSelf() } }
             window.toFront()

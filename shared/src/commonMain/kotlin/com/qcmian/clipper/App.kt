@@ -107,6 +107,14 @@ fun App(
             launch {
                 host.hideRequests.collect { if (it > 0) viewModel.onAction(ClipboardUiAction.Hidden) }
             }
+            launch {
+                // 系统级快捷键（`⇧⌘D`）：热键注册在桌面外壳里，这里把它转成面板的动作。面板窗口
+                // 即使隐藏也仍在组合中（见 `ClipperWindow`），所以这条通道在后台同样有效——
+                // 这正是「后台也能开开发者工具」的实现方式。
+                host.devToolsToggleRequests.collect {
+                    if (it > 0) viewModel.onAction(ClipboardUiAction.ToggleDevTools)
+                }
+            }
             host.clearSearchAction = { viewModel.onAction(ClipboardUiAction.ClearSearch) }
             host.quitAction = { viewModel.onQuit() }
         }
@@ -123,8 +131,9 @@ fun App(
                     isModalOpen = state.isModalOpen,
                     // 录制快捷键期间宿主必须把手从系统级热键上拿开（见 `HostUiState`）。
                     isRecordingShortcut = state.isRecordingShortcut,
-                    // 设置窗口是**独立窗口**：面板据此知道该收起。
+                    // 设置窗口、开发者工具窗口都是**独立窗口**：面板据此知道该收起。
                     isSettingsWindowOpen = state.settingsOpen,
+                    isDevToolsWindowOpen = state.devToolsOpen,
                     // 原始系统外观（不是解析后的深浅色）：设置窗口用同一套算式自行解析，
                     // 两个窗口的主题因此不会差一帧、也不会一个深一个浅。
                     systemDark = systemDarkTheme,

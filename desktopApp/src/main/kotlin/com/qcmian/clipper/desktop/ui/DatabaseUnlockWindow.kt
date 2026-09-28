@@ -25,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -43,7 +42,6 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import com.qcmian.clipper.core.data.source.unlockClipperDatabase
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
@@ -52,6 +50,7 @@ import com.qcmian.clipper.core.ui.components.ClipperTitleBar
 import com.qcmian.clipper.core.ui.theme.ClipperTheme
 import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.core.ui.theme.rememberClipperDarkTheme
+import com.qcmian.clipper.desktop.domain.screenCenterLocation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -80,10 +79,9 @@ private val UnlockWindowSize = DpSize(400.dp, 268.dp)
  */
 @Composable
 fun ApplicationScope.DatabaseUnlockWindow(onUnlocked: () -> Unit) {
-    val windowState = rememberWindowState(
-        size = UnlockWindowSize,
-        position = WindowPosition(Alignment.Center),
-    )
+    // 位置不在这里给：多屏时要落在**鼠标所在的那块屏幕**上，而 `WindowPosition(Alignment.Center)`
+    // 是 Compose 按主屏算的。定位交给下面那个 `LaunchedEffect`（见 `screenCenterLocation`）。
+    val windowState = rememberWindowState(size = UnlockWindowSize)
     var password by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
@@ -122,6 +120,10 @@ fun ApplicationScope.DatabaseUnlockWindow(onUnlocked: () -> Unit) {
         val dragTitleBar = rememberTitleBarDragModifier(window)
 
         LaunchedEffect(Unit) {
+            // 定位：居到**鼠标所在的那块屏幕**中央（索引 0 = 活动屏幕，见 `screenBounds`）。
+            // 这一步排在首帧绘制之前，因此看不到「先出现在主屏、再跳过来」。
+            val location = screenCenterLocation(UnlockWindowSize, screenIndex = 0)
+            window.setLocation(location.x, location.y)
             // 与设置窗口同样的理由：本应用是菜单栏应用（`LSUIElement`），不激活则窗口成为不了
             // key window，输入框收不到键盘。
             launch(Dispatchers.IO) { runCatching { MacWorkspace.activateSelf() } }

@@ -14,10 +14,12 @@ import androidx.compose.ui.window.rememberWindowState
 import com.qcmian.clipper.core.data.source.isClipperDatabaseLocked
 import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.desktop.domain.InitialPanelHeight
+import com.qcmian.clipper.desktop.ui.ClipperDevToolsWindow
 import com.qcmian.clipper.desktop.ui.ClipperSettingsWindow
 import com.qcmian.clipper.desktop.ui.ClipperTray
 import com.qcmian.clipper.desktop.ui.ClipperWindow
 import com.qcmian.clipper.desktop.ui.DatabaseUnlockWindow
+import com.qcmian.clipper.devtools.registry.DevToolsRegistry
 import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.host.HotkeyController
@@ -30,8 +32,8 @@ import kotlinx.coroutines.flow.first
  * 桌面端组合根：只负责装配进程级依赖，并把窗口与托盘挂到 Compose Desktop 的应用作用域上。
  *
  * 分层约定：
- * - Model（`desktop/domain`）：[com.qcmian.clipper.desktop.domain.WindowPlacement] /
- *   [com.qcmian.clipper.desktop.domain.WindowSizing] 提供窗口定位与尺寸的纯函数。
+ * - Model（`desktop/domain`）：`WindowPlacement.kt` / `WindowSizing.kt` 两个文件提供窗口定位与
+ *   尺寸的纯函数（里面只有顶层函数、没有同名类型，所以这里不做符号链接）。
  * - ViewModel（`desktop/viewmodel`）：[com.qcmian.clipper.desktop.viewmodel.DesktopShellViewModel]
  *   持有窗口状态、热键状态机与窗口尺寸逻辑，在 `Window` 内容里由窗口宿主的
  *   `ViewModelStoreOwner` 持有；托盘只有一次点击请求，直接内联在 [ClipperTray] 里。
@@ -94,6 +96,13 @@ private fun ApplicationScope.ClipperApplication() {
     val windowController = remember { WindowController() }
     val hotkeyController = remember { HotkeyController() }
 
+    // 开发者工具插件表。无状态、纯查询，建一份即可。
+    //
+    // 由**组合根**创建，而不是放进 `AppContainer`：`:devTools` 依赖 `:shared`（复用图标、标题栏
+    // 与主题），方向是单向的，因此 `:shared` 里放不下这个类型。
+    // 新增插件在 `DevToolsRegistry.builtIn()` 里登记，这里和剪贴板都不用改。
+    val devTools = remember { DevToolsRegistry.builtIn() }
+
     // 界面状态持有者在**应用作用域**创建，而不是在某个窗口的内容里：偏好设置是独立窗口，
     // 面板与它必须共享同一份状态，否则在设置里改完偏好、回到面板看到的还是改之前的值；
     // 它也因此能在面板从未显示过时先一步存在。
@@ -124,10 +133,11 @@ private fun ApplicationScope.ClipperApplication() {
         exitApplication()
     }
 
-    // 两个窗口是**兄弟**：面板有自己的 ViewModel（宿主 owner），设置窗口直接渲染
-    // 共用状态持有者里那一份设置。托盘只负责点击弹出面板。
+    // 三个窗口是**兄弟**：面板有自己的 ViewModel（宿主 owner），设置窗口与开发者工具窗口直接
+    // 渲染共用状态持有者里的那一份状态。托盘只负责点击弹出面板。
     ClipperWindow(windowState, container, windowController, hotkeyController, clipboardViewModel)
     ClipperSettingsWindow(clipboardViewModel, windowController)
+    ClipperDevToolsWindow(clipboardViewModel, devTools, windowController)
     ClipperTray(windowController)
 }
 

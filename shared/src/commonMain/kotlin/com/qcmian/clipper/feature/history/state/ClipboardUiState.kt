@@ -143,6 +143,26 @@ data class ClipboardUiState(
      * 面板据此知道自己该收起。
      */
     val settingsOpen: Boolean = false,
+    /**
+     * 开发者工具窗口是否打开。
+     *
+     * 与 [settingsOpen] 同一种形态：桌面端把它渲染成一个**独立窗口**（见 `ClipperDevToolsWindow`），
+     * 面板据此让位，而不是在自己身上再叠一层。
+     */
+    val devToolsOpen: Boolean = false,
+    /**
+     * 打开开发者工具时带过去的那条记录；`null` 表示这次不带内容（历史为空、或载荷没取到）。
+     *
+     * 与 [devToolsOpen] 分开：这一条要按 id 现取（可能走一次数据库），而窗口显隐只关心开关。
+     *
+     * 直接给整条 [ClipItem]，不为它另造一个「输入」类型：工具要的不止正文——[ClipItem.image]
+     * 的字节、[ClipItem.files]、[ClipItem.contents] 里的附加表示都在这一份里，工具按需取即可。
+     * 造一层更窄的副本只会让「加一种表示」变成两边都要改，而且副本与本体迟早对不上。
+     *
+     * 这里没有「用哪个工具」——类型探测与工具选择是开发者工具面板自己的事（见 `:devTools`
+     * 模块），剪贴板这边完全不知道工具的存在。
+     */
+    val devToolsItem: ClipItem? = null,
     val confirmation: ClearConfirmation? = null,
     /**
      * 偏好设置里正在录制的快捷键。

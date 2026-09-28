@@ -20,6 +20,9 @@ val appVersion: String = providers.gradleProperty("appVersion").get()
 
 dependencies {
     implementation(project(":shared"))
+    // 开发者工具（插件框架 + 内置插件 + 主面板）。它自己依赖 :shared，这里显式声明是因为组合根
+    // 要直接引用 `DevToolsRegistry` 与 `DevToolsPanel`，不靠传递依赖碰运气。
+    implementation(project(":devTools"))
 
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutinesSwing)
@@ -54,7 +57,19 @@ compose.desktop {
 
             // 保持最小化运行时：`suggestModules` 基于当前桌面端依赖分析出的补充模块。
             // 不启用 includeAllModules，避免把完整 JDK 一并打入发行包。
-            modules("java.instrument", "jdk.unsupported")
+            //
+            // `java.sql` 必须显式列出，不能指望自动分析出来：`main` 在很早期就会调
+            // `isClipperDatabaseLocked()` 读库文件头（见 shared 的 `DatabaseEncryption.kt`），
+            // 它引用 `java.sql.SQLException`；而 JDBC 那条链路是运行时反射加载驱动，
+            // jdeps 静态分析不到。缺了它，release 包启动即
+            // `NoClassDefFoundError: java/sql/SQLException` + `Failed to launch JVM`——
+            // 因为崩在建窗口之前，界面上表现为「双击无反应、也没有任何日志」。
+            // `gradlew run` / IDE 里跑不会复现：那边用的是完整 JDK，模块齐全。
+            //
+            // `java.xml` 是开发者工具的 XML 格式化插件（`XmlFormat.jvm.kt`，JDK 自带的
+            // `javax.xml`）要的：它虽然有静态引用、jdeps 一般能分析到，但漏掉它同样是
+            // 「双击无反应」这一种最难查的失败，显式列上更稳妥。
+            modules("java.instrument", "jdk.unsupported", "java.sql", "java.xml")
 
             // 打包产物（.dmg/.msi/.deb）的图标；与 shared 里 `ClipperAppIcon` 同一份设计稿。
             macOS {

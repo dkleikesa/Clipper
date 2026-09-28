@@ -25,10 +25,14 @@ import kotlinx.coroutines.flow.update
 
 /**
  * 注册到 Carbon 的热键标识（`EventHotKeyID.id`）：事件里带的就是它，系统据此把按键派发给
- * 对应的注册。本应用只注册一条真实热键（呼出面板），其余可选键都在面板内匹配；
- * 占用探测自己用保留 id（见 `MacGlobalHotKey.isAvailable`），所以这里从 1 开始。
+ * 对应的注册。本应用注册两条真实热键——呼出面板与开发者工具（见 `ShortcutSlot.global`），
+ * 其余可选键都在面板内匹配；占用探测自己用保留 id（见 `MacGlobalHotKey.isAvailable`），
+ * 所以这里从 1 开始。
  */
 private const val HOT_KEY_POPUP = 1
+
+/** 开发者工具的开关热键；它与 [HOT_KEY_POPUP] 各自独立注册，互不影响。 */
+private const val HOT_KEY_DEV_TOOLS = 2
 
 /**
  * 一次按住会话里，组合键当前按到什么程度。
@@ -46,8 +50,9 @@ private enum class ComboState { NONE, PARTIAL, COMPLETE }
  * - [onHotKeyPressed] / [observeHotKeyHold]：一次「按住」的会话时钟——按满
  *   [CYCLE_START_DELAY_MILLIS] 后开始逐条循环，松掉一部分只挂起，整组键都松开才收尾。
  *
- * 只有呼出面板是系统级热键，其余可录制快捷键都在面板内匹配（见 `ShortcutSlot.global`）——
- * 所以这里也不需要「暂停键不进按住循环」那类特例。
+ * 两条系统级热键（见 `ShortcutSlot.global`）里，只有**呼出面板**参与「按住循环」，两条路径
+ * 因此在这里就分开：[applyGlobalHotKey] 的 `onTrigger` 各自接到不同的动作上。开发者工具那条
+ * 不参与循环，也就不需要「暂停键不进循环」那类特例。
  *
  * 它与窗口几何、面板显隐之间只通过少量回调相接：呼出时通知「表现层」记录前台应用
  * （[onHotKeyOpened]），托盘呼出的面板再按则把窗口挪到鼠标处（[onMoveToCursor]）。
@@ -291,7 +296,7 @@ internal class GlobalHotKeyController(
         state.update { if (it.popupMode == mode) it else it.copy(popupMode = mode) }
     }
 
-    /** 用户录制了不同的快捷键时重新注册全局热键。 */
+    /** 用户录制了不同的快捷键时重新注册两条全局热键。 */
     suspend fun observeShortcut() {
         // 等持久化偏好加载完成，并以仓库中的真实设置为注册来源：
         // hostUiState 是 App 组合时才镜像的投影，启动瞬间仍是默认值（⇧⌘C），
@@ -299,41 +304,63 @@ internal class GlobalHotKeyController(
         repository.settingsLoaded.first { it }
         combine(
             repository.settings.map { it.popupShortcut }.distinctUntilChanged(),
+            repository.settings.map { it.devToolsShortcut }.distinctUntilChanged(),
             // 录制快捷键期间把热键**注销**掉，而不是只在回调里忽略它：Carbon 注册的组合会被系统
             // 从窗口事件里吞掉，留着它那一次按键就到不了录制器；注销之后它就只是一次普通按键——
             // 既不触发原动作，也能被设置页里的录制器收下。
             //
-            // 条件是「面板正显示着录制器」：面板被托盘收起时录制界面已经不在眼前（组合会留在
-            // 那份保留下来的组合里），继续压着全局热键只会让人以为热键坏了。
+            // 录制器在**设置窗口**里，所以「设置窗口开着」也算在内：只判断面板可见会漏掉录制
+            // 当时的主流情形——打开设置时面板已经为它让位、收起了，热键于是留在系统里，用户
+            // 根本录不进当前那条绑定。反过来，面板被托盘收起、而录制态还没收回时（组合只留在
+            // 状态里）不算：那时热键一直哑着只会让人以为它坏了。
             panel.hostUiState
-                .map { it.isRecordingShortcut && it.isWindowVisible }
+                .map { it.isRecordingShortcut && (it.isWindowVisible || it.isSettingsWindowOpen) }
                 .distinctUntilChanged(),
-        ) { spec, recording -> spec.takeUnless { recording } }
-            .collectLatest { spec ->
-                applyGlobalHotKey(spec)
+        ) { popup, devTools, recording ->
+            if (recording) null to null else popup to devTools
+        }
+            .collectLatest { (popup, devTools) ->
+                applyGlobalHotKey(
+                    id = HOT_KEY_POPUP,
+                    spec = popup,
+                    onTrigger = { onHotKeyPressed() },
+                    onRelease = { onHotKeyReleased() },
+                )
+                // 开发者工具只认按下：它没有「按住循环」，松开也就什么都不用做。
+                applyGlobalHotKey(
+                    id = HOT_KEY_DEV_TOOLS,
+                    spec = devTools,
+                    onTrigger = { panel.requestToggleDevTools() },
+                )
                 try {
                     awaitCancellation()
                 } finally {
                     MacGlobalHotKey.unregister(HOT_KEY_POPUP)
+                    MacGlobalHotKey.unregister(HOT_KEY_DEV_TOOLS)
                 }
             }
     }
 
     /**
-     * 注册呼出面板的系统级热键；`null`（设置页里清除了绑定）表示不注册。
+     * 注册一条系统级热键；`spec` 为 `null`（设置页里清除了绑定）表示只注销、不注册。
      *
-     * 只有它是系统级的，其余可录制快捷键都在面板内匹配（见 `ShortcutSlot.global`）——
-     * 所以这里也不需要「暂停键不进按住循环」那类特例。
+     * 两条真实热键共用它，所以 id 必须由调用方给：先无条件注销同一个 id，因此改绑、清除绑定、
+     * 平台不支持热键这几种情况下都不会留下旧注册。
      */
-    private fun applyGlobalHotKey(spec: ShortcutSpec?) {
-        MacGlobalHotKey.unregister(HOT_KEY_POPUP)
+    private fun applyGlobalHotKey(
+        id: Int,
+        spec: ShortcutSpec?,
+        onTrigger: () -> Unit,
+        onRelease: () -> Unit = {},
+    ) {
+        MacGlobalHotKey.unregister(id)
         if (!native.supportsGlobalHotKeys) return
         val shortcut = spec?.let { GlobalShortcut.fromSpec(it) } ?: return
         MacGlobalHotKey.register(
-            id = HOT_KEY_POPUP,
+            id = id,
             shortcut = shortcut,
-            onTrigger = { onHotKeyPressed() },
-            onRelease = { onHotKeyReleased() },
+            onTrigger = onTrigger,
+            onRelease = onRelease,
         )
     }
 }

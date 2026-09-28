@@ -61,6 +61,12 @@ enum class ClipperIconKind {
     APPEARANCE,
     /** 逆时针回旋箭头，设置页「重置」用。 */
     RESET,
+
+    // ---------------------------------------------------------------- 开发者工具
+    /** 一对花括号，JSON 工具用。 */
+    BRACES,
+    /** 一对尖括号，XML 工具用。 */
+    TAG,
 }
 
 @Composable
@@ -316,6 +322,38 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
         }
 
         ClipperIconKind.RESET -> drawResetArrow(color, s, stroke)
+
+        // ---------------------------------------------------------------- 开发者工具
+        ClipperIconKind.BRACES -> {
+            val braceStroke = Stroke(width = strokeWidth * 0.9f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+            // 左花括号
+            drawPath(
+                path = Path().apply {
+                    moveTo(s * 0.40f, s * 0.16f)
+                    cubicTo(s * 0.26f, s * 0.16f, s * 0.33f, s * 0.42f, s * 0.20f, s * 0.50f)
+                    cubicTo(s * 0.33f, s * 0.58f, s * 0.26f, s * 0.84f, s * 0.40f, s * 0.84f)
+                },
+                color = color,
+                style = braceStroke,
+            )
+            // 右花括号
+            drawPath(
+                path = Path().apply {
+                    moveTo(s * 0.60f, s * 0.16f)
+                    cubicTo(s * 0.74f, s * 0.16f, s * 0.67f, s * 0.42f, s * 0.80f, s * 0.50f)
+                    cubicTo(s * 0.67f, s * 0.58f, s * 0.74f, s * 0.84f, s * 0.60f, s * 0.84f)
+                },
+                color = color,
+                style = braceStroke,
+            )
+        }
+
+        ClipperIconKind.TAG -> {
+            drawLine(color, Offset(s * 0.40f, s * 0.24f), Offset(s * 0.16f, s * 0.50f), strokeWidth, StrokeCap.Round)
+            drawLine(color, Offset(s * 0.16f, s * 0.50f), Offset(s * 0.40f, s * 0.76f), strokeWidth, StrokeCap.Round)
+            drawLine(color, Offset(s * 0.60f, s * 0.24f), Offset(s * 0.84f, s * 0.50f), strokeWidth, StrokeCap.Round)
+            drawLine(color, Offset(s * 0.84f, s * 0.50f), Offset(s * 0.60f, s * 0.76f), strokeWidth, StrokeCap.Round)
+        }
     }
 }
 

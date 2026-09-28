@@ -57,6 +57,7 @@ internal fun SelectionContextMenu(
     deleteHint: String?,
     onCopy: () -> Unit,
     onPaste: () -> Unit,
+    onOpenDevTools: () -> Unit,
     onTogglePin: () -> Unit,
     onDelete: () -> Unit,
     onClearSelection: () -> Unit,
@@ -66,9 +67,9 @@ internal fun SelectionContextMenu(
 ) {
     val colors = MaterialTheme.colorScheme
     val multi = selectionCount > 1
-    // 「复制 / 粘贴 / 置顶 / 删除」四项，多选时再多一行「取消多选」；分隔线数量跟着走。
-    val itemCount = if (multi) 5 else 4
-    val separatorCount = if (multi) 2 else 1
+    // 「复制 / 粘贴 / 开发者工具 / 置顶 / 删除」五项，多选时再多一行「取消多选」；分隔线数量跟着走。
+    val itemCount = if (multi) 6 else 5
+    val separatorCount = if (multi) 3 else 2
     val estimatedHeight = ContextMenuItemHeight * itemCount +
         ContextMenuPadding * 2 +
         ContextMenuSeparatorHeight * separatorCount
@@ -107,6 +108,13 @@ internal fun SelectionContextMenu(
                     title = if (multi) "逐条粘贴$suffix" else "粘贴",
                     shortcut = pasteHint,
                     onClick = onPaste,
+                )
+                ContextMenuDivider()
+                // 单独一段：它是「把这条拿去分析」，与复制 / 粘贴、与条目管理都不是一类动作。
+                ContextMenuItem(
+                    title = "在开发者工具中打开",
+                    shortcut = null,
+                    onClick = onOpenDevTools,
                 )
                 ContextMenuDivider()
                 // 文案跟着 `allPinned` 走，点下去发生的一定就是它写的那件事（见

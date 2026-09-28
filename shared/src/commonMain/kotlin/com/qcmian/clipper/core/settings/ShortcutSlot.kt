@@ -38,6 +38,18 @@ enum class ShortcutSlot(
     // ---------------------------------------------------------------- 呼出与窗口
     /** 默认 `⇧⌘C`。 */
     POPUP("呼出面板", ShortcutGroup.WINDOW, global = true, default = ShortcutSpec("C", command = true, shift = true)),
+    /**
+     * 默认 `⇧⌘D`：打开 / 关闭开发者工具窗口。
+     *
+     * 与 [POPUP] 同族（`⇧⌘` + 首字母：`C` = Clipper，`D` = Developer tools），两者都是系统级——
+     * 开发者工具最常用的时机恰恰是「从别处复制了一段东西、想马上看看」，那时面板没有焦点。
+     *
+     * 打开时带上**当前选中项**的内容；历史为空或没有选中项时开一个空窗口，让用户自己粘贴。
+     */
+    DEV_TOOLS(
+        "打开 / 关闭开发者工具", ShortcutGroup.WINDOW, global = true,
+        default = ShortcutSpec("D", command = true, shift = true), hint = "带当前选中项打开",
+    ),
     /** 默认 `⎋`。 */
     CLOSE("清空搜索 / 关闭面板", ShortcutGroup.WINDOW, global = false, default = ShortcutSpec("\u238b")),
     /** 默认 `⌘,`。 */
@@ -121,6 +133,7 @@ const val QUICK_SELECT_DIGITS = "123456789"
 /** 该槽位当前的绑定；`null` 表示未绑定。 */
 fun AppSettings.shortcut(slot: ShortcutSlot): ShortcutSpec? = when (slot) {
     ShortcutSlot.POPUP -> popupShortcut
+    ShortcutSlot.DEV_TOOLS -> devToolsShortcut
     ShortcutSlot.CLOSE -> closeShortcut
     ShortcutSlot.OPEN_SETTINGS -> openSettingsShortcut
     ShortcutSlot.MOVE_PREVIOUS -> movePreviousShortcut
@@ -141,6 +154,7 @@ fun AppSettings.shortcut(slot: ShortcutSlot): ShortcutSpec? = when (slot) {
 /** 把 [slot] 的绑定换成 [spec]；[spec] 为 `null` 即清除绑定。 */
 fun AppSettings.withShortcut(slot: ShortcutSlot, spec: ShortcutSpec?): AppSettings = when (slot) {
     ShortcutSlot.POPUP -> copy(popupShortcut = spec)
+    ShortcutSlot.DEV_TOOLS -> copy(devToolsShortcut = spec)
     ShortcutSlot.CLOSE -> copy(closeShortcut = spec)
     ShortcutSlot.OPEN_SETTINGS -> copy(openSettingsShortcut = spec)
     ShortcutSlot.MOVE_PREVIOUS -> copy(movePreviousShortcut = spec)

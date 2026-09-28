@@ -84,6 +84,11 @@ plugins {
 include(":desktopApp")
 include(":shared")
 
+// 开发者工具：插件框架（DevTool / 数据类型探测 / 注册表）、内置插件与主面板。
+// 依赖方向是 devTools → shared（它复用 shared 的图标、标题栏与主题，面板才与剪贴板面板、
+// 设置窗口是同一套观感）；剪贴板那边只交出一条剪贴板记录，并不知道工具的存在。
+include(":devTools")
+
 // CLI 与 app 之间的共享契约。刻意与 :shared 分开：:cli 只依赖它，
 // 于是 CLI 的运行时 classpath 上不会出现 Compose / Skiko / Room / JNA。
 include(":protocol")

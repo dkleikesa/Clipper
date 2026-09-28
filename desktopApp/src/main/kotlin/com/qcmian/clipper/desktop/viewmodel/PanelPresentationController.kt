@@ -3,6 +3,7 @@ package com.qcmian.clipper.desktop.viewmodel
 import com.qcmian.clipper.core.platform.macos.MacKeyboard
 import com.qcmian.clipper.core.platform.macos.MacOutsideClickMonitor
 import com.qcmian.clipper.core.platform.macos.MacWorkspace
+import com.qcmian.clipper.desktop.domain.DEVTOOLS_WINDOW_TITLE
 import com.qcmian.clipper.desktop.domain.FOCUS_GRACE_MILLIS
 import com.qcmian.clipper.desktop.domain.PANEL_WINDOW_TITLE
 import com.qcmian.clipper.desktop.domain.SETTINGS_WINDOW_TITLE
@@ -35,6 +36,11 @@ internal class PanelPresentationController(
      * ——面板照旧收起（没问题），却会连带把刚打开的设置窗口一起关掉。
      */
     private val isSettingsWindowOpen: () -> Boolean = { false },
+    /**
+     * 开发者工具窗口此刻是否开着。与 [isSettingsWindowOpen] 同一条判据、同样的理由：投影会晚
+     * 一帧，判定「这次失焦是谁抢的」不能信投影。
+     */
+    private val isDevToolsWindowOpen: () -> Boolean = { false },
 ) {
     /**
      * 本次显示是否由点击托盘图标触发。是的话位置直接锚定菜单栏图标：点托盘那一刻光标就在
@@ -122,16 +128,19 @@ internal class PanelPresentationController(
         val current = state.value
         val host = panel.hostUiState.value
         if (!current.windowVisible) return
-        // 设置窗口是**独立窗口**：它抢走焦点就说明用户要改设置，面板必须让位。
+        // 设置窗口 / 开发者工具窗口都是**独立窗口**：它们抢走焦点就说明用户要离开面板，
+        // 面板必须让位。
         //
         // 这一条要排在 [HostUiState.isModalOpen] 与下面两条宽限期判断**之前**：一来从面板里
-        // 按 ⌘, 打开设置，多半正好落在「面板刚显示」的宽限期内；二来面板自己那层模态
-        // （清除确认）此刻是画在设置窗口里的（见 `HistoryDialogs`），拿它拦住隐藏只会把面板
-        // 留在屏幕上、和设置窗口叠在一起。
-        if (isSettingsWindowOpen() || host.isSettingsWindowOpen) {
-            // 不能把焦点还给上一个应用——用户要的是设置窗口，抢回去等于把它挤到后面。
-            // `notifyHidden = false`：这次收起是「给设置窗口让位」，不是用户关闭主窗口，
-            // 不该连带把设置窗口一起关掉（见 [hidePanel]）。
+        // 打开设置（⌘,）或开发者工具（右键菜单），多半正好落在「面板刚显示」的宽限期内；
+        // 二来面板自己那层模态（清除确认）此刻是画在那些窗口里的（见 `HistoryDialogs`），拿它
+        // 拦住隐藏只会把面板留在屏幕上、和它们叠在一起。
+        if (isSettingsWindowOpen() || host.isSettingsWindowOpen ||
+            isDevToolsWindowOpen() || host.isDevToolsWindowOpen
+        ) {
+            // 不能把焦点还给上一个应用——用户要的是那个窗口，抢回去等于把它挤到后面。
+            // `notifyHidden = false`：这次收起是「给它让位」，不是用户关闭主窗口，
+            // 不该连带把它一起关掉（见 [hidePanel]）。
             hidePanel(restoreFocus = false, notifyHidden = false)
             return
         }
@@ -164,9 +173,12 @@ internal class PanelPresentationController(
      * 「点击别处收起」这一条能力静默缺失，其余收起路径（失焦、Esc、托盘、热键）不受影响。
      */
     suspend fun observeOutsideClicks() {
-        // 设置窗口也是本应用自己的窗口：点在里面不算「点了别处」，否则面板一让位、
-        // 用户去点设置窗口就会把面板（连带设置）当成被点掉。
-        MacOutsideClickMonitor.install(PANEL_WINDOW_TITLE, listOf(SETTINGS_WINDOW_TITLE))
+        // 设置窗口、开发者工具窗口也是本应用自己的窗口：点在里面不算「点了别处」，否则面板一
+        // 让位、用户去点那些窗口就会把面板（连带它）当成被点掉。
+        MacOutsideClickMonitor.install(
+            PANEL_WINDOW_TITLE,
+            listOf(SETTINGS_WINDOW_TITLE, DEVTOOLS_WINDOW_TITLE),
+        )
         MacOutsideClickMonitor.outsideClicks.collect {
             if (state.value.windowVisible && !panel.hostUiState.value.isModalOpen) {
                 lastOutsideHideAtMillis = System.currentTimeMillis()

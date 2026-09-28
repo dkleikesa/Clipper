@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipMeta
+import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.SearchResult
 import com.qcmian.clipper.core.domain.search.ClipDeepSearch
 import com.qcmian.clipper.core.domain.search.ClipSearch
@@ -328,6 +329,10 @@ class ClipboardViewModel(
             ClipboardUiAction.ConfirmClear -> confirmClear()
             ClipboardUiAction.DismissClear -> _uiState.update { it.copy(confirmation = null) }
 
+            ClipboardUiAction.OpenDevTools -> openDevTools()
+            ClipboardUiAction.ToggleDevTools -> toggleDevTools()
+            ClipboardUiAction.CloseDevTools -> _uiState.update { it.copy(devToolsOpen = false) }
+
             is ClipboardUiAction.RequestDatabaseEncryption ->
                 _uiState.update { it.copy(encryptionPrompt = EncryptionPrompt(enabled = action.enabled)) }
 
@@ -586,6 +591,59 @@ class ClipboardViewModel(
         _uiState.update { it.copy(confirmation = null) }
     }
 
+    // ---------------------------------------------------------------------------------
+    // 开发者工具
+    // ---------------------------------------------------------------------------------
+
+    /**
+     * 用当前选中条目的内容打开开发者工具。
+     *
+     * 条目要按 id 现取（列表里流动的元数据里没有正文），因此整件事是异步的：取回之后才写
+     * [ClipboardUiState.devToolsOpen]——窗口在那一刻出现，出现时内容已经在手里，不会先空一下。
+     *
+     * 交出去的就是整条 [ClipItem]：它是 JSON 还是 XML、该用哪个工具，由开发者工具面板自己判断
+     * （见 `:devTools` 模块），剪贴板这边完全不必认识工具。
+     */
+    private fun openDevTools() {
+        val meta = _uiState.value.selectedMeta
+        if (meta == null) {
+            // 历史为空（或还没有选中项）：照样把窗口开出来，让用户自己往里粘。
+            //
+            // 上一条记录必须一并清掉：`devToolsItem` 会一直留到下次赋值，不清的话窗口会被上次
+            // 打开的那条内容填满，看起来像是「带着一条记录打开」，而这次其实什么都没有。
+            _uiState.update { it.copy(devToolsOpen = true, devToolsItem = null) }
+            return
+        }
+        viewModelScope.launch {
+            val item = cachedPreview(meta) ?: repository.item(meta.id)?.also(::cachePreview)
+            _uiState.update { it.copy(devToolsOpen = true, devToolsItem = item) }
+        }
+    }
+
+    /**
+     * 系统级快捷键（`⇧⌘D`）的入口：开着就关，没开就用当前选中项打开。
+     *
+     * 「没有选中项」由 [openDevTools] 自己兜住（照样开一个空窗口）。
+     */
+    private fun toggleDevTools() {
+        if (_uiState.value.devToolsOpen) {
+            _uiState.update { it.copy(devToolsOpen = false) }
+        } else {
+            openDevTools()
+        }
+    }
+
+    /**
+     * 开发者工具里的「复制结果」：写回系统剪贴板。
+     *
+     * 走的是与普通粘贴同一条 [ClipboardPlatform.writeClipboard]，因此结果会被正常记录成一条
+     * 新的历史——这正是用户期望的：格式化出来的内容照样能再粘贴一次。
+     */
+    fun copyToClipboardFromDevTools(text: String) {
+        if (text.isEmpty()) return
+        platform.writeClipboard(ClipboardSnapshot(text = text))
+    }
+
     /**
      * 打开 / 关闭数据库加密。
      *
@@ -666,6 +724,10 @@ class ClipboardViewModel(
             it.copy(
                 listResetToken = it.listResetToken + 1,
                 settingsOpen = false,
+                // 与设置窗口同理：主面板都收起了，留一个孤立的工具窗口没有意义。给工具窗口
+                // 「让位」的那一次收起不会走到这里（`PanelPresentationController` 传
+                // `notifyHidden = false`），因此不会误关刚打开的工具。
+                devToolsOpen = false,
                 shortcutRecording = ShortcutRecording(),
             )
         }

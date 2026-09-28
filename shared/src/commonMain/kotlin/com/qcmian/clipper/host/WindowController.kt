@@ -51,6 +51,13 @@ data class HostUiState(
     val isSettingsWindowOpen: Boolean = false,
 
     /**
+     * 开发者工具窗口（独立窗口，见 `ClipperDevToolsWindow`）是否打开。
+     *
+     * 与 [isSettingsWindowOpen] 同理：面板据此让位，而不是与新窗口叠在一起。
+     */
+    val isDevToolsWindowOpen: Boolean = false,
+
+    /**
      * 宿主提供的原始系统外观；`null` 表示未提供。
      *
      * 刻意是**原始值**而不是解析后的深浅色：设置窗口用它和主题偏好一起自行解析，
@@ -90,6 +97,13 @@ class WindowController {
     /** 宿主隐藏面板时自增，使预览与之一同关闭。 */
     val hideRequests: StateFlow<Int> = _hideRequests.asStateFlow()
 
+    private val _devToolsToggleRequests = MutableStateFlow(0)
+
+    /** 系统级快捷键请求切换开发者工具窗口；见 [devToolsToggleRequests]。 */
+    fun requestToggleDevTools() {
+        _devToolsToggleRequests.value++
+    }
+
     private val _exitRequested = MutableStateFlow(false)
 
     /** 宿主 ViewModel 落盘完成后置位，由应用根结束进程。 */
@@ -111,6 +125,14 @@ class WindowController {
         lastTrayClickAtMillis = currentTimeMillis()
         _toggleRequests.value++
     }
+
+    /**
+     * 系统级快捷键（`⇧⌘D`）请求打开 / 关闭开发者工具窗口时自增。
+     *
+     * 走通道而不是直接改状态：开关（`ClipboardUiState.devToolsOpen`）由面板的状态持有者所有，
+     * 而热键注册在桌面外壳的 ViewModel 里，两者互不持有——与 [toggleRequests] 同一种接法。
+     */
+    val devToolsToggleRequests: StateFlow<Int> = _devToolsToggleRequests.asStateFlow()
 
     /** 关闭弹窗的同时也关闭预览滑出面板。 */
     fun requestHide() {

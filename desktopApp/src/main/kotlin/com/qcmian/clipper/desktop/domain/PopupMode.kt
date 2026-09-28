@@ -77,3 +77,10 @@ internal const val PANEL_WINDOW_TITLE = "Clipper"
  * 面板外点击监视器也认它：设置窗口是本应用自己的窗口，点在它里面不算「点了别处」。
  */
 internal const val SETTINGS_WINDOW_TITLE = "Clipper 设置"
+
+/**
+ * 开发者工具窗口标题；见 [com.qcmian.clipper.desktop.ui.ClipperDevToolsWindow]。
+ *
+ * 面板外点击监视器同样认它：工具窗口也是本应用自己的窗口，点在它里面不算「点了别处」。
+ */
+internal const val DEVTOOLS_WINDOW_TITLE = "Clipper 开发者工具"
