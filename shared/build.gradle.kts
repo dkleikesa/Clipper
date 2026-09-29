@@ -52,11 +52,36 @@ kotlin {
             // HTML 用 Ksoup 解析；RTF 用 JDK 自带的 `RTFEditorKit`，不引入额外依赖。
             implementation(libs.ksoup)
         }
+
+        jvmTest.dependencies {
+            // 剪贴板这条路（类型过滤、item 分组、`writeObjects:` 的语义）没有编译期能验证的东西，
+            // 只能对着真实粘贴板跑一遍——见 `MacPasteboardTest`。
+            implementation(kotlin("test"))
+            // `rememberImage` 的状态语义（换图必须换状态）只有真跑一遍组合才验证得了——
+            // 见 `RememberImageTest`。
+            implementation(libs.compose.ui.test)
+            // 图片解码走 Skiko，而 `compose.ui` 只带它的 API——native 运行时在那个单独的平台
+            // artifact 里。少了它，测试里 `decodeToImageBitmap()` 会以
+            // `NoClassDefFoundError: Could not initialize class org.jetbrains.skia.Image` 收场
+            // （见 `ImageCacheTest`）。运行时由 desktopApp 的 `compose.desktop.currentOs` 提供。
+            implementation(compose.desktop.currentOs)
+        }
     }
 }
 
 room3 {
     schemaDirectory("$projectDir/schemas")
+}
+
+/**
+ * 真实粘贴板测试是否启用由环境变量决定，而 Gradle 看不见环境变量。不把它声明成任务输入的话，
+ * 切换开关之后任务会被判成 UP-TO-DATE 而根本不执行——开关也就形同虚设。
+ */
+tasks.named<Test>("jvmTest") {
+    inputs.property(
+        "livePasteboardTests",
+        providers.environmentVariable("CLIPPER_PASTEBOARD_TESTS").orElse("0"),
+    )
 }
 
 dependencies {

@@ -4,7 +4,11 @@ import androidx.compose.runtime.Immutable
 import com.qcmian.clipper.core.util.fnv1a64
 
 /**
- * 剪贴板图片的原始字节（PNG 或 JPEG）。
+ * 剪贴板图片的**原始字节**。
+ *
+ * 格式就是复制时剪贴板给出的那一种（macOS 上通常是 TIFF，也可能是 PNG / JPEG…）。
+ * 捕获层**不做任何转码**——「复制什么格式、粘贴还是什么格式」由它保证：显示层遇到
+ * Compose 解码器不认的格式会自行转码（见 `ImageCache`），与这里存的是什么无关。
  *
  * 刻意单独成一个类型，而不是直接用裸 `ByteArray`：`ClipPayload` 是 data class，而数组的
  * 相等性按引用比较——直接把数组放进数据类，列表的变更检测会静默失效。这里用内容语义的

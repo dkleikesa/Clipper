@@ -158,11 +158,14 @@ class SelectClipUseCase(
 
     private fun snapshotFor(item: ClipItem, removeFormatting: Boolean): ClipboardSnapshot {
         if (!removeFormatting) {
+            // 保留格式：交回条目保存的全部原始表示，写回时逐类型原样搬进剪贴板。
+            // 文本 / 图片 / 文件这几个便利字段一并带上，供 `contents` 为空时（早期版本的数据
+            // 只存了富文本，见 `ClipPayload.legacyImage`）由数据源据此重建。
             return ClipboardSnapshot(
+                contents = item.contents,
                 text = item.text ?: if (item.image == null && item.files.isEmpty()) item.previewableText else null,
                 image = item.image,
                 files = item.files,
-                contents = item.contents,
             )
         }
 

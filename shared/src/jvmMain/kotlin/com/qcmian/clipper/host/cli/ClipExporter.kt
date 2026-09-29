@@ -1,6 +1,7 @@
 package com.qcmian.clipper.host.cli
 
 import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.util.imageFormatOf
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
@@ -28,7 +29,7 @@ internal object ClipExporter {
     /** 图片条目的原始字节；没有图片时返回 `null`。 */
     fun exportImage(item: ClipItem): Path? {
         val bytes = item.image?.toByteArray() ?: return null
-        return write("${safeId(item.id)}.${imageExtension(bytes)}", bytes)
+        return write("${safeId(item.id)}.${imageFormatOf(bytes).extension}", bytes)
     }
 
     /**
@@ -67,26 +68,6 @@ internal object ClipExporter {
         val fromType = type.substringAfterLast('.')
         val candidate = if (fromType.isNotBlank() && !fromType.contains('.')) fromType else format
         return candidate.lowercase().filter { it.isLetterOrDigit() }.ifBlank { "bin" }
-    }
-
-    /**
-     * 按魔数判断图片格式。
-     *
-     * 值得多这几行：扩展名会被下游工具用来决定怎么解析，而 `ClipImage` 的注释明说
-     * 字节可能是 PNG 也可能是 JPEG——一律写成 `.png` 会让看图工具解不出来。
-     */
-    private fun imageExtension(bytes: ByteArray): String = when {
-        bytes.startsWith(0x89, 0x50, 0x4E, 0x47) -> "png"
-        bytes.startsWith(0xFF, 0xD8, 0xFF) -> "jpg"
-        bytes.startsWith(0x47, 0x49, 0x46, 0x38) -> "gif"
-        bytes.startsWith(0x42, 0x4D) -> "bmp"
-        bytes.startsWith(0x52, 0x49, 0x46, 0x46) -> "webp"
-        else -> "bin"
-    }
-
-    private fun ByteArray.startsWith(vararg signature: Int): Boolean {
-        if (size < signature.size) return false
-        return signature.withIndex().all { (index, byte) -> this[index].toInt() and 0xFF == byte }
     }
 
     /** id 会被用作文件名，因此只放行明确安全的字符。 */

@@ -67,7 +67,8 @@ class CaptureClipboardUseCase(
         // 时间戳，以保证严格的先后顺序（这也是唯一一处需要读全表的统计）。
         val now = maxOf(currentTimeMillis(), repository.latestLastCopiedAt() + 1L)
 
-        val contentKey = contentKeyOf(text, image, files, contents)
+        // 摘要只取决于这份原始表示集合本身（见 `contentKeyOf`），文本 / 图片 / 文件都在其中。
+        val contentKey = contentKeyOf(contents)
         val existingId = repository.findByContentKey(contentKey)
 
         if (existingId != null) {

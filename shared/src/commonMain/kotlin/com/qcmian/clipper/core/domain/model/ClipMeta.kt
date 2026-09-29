@@ -50,33 +50,28 @@ data class ClipMeta(
 }
 
 /**
- * 由一次复制的各个表示派生出内容摘要。
+ * 由一次复制的**全部原始表示**派生出内容摘要。
  *
- * 各项按固定顺序（文本 / 图片 / 文件 / 富文本）拼接各自的哈希，因此只要表示集合相同，
- * 摘要就相同。它把原来的 `ClipItem.supersedes`——两两逐字段比较、需要一整份历史驻留内存
- * ——换成一次 `WHERE contentKey = ?`，这是「历史不再全量加载」的前提。
+ * 只吃 [ClipboardContent]：条目的文本 / 图片 / 文件 / 富文本现在都只在那一份里，不再有并行的
+ * 字段需要一起哈希——这正是 `ClipPayload.contents` 成为唯一真值源之后的形态。
+ *
+ * 它把原来的 `ClipItem.supersedes`——两两逐字段比较、需要一整份历史驻留内存——换成一次
+ * `WHERE contentKey = ?`，这是「历史不再全量加载」的前提。
  *
  * 语义上有一处刻意的收窄：`supersedes` 判断的是「包含」，这里判断的是「相同」。
  * 一次复制产生的是固定的表示集合，重复复制必然命中同一个摘要，实际行为一致。
  */
-fun contentKeyOf(
-    text: String?,
-    image: ClipImage?,
-    files: List<String>,
-    contents: List<ClipboardContent>,
-): String = buildString(80) {
-    if (!text.isNullOrEmpty()) append("t:").append(fnv1a64(text)).append('|')
-    if (image != null) append("i:").append(image.cacheKey).append('|')
-    if (files.isNotEmpty()) append("f:").append(fnv1a64(files.joinToString("\u0000"))).append('|')
-    if (contents.isNotEmpty()) {
-        append("c:")
-        for (content in contents) {
+fun contentKeyOf(contents: List<ClipboardContent>): String =
+    buildString(80) {
+        // 按 (item 序号, 类型名) **稳定排序**后拼接：剪贴板给出的顺序不保证稳定，而摘要必须只
+        // 取决于内容本身——否则同一份内容重复复制会算出不同的 key，去重直接失效。稳定排序保留
+        // 了同类型内部的先后（多个文件路径的先后是有意义的）。
+        for (content in contents.sortedWith(compareBy({ it.itemIndex }, { it.type }))) {
+            append(content.itemIndex).append(':')
             append(fnv1a64(content.type)).append(':')
             append(content.value?.let(::fnv1a64) ?: 0L).append(',')
         }
-        append('|')
     }
-}
 
 /**
  * 从完整条目派生出元数据。
@@ -96,14 +91,18 @@ fun ClipItem.toMeta(): ClipMeta = ClipMeta(
     numberOfCopies = numberOfCopies,
     pin = pin,
     payloadBytes = approximateSizeBytes,
-    contentKey = contentKeyOf(text, image, files, contents),
+    contentKey = contentKeyOf(contents),
     hasRecognizedText = hasRecognizedText,
     hasImage = image != null,
 )
 
-/** 从完整条目提取载荷；文件路径留在 [ClipMeta] 里，不算载荷。 */
+/**
+ * 从完整条目提取载荷。
+ *
+ * 只交回[原始表示][ClipPayload.contents]与搜索用的文本索引：图片不再单独存一份，它就在
+ * `contents` 里，[ClipPayload.image] 读取时会派生出来。文件路径留在 [ClipMeta] 里，不算载荷。
+ */
 fun ClipItem.toPayload(): ClipPayload = ClipPayload(
-    text = text,
-    image = image,
     contents = contents,
+    text = text,
 )

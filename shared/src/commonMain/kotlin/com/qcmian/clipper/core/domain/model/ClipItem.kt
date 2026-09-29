@@ -58,16 +58,17 @@ data class ClipItem(
     val isPinned: Boolean get() = pin != null
 
     /**
-     * 该条目占用的近似字节数：图片是精确值，文本与文件路径按 UTF-8 计。
+     * 该条目占用的近似字节数。
+     *
+     * 直接取[原始表示][contents]的总和：文本 / 图片 / 文件都在那里面，再按字段各算一遍会把
+     * 它们计两次（见 `ClipPayload.contents`）。早期版本的数据没有把文本 / 图片放进 `contents`，
+     * 算出来会偏小——它只影响空闲页回收的时机，不影响正确性。
      *
      * 仓库用它累计「这段时间删掉了多少内容」，以决定什么时候值得去回收数据库的空闲页
-     * （见 `DefaultClipboardRepository` 的 `MIN_RECLAIM_BYTES`）；首次读取后缓存，避免反复编码。
+     * （见 `DefaultClipboardRepository` 的 `MIN_RECLAIM_BYTES`）；首次读取后缓存，避免反复计算。
      */
     val approximateSizeBytes: Long by lazy {
-        (text?.utf8SizeBytes() ?: 0L) +
-            (image?.size?.toLong() ?: 0L) +
-            files.sumOf { it.utf8SizeBytes() } +
-            contents.sumOf { it.size.toLong() }
+        contents.sumOf { it.size.toLong() }
     }
 
     /**
@@ -135,8 +136,6 @@ data class ClipItem(
     }
 }
 
-/** UTF-8 编码后的字节数，用于估算条目的存储占用。 */
-private fun String.utf8SizeBytes(): Long = encodeToByteArray().size.toLong()
 
 /**
  * 从一次复制的各个表示派生出**标题**。

@@ -172,8 +172,14 @@ private fun buildItem(random: Random, index: Int, publishedAt: Long): Pair<ClipM
         else -> text.orEmpty().take(ClipItem.MAX_TITLE_LENGTH)
     }
 
-    val imageBytes = image?.let(::ClipImage)
-    val payloadBytes = (text?.encodeToByteArray()?.size ?: 0).toLong() + (image?.size ?: 0).toLong()
+    // 全量原始表示：文本 / 图片 / 附加格式都在这里，与真实捕获路径产出的载荷一致
+    // （见 `ClipPayload.contents`——载荷只留这一份原始数据）。
+    val payloadContents = buildList {
+        text?.let { add(ClipboardContent("public.utf8-plain-text", it.encodeToByteArray())) }
+        image?.let { add(ClipboardContent("public.png", it)) }
+        addAll(contents)
+    }
+    val payloadBytes = payloadContents.sumOf { it.size.toLong() }
 
     val meta = ClipMeta(
         id = id,
@@ -188,11 +194,11 @@ private fun buildItem(random: Random, index: Int, publishedAt: Long): Pair<ClipM
         // 三条置顶，用来验证置顶区块与「置顶不占额度」。
         pin = if (index % 7_000 == 0) ClipItem.PINNED_MARKER else null,
         payloadBytes = payloadBytes,
-        contentKey = contentKeyOf(text, imageBytes, emptyList(), contents),
+        contentKey = contentKeyOf(payloadContents),
         hasRecognizedText = recognized,
         hasImage = image != null,
     )
-    return meta to ClipPayload(text = text, image = imageBytes, contents = contents)
+    return meta to ClipPayload(contents = payloadContents, text = text)
 }
 
 /** 六种形态轮换：URL、SQL、中文短句、多行长文本、邮箱、短串。 */

@@ -59,8 +59,10 @@ internal fun ClipMeta.toEntity(): ClipMetaEntity = ClipMetaEntity(
 internal fun ClipPayload.toEntity(id: String): ClipPayloadEntity = ClipPayloadEntity(
     id = id,
     text = text,
-    image = image?.toByteArray(),
-    // 没有附加表示的条目（绝大多数）连 BLOB 都不写。
+    // 图片不再单独存一列：它的原始字节在 `contents` 里，落一份即可（这一列只留下来读早期版本
+    // 写下的数据，见 `ClipPayload.legacyImage`）。
+    image = null,
+    // 没有载荷的条目（只带文件路径的那些）连 BLOB 都不写。
     contents = if (contents.isEmpty()) null else encodeCbor(contents),
     recognizedText = recognizedText,
 )
@@ -88,10 +90,11 @@ internal fun ClipMetaEntity.toModel(): ClipMeta = ClipMeta(
 )
 
 internal fun ClipPayloadEntity.toModel(): ClipPayload = ClipPayload(
-    text = text,
-    image = image?.let(::ClipImage),
     contents = decodeCborOrNull<List<ClipboardContent>>(contents).orEmpty(),
+    text = text,
     recognizedText = recognizedText,
+    // 早期版本把图片存在这一列；新数据为 `null`，图片从 `contents` 里派生。
+    legacyImage = image?.let(::ClipImage),
 )
 
 // ---------------------------------------------------------------------------------------

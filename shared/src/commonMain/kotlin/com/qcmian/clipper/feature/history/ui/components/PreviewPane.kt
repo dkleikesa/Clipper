@@ -36,6 +36,7 @@ import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.components.VerticalScrollbar
 import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
+import com.qcmian.clipper.core.ui.components.rememberImage
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
@@ -103,7 +104,10 @@ fun PreviewPane(
 
         if (item == null) return@Column
 
-        val bitmap = rememberImageBitmap(item.image)
+        // 预览大图：按预览面板需要的尺寸解码。它和列表缩略图分开缓存——40dp 的槽位与整块
+        // 预览区要的分辨率差两个数量级，混在一起会互相挤掉（见 `ImageCache`）。
+        val loaded = rememberImage(item.image, thumbnail = false)
+        val bitmap = loaded?.bitmap
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (bitmap != null) {
@@ -189,8 +193,9 @@ fun PreviewPane(
                 icon = rememberImageBitmap(appIconBase64),
             )
         }
-        if (bitmap != null) {
-            MetadataRow(label = "尺寸:", value = "${bitmap.width}×${bitmap.height}")
+        if (loaded != null) {
+            // 读原图尺寸而不是位图尺寸：位图可能已被降采样，拿它报出去就成了缩略图的分辨率。
+            MetadataRow(label = "尺寸:", value = "${loaded.sourceWidth}×${loaded.sourceHeight}")
         }
         MetadataRow(label = "首次复制时间:", value = formatDateTime(item.firstCopiedAt))
         MetadataRow(label = "上次复制时间:", value = formatDateTime(item.lastCopiedAt))

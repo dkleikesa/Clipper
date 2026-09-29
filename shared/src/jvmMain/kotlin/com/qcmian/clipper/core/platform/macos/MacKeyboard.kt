@@ -29,7 +29,8 @@ import com.sun.jna.Pointer
  * **异步**生效：若把事件投到 session tap，落在谁头上取决于投递瞬间谁在最前，激活没完成事件就
  * 被丢弃。因此只要知道目标 pid，就改用 `CGEventPostToPid` 直接投给那个进程，与前台时序彻底解耦。
  *
- * 所有调用都是防御式的：框架或符号缺失时 [available] 为 `false`，调用方退回 [java.awt.Robot]。
+ * 所有调用都是防御式的：框架或符号缺失时 [available] 为 `false`，调用方据此上报「本平台不支持
+ * 粘贴」，而不是无声地什么都不发生（见 `ClipboardDataSource.paste`）。
  */
 object MacKeyboard {
 

@@ -5,8 +5,8 @@ import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 /**
  * 通往操作系统剪贴板的桥接。
  *
- * 当外部把新内容放入剪贴板时，实现必须调用 [onChange]。通过 [write] 执行的写入也允许触发
- * 监听器，仓库会对这类往返去重。
+ * 当外部把新内容放入剪贴板时，实现必须调用 `start` 传进来的回调。通过 [write] 执行的写入也允许
+ * 触发监听器，仓库会对这类往返去重。
  */
 interface ClipboardDataSource {
     /**
@@ -16,7 +16,7 @@ interface ClipboardDataSource {
      */
     fun write(snapshot: ClipboardSnapshot): Boolean
 
-    /** 开始监听剪贴板，对每一次外部复制调用 [onChange]。 */
+    /** 开始监听剪贴板，对每一次外部复制调用 `onChange` 回调。 */
     fun start(onChange: (ClipboardSnapshot) -> Unit)
 
     /** 停止监听剪贴板。 */
@@ -32,7 +32,7 @@ interface ClipboardDataSource {
     fun pressReturn(): Boolean = false
 
     /**
- * 检查剪贴板的频率，单位毫秒。。
+     * 检查剪贴板的频率，单位毫秒。
      * 依赖变更通知的平台会忽略它。
      */
     var pollIntervalMillis: Long
@@ -40,7 +40,7 @@ interface ClipboardDataSource {
         set(@Suppress("UNUSED_PARAMETER") value: Long) {}
 
     companion object {
- /** 默认值，500 毫秒。 */
+        /** 默认值，500 毫秒。 */
         const val DEFAULT_POLL_INTERVAL_MILLIS = 500L
     }
 }

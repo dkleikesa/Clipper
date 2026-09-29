@@ -3,12 +3,14 @@ package com.qcmian.clipper.feature.history.ui.components
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,6 +29,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.isHexColor
@@ -36,6 +39,8 @@ import com.qcmian.clipper.core.settings.HighlightMatch
 import com.qcmian.clipper.core.ui.KeyShortcut
 import com.qcmian.clipper.core.ui.ModifierFlags
 import com.qcmian.clipper.core.ui.Popup
+import com.qcmian.clipper.core.ui.components.ImageCache
+import com.qcmian.clipper.core.ui.components.rememberImage
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
 import com.qcmian.clipper.core.ui.hexToColor
 
@@ -98,7 +103,15 @@ fun HistoryRow(
     // 色块要求标题以十六进制颜色开头，且必须带 `#` 前缀，
     // 以免普通的三个字母的单词被误认成十六进制颜色。
     val swatch = if (showColorSwatch && isHexColor(meta.title)) hexToColor(meta.title) else null
-    val thumbnail = rememberImageBitmap(image)
+    // 缩略图：按列表槽位需要的尺寸解码，不按原图。原图动辄 4K，一份就是 31.6 MiB，会把
+    // 位图缓存挤成只能装一张（见 `ImageCache`）。
+    val thumbnail = rememberImage(image, thumbnail = true)?.bitmap
+    // 图片试过、确定解不出来（负结果已进缓存）。
+    //
+    // **刻意不包 `remember`**：解码结束会改 `rememberImage` 内部的状态、带动这一行重组，
+    // 那时这个判断必须重新求值——`remember` 会把第一次的 `false` 一直缓存下去。
+    val undecodable = thumbnail == null && image != null &&
+        ImageCache.isUndecodable(image, thumbnail = true)
 
     ListItemRow(
         isSelected = isSelected,
@@ -143,16 +156,47 @@ fun HistoryRow(
                     .clip(RoundedCornerShape(2.dp)),
             )
         } else {
-            RowTitle(
-                highlightedTitle(
-                    displayTitle(meta, showSpecialSymbols),
-                    ranges,
-                    highlight,
-                    isSelected,
-                    colors,
-                ),
+            val title = highlightedTitle(
+                displayTitle(meta, showSpecialSymbols),
+                ranges,
+                highlight,
+                isSelected,
+                colors,
             )
+            // 图片解不出来、标题又是空的——纯图片条目在识别没跑或没识别出文字时正是如此，
+            // 于是整行一片空白，用户分不清「图片坏了」还是「还在加载」。给一句说明。
+            //
+            // 只在**确认**解不出来时才说：还在解码的下一帧就有图，先闪一行字反而更糟。
+            if (undecodable && title.text.isBlank()) {
+                ImageUnavailablePlaceholder(maxImageHeight)
+            } else {
+                RowTitle(title)
+            }
         }
+    }
+}
+
+/**
+ * 图片解不出来时占住图片槽位的一句话。
+ *
+ * 占的尺寸与缩略图完全一致（同样的高度与上下内边距），因此行高不变——行高本来就只看
+ * `meta.hasImage`（见 [historyRowHeight]），这一处只是把原本的空白填上。
+ */
+@Composable
+private fun ImageUnavailablePlaceholder(height: Dp) {
+    Box(
+        modifier = Modifier
+            .padding(vertical = ImageRowPadding / 2)
+            .height(height)
+            .fillMaxWidth(),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(
+            text = "图片无法显示。",
+            fontSize = 13.sp,
+            lineHeight = 16.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
