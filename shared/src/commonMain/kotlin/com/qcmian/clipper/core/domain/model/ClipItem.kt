@@ -13,10 +13,13 @@ import com.qcmian.clipper.core.settings.ClipFilterType
 data class ClipItem(
     val id: String,
     val text: String? = null,
-    /** 原始（PNG/JPEG）图片字节。 */
-    val image: ClipImage? = null,
     val files: List<String> = emptyList(),
-    /** 未被 [text] / [image] / [files] 单独建模的额外类型（HTML、RTF、PDF、URL 等）的原始字节。 */
+    /**
+     * 条目的**全部原始表示**（纯文本、图片、文件 URL、HTML / RTF / PDF…），载荷的唯一真值源。
+     *
+     * 写回剪贴板时逐类型原样搬运，因此它必须完整——[text] / [image] / [files] 只是从中派生出的
+     * 便利视图（见 `MacClipboardDataSource.readSnapshot`），不是第二份原始数据。
+     */
     val contents: List<ClipboardContent> = emptyList(),
     val firstCopiedAt: Long = 0L,
     val lastCopiedAt: Long = 0L,
@@ -54,8 +57,24 @@ data class ClipItem(
      * 平台保持 `null`，预览会隐藏「应用:」这一行。
      */
     val application: SourceApplication? = null,
+    /**
+     * 早期版本把图片单独存进 `clip_payload.image` 列；读到那种旧数据时从这里兜底。
+     * 新数据的图片在 [contents] 里，这一项恒为 `null`（见 `ClipPayload.legacyImage`）。
+     */
+    val legacyImage: ClipImage? = null,
 ) {
     val isPinned: Boolean get() = pin != null
+
+    /**
+     * 原始（PNG / JPEG）图片字节；没有图片时为 `null`。
+     *
+     * 与 [ClipPayload.image] 同一条口径：**从 [contents] 派生**，不再单独存一份字段。
+     * [contents] 是载荷的唯一真值源——捕获层保证图片表示一定在其中（见
+     * `MacClipboardDataSource.keepAsContent`），另存一份独立字段只会给两者留下对不上的余地。
+     *
+     * 算一次就缓存：预览、类型判定（[clipType]）与写回都会读它，而每读一次都要遍历 `contents`。
+     */
+    val image: ClipImage? by lazy { legacyImage ?: contents.toClipImage() }
 
     /**
      * 该条目占用的近似字节数。

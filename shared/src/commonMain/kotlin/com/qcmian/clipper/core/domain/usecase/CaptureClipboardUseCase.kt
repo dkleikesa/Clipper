@@ -103,7 +103,6 @@ class CaptureClipboardUseCase(
         val base = ClipItem(
             id = randomId(),
             text = text,
-            image = image,
             files = files,
             contents = contents,
             firstCopiedAt = now,

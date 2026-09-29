@@ -105,7 +105,9 @@ internal fun ClipPayloadEntity.toModel(): ClipPayload = ClipPayload(
 internal fun ClipMeta.toItem(payload: ClipPayload?): ClipItem = ClipItem(
     id = id,
     text = payload?.text,
-    image = payload?.image,
+    // 图片不进主构造器：新数据的图片在 `contents` 里由 `ClipItem.image` 派生，只有旧数据的
+    // 独立图片列需要在这里兜底（见 `ClipPayload.legacyImage`）。
+    legacyImage = payload?.legacyImage,
     files = files,
     contents = payload?.contents.orEmpty(),
     firstCopiedAt = firstCopiedAt,

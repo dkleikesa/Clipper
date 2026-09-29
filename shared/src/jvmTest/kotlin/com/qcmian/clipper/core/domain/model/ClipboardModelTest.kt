@@ -71,6 +71,33 @@ class ClipboardModelTest {
     }
 
     @Test
+    fun `clip item derives its image from contents`() {
+        val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
+        val item = ClipItem(
+            id = "i",
+            contents = listOf(
+                ClipboardContent("public.utf8-plain-text", "x".encodeToByteArray()),
+                ClipboardContent(PNG_CONTENT_TYPE, png),
+            ),
+        )
+
+        assertEquals(
+            png.toList(),
+            item.image?.toByteArray()?.toList(),
+            "图片必须从 contents 派生——它已经不再单独存一份字段（与 ClipPayload.image 同口径）",
+        )
+    }
+
+    @Test
+    fun `clip item falls back to the legacy image column`() {
+        val legacy = ClipImage(byteArrayOf(1, 2, 3))
+        // 早期版本把图片单独存在 `clip_payload.image` 列；那种数据 contents 里没有图片表示。
+        val item = ClipItem(id = "old", legacyImage = legacy)
+
+        assertEquals(legacy, item.image, "旧数据的图片必须仍能从独立列取到")
+    }
+
+    @Test
     fun `image format comes from the magic bytes`() {
         assertEquals(ImageFormat.PNG, imageFormatOf(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D)))
         assertEquals(ImageFormat.JPEG, imageFormatOf(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())))
