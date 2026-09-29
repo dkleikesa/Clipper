@@ -1,8 +1,10 @@
 package com.qcmian.clipper.feature.history.ui.components
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -29,7 +31,7 @@ class HistoryRowTest {
 
         setContent {
             MaterialTheme {
-                Row(meta = clipMeta(title = ""), image = image)
+                TestRow(meta = clipMeta(title = ""), image = image)
             }
         }
 
@@ -43,11 +45,45 @@ class HistoryRowTest {
 
         setContent {
             MaterialTheme {
-                Row(meta = clipMeta(title = "识别出来的文字"), image = image)
+                TestRow(meta = clipMeta(title = "识别出来的文字"), image = image)
             }
         }
 
         onNodeWithText("识别出来的文字").assertIsDisplayed()
+    }
+
+    @Test
+    fun `every kind puts its own type icon on the row`() = runComposeUiTest {
+        // 文件条目的标题就是路径，渲染出来与文本无从区分——类型图标是列表里唯一的线索，
+        // 因此四种类型都必须真的落到行上。`ClipperIcon` 是 Canvas 绘制、不产生语义节点，
+        // 所以断言的是行上挂的类型名。
+        setContent {
+            MaterialTheme {
+                Column {
+                    ClipFilterType.entries.forEach { kind ->
+                        TestRow(meta = clipMeta(title = "一条记录", kind = kind))
+                    }
+                }
+            }
+        }
+
+        ClipFilterType.entries.forEach { kind ->
+            onNodeWithContentDescription(kind.label).assertExists()
+        }
+    }
+
+    @Test
+    fun `turning the type icons off leaves the rows bare`() = runComposeUiTest {
+        setContent {
+            MaterialTheme {
+                TestRow(
+                    meta = clipMeta(title = "一条记录", kind = ClipFilterType.FILE),
+                    showTypeIcon = false,
+                )
+            }
+        }
+
+        onNodeWithContentDescription(ClipFilterType.FILE.label).assertDoesNotExist()
     }
 
     /** 字节不是任何图片格式：解码会失败，并把负结果记进缓存。 */
@@ -61,10 +97,10 @@ class HistoryRowTest {
         return image
     }
 
-    private fun clipMeta(title: String) = ClipMeta(
+    private fun clipMeta(title: String, kind: ClipFilterType = ClipFilterType.IMAGE) = ClipMeta(
         id = "history-row-test",
         title = title,
-        kind = ClipFilterType.IMAGE,
+        kind = kind,
         files = emptyList(),
         application = null,
         firstCopiedAt = 0L,
@@ -80,7 +116,11 @@ class HistoryRowTest {
 
 /** [HistoryRow] 的参数太多，测试里只关心图片那一路，其余取默认。 */
 @androidx.compose.runtime.Composable
-private fun Row(meta: ClipMeta, image: ClipImage?) {
+private fun TestRow(
+    meta: ClipMeta,
+    image: ClipImage? = null,
+    showTypeIcon: Boolean = true,
+) {
     HistoryRow(
         meta = meta,
         image = image,
@@ -92,6 +132,7 @@ private fun Row(meta: ClipMeta, image: ClipImage?) {
         highlight = HighlightMatch.BOLD,
         showColorSwatch = false,
         showSpecialSymbols = true,
+        showTypeIcon = showTypeIcon,
         maxImageHeight = 40.dp,
         appIconBase64 = null,
         onClick = {},

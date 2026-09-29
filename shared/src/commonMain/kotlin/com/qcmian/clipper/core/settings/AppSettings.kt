@@ -192,6 +192,13 @@ data class AppSettings(
     /** 在工具栏（主面板顶部）显示筛选栏；关闭时改到设置页「外观」里配置。 */
     val showFilterBar: Boolean = false,
     val showApplicationIcons: Boolean = false,
+    /**
+     * 在列表每行最前面显示条目类型图标（文本 / 图片 / 文件 / 富文本）。
+     *
+     * 默认**开启**：文件条目的标题就是路径，与文本条目渲染出来无从区分，类型图标是列表里唯一
+     * 的线索。不需要它的人可以关掉。
+     */
+    val showTypeIcons: Boolean = true,
     val imageMaxHeight: Int = 40,
     val popupPosition: PopupPosition = PopupPosition.SCREEN_CENTER,
     /** 显示或隐藏菜单栏 / 托盘图标。 */

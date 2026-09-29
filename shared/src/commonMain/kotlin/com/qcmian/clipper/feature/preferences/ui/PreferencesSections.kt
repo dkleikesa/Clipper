@@ -244,6 +244,12 @@ private val AppearanceSwitches = listOf(
         description = "在列表行与预览里显示复制来源应用的图标。",
     ),
     BooleanSetting(
+        "显示类型图标",
+        { it.showTypeIcons },
+        { value -> copy(showTypeIcons = value) },
+        description = "在每行最前面标出条目类型：文本 / 图片 / 文件 / 富文本。",
+    ),
+    BooleanSetting(
         "显示特殊符号",
         { it.showSpecialSymbols },
         { value -> copy(showSpecialSymbols = value) },

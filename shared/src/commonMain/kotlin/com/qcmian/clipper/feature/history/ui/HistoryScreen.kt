@@ -268,6 +268,7 @@ fun HistoryScreen(
             highlight = settings.highlightMatch,
             showColorSwatch = settings.showHexColorSwatch,
             showSpecialSymbols = settings.showSpecialSymbols,
+            showTypeIcon = settings.showTypeIcons,
             maxImageHeight = settings.imageMaxHeight.dp,
             appIconBase64 = if (settings.showApplicationIcons) {
                 rememberApplicationIcon(applicationIcon, meta.application?.bundleId)

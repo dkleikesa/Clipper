@@ -61,6 +61,13 @@ fun ListItemRow(
      * 「图片最大高度」设置就永远不生效（见 `HistoryRow`）。
      */
     height: Dp = Popup.itemHeight,
+    /**
+     * 条目类型图标（文本 / 图片 / 文件 / 富文本），排在所有前置配件的最前面。
+     *
+     * 放在最前而不是当附件：它是这一行的**身份**，位置固定才便于纵向扫视——文件条目的标题就是
+     * 路径，渲染出来和文本一模一样，光看内容分不出类型。
+     */
+    typeIcon: (@Composable () -> Unit)? = null,
     /** 来源应用图标，在 `showApplicationIcons` 开启时显示。 */
     appIcon: (@Composable () -> Unit)? = null,
     onClick: (() -> Unit)? = null,
@@ -102,19 +109,25 @@ fun ListItemRow(
             .then(clickModifier),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (appIcon != null) {
-            Box(Modifier.padding(start = 4.dp)) { appIcon() }
-            Spacer(Modifier.width(5.dp))
-        } else {
-            Spacer(Modifier.width(10.dp))
-        }
-
-        if (accessory != null) {
-            accessory()
-            Spacer(Modifier.width(5.dp))
-        }
-
         CompositionLocalProvider(LocalContentColor provides contentColor) {
+            // 前置配件依「类型 → 来源应用 → 色块」排列，**第一个自带左侧留白**；一个都没有时
+            // 留 10dp，让只有标题的行不至于更靠左。配件一律靠 `verticalAlignment` 居中，不能靠
+            // 上下内边距撑高（行高必须恒定，见上面 `.height(height)`）。
+            Spacer(Modifier.width(if (typeIcon == null && appIcon == null && accessory == null) 10.dp else 4.dp))
+
+            if (typeIcon != null) {
+                typeIcon()
+                Spacer(Modifier.width(5.dp))
+            }
+            if (appIcon != null) {
+                appIcon()
+                Spacer(Modifier.width(5.dp))
+            }
+            if (accessory != null) {
+                accessory()
+                Spacer(Modifier.width(5.dp))
+            }
+
             Box(Modifier.weight(1f)) { content() }
             Spacer(Modifier.width(5.dp))
             ShortcutView(shortcuts, flags)

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,6 +21,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Dp
 import kotlin.math.min
@@ -35,6 +38,7 @@ import com.qcmian.clipper.core.domain.model.ClipMeta
 import com.qcmian.clipper.core.domain.model.isHexColor
 import com.qcmian.clipper.core.domain.model.replacingUnsafeTitleScalars
 import com.qcmian.clipper.core.domain.model.titleForDisplay
+import com.qcmian.clipper.core.settings.ClipFilterType
 import com.qcmian.clipper.core.settings.HighlightMatch
 import com.qcmian.clipper.core.ui.KeyShortcut
 import com.qcmian.clipper.core.ui.ModifierFlags
@@ -43,6 +47,8 @@ import com.qcmian.clipper.core.ui.components.ImageCache
 import com.qcmian.clipper.core.ui.components.rememberImage
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
 import com.qcmian.clipper.core.ui.hexToColor
+import com.qcmian.clipper.core.ui.icons.ClipperIcon
+import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 
 /**
  * 缩略图在 `maxImageHeight` 之上额外增加的垂直内边距（上下各一半）。
@@ -91,6 +97,8 @@ fun HistoryRow(
     showColorSwatch: Boolean,
     /** 标题里的空格 / 换行 / 制表符是否显示为 `·` / `⏎` / `⇥`。 */
     showSpecialSymbols: Boolean,
+    /** 是否在行首显示条目类型图标（见 `AppSettings.showTypeIcons`）。 */
+    showTypeIcon: Boolean,
     /** 图片行的高度上限，也是图片槽位的固定高度。 */
     maxImageHeight: Dp,
     /** 来源应用图标的 base64 PNG；图标关闭或未知时为 `null`。 */
@@ -113,6 +121,28 @@ fun HistoryRow(
     val undecodable = thumbnail == null && image != null &&
         ImageCache.isUndecodable(image, thumbnail = true)
 
+    // 类型图标：文件条目的标题就是路径，渲染出来与文本一模一样——有了它才能一眼分出类型。
+    //
+    // 关掉时把槽位传成 `null`，而不是渲染一个空 lambda：`ListItemRow` 按「有没有配件」决定
+    // 左侧留白（有配件 4dp、没有 10dp），传空 lambda 会留下一个空档。
+    val typeIcon: (@Composable () -> Unit)? = if (!showTypeIcon) {
+        null
+    } else {
+        {
+            // 顺带挂上语义里的类型名：`ClipperIcon` 是 Canvas 绘制，本身不产生任何语义节点，
+            // 而这是这一行唯一的类型信息，不该只对眼睛可见。
+            Box(Modifier.semantics { contentDescription = meta.kind.label }) {
+                ClipperIcon(
+                    kind = typeIconKind(meta.kind),
+                    size = 13.dp,
+                    // 跟随行的内容色（选中行上是 `onPrimary`），再压低一档：它是辅读信息，
+                    // 不该和标题抢视线。
+                    tint = LocalContentColor.current.copy(alpha = 0.6f),
+                )
+            }
+        }
+    }
+
     ListItemRow(
         isSelected = isSelected,
         isCursor = isCursor,
@@ -125,6 +155,7 @@ fun HistoryRow(
         // `thumbnail`，那一行的真实高度就与滚动条前缀和差出一截，滑块长度、位置与拖动落点
         // 会一起漂移。
         height = historyRowHeight(meta, maxImageHeight),
+        typeIcon = typeIcon,
         onClick = onClick,
         onHover = onHover,
         appIcon = appIcon?.let {
@@ -198,6 +229,19 @@ private fun ImageUnavailablePlaceholder(height: Dp) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/**
+ * 条目类型对应的图标。
+ *
+ * 四者形状刻意分得开：纯文本是「三条线」（没有纸），文件与富文本共用「一张纸」的轮廓、靠纸内
+ * 有没有横线区分，图片是相框。这样扫视时先认出大类，再看纸内内容分小类。
+ */
+private fun typeIconKind(kind: ClipFilterType): ClipperIconKind = when (kind) {
+    ClipFilterType.TEXT -> ClipperIconKind.TYPE_TEXT
+    ClipFilterType.IMAGE -> ClipperIconKind.TYPE_IMAGE
+    ClipFilterType.FILE -> ClipperIconKind.TYPE_FILE
+    ClipFilterType.RICH_TEXT -> ClipperIconKind.TYPE_RICH_TEXT
 }
 
 /**

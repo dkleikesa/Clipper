@@ -67,6 +67,16 @@ enum class ClipperIconKind {
     BRACES,
     /** 一对尖括号，XML 工具用。 */
     TAG,
+
+    // ---------------------------------------------------------------- 条目类型
+    /** 纯文本：三条递减的横线。 */
+    TYPE_TEXT,
+    /** 图片：相框里一座山与一轮太阳。 */
+    TYPE_IMAGE,
+    /** 文件：带折角的空白文稿。 */
+    TYPE_FILE,
+    /** 富文本：带折角的文稿，纸内有两条短横线。 */
+    TYPE_RICH_TEXT,
 }
 
 @Composable
@@ -354,6 +364,92 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
             drawLine(color, Offset(s * 0.60f, s * 0.24f), Offset(s * 0.84f, s * 0.50f), strokeWidth, StrokeCap.Round)
             drawLine(color, Offset(s * 0.84f, s * 0.50f), Offset(s * 0.60f, s * 0.76f), strokeWidth, StrokeCap.Round)
         }
+
+        // ---------------------------------------------------------------- 条目类型
+        ClipperIconKind.TYPE_TEXT -> {
+            // 三条**长度递减**的横线：等长会读成一个「菜单」，递减才像一段文字。
+            listOf(0.86f, 0.70f, 0.46f).forEachIndexed { index, end ->
+                val y = s * (0.28f + 0.22f * index)
+                drawLine(color, Offset(s * 0.14f, y), Offset(s * end, y), strokeWidth, StrokeCap.Round)
+            }
+        }
+
+        ClipperIconKind.TYPE_IMAGE -> {
+            // 相框 + 一座山 + 一轮太阳。山用折线而不是实心块：这个尺寸下实心会糊成一团。
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(s * 0.12f, s * 0.18f),
+                size = Size(s * 0.76f, s * 0.64f),
+                cornerRadius = CornerRadius(s * 0.12f),
+                style = stroke,
+            )
+            drawPath(
+                path = Path().apply {
+                    moveTo(s * 0.22f, s * 0.72f)
+                    lineTo(s * 0.41f, s * 0.48f)
+                    lineTo(s * 0.55f, s * 0.64f)
+                    lineTo(s * 0.63f, s * 0.55f)
+                    lineTo(s * 0.79f, s * 0.72f)
+                },
+                color = color,
+                style = Stroke(width = strokeWidth * 0.85f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+            )
+            drawCircle(color, radius = s * 0.075f, center = Offset(s * 0.34f, s * 0.35f), style = Fill)
+        }
+
+        ClipperIconKind.TYPE_FILE -> drawDocument(color, s, stroke, lines = 0)
+        ClipperIconKind.TYPE_RICH_TEXT -> drawDocument(color, s, stroke, lines = 3)
+    }
+}
+
+/**
+ * 「一张纸」的图形：右上角折角，纸内按 [lines] 画短横线。
+ *
+ * 类型图标里有两枚长得很近（文件 / 富文本），靠**纸内有没有横线**区分：空白纸是「一个文件」，
+ * 有内容的是「一份带格式的文本」。两者轮廓一致，扫视时先认出「这是个文档」，再分哪一种。
+ */
+private fun DrawScope.drawDocument(color: Color, s: Float, stroke: Stroke, lines: Int) {
+    val left = s * 0.20f
+    val top = s * 0.12f
+    val right = s * 0.80f
+    val bottom = s * 0.88f
+    val fold = s * 0.20f
+    val inner = Stroke(width = stroke.width * 0.8f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+
+    drawPath(
+        path = Path().apply {
+            moveTo(left, top)
+            lineTo(right - fold, top)
+            lineTo(right, top + fold)
+            lineTo(right, bottom)
+            lineTo(left, bottom)
+            close()
+        },
+        color = color,
+        style = stroke,
+    )
+    // 折角本身：补两条短线，把切掉的那一角勾出来。
+    drawPath(
+        path = Path().apply {
+            moveTo(right - fold, top)
+            lineTo(right - fold, top + fold)
+            lineTo(right, top + fold)
+        },
+        color = color,
+        style = inner,
+    )
+
+    repeat(lines) { index ->
+        val y = top + fold + s * 0.06f + s * 0.13f * index
+        // 最后一行短一些，读起来才像段落而不是三条等长的杠。
+        val length = if (index == lines - 1) s * 0.22f else s * 0.34f
+        drawLine(
+            color = color,
+            start = Offset(left + s * 0.11f, y),
+            end = Offset(left + s * 0.11f + length, y),
+            strokeWidth = inner.width,
+            cap = StrokeCap.Round,
+        )
     }
 }
 
