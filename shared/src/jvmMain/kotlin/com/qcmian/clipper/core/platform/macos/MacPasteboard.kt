@@ -1,6 +1,7 @@
 package com.qcmian.clipper.core.platform.macos
 
 import com.qcmian.clipper.core.domain.model.ClipboardContent
+import com.qcmian.clipper.core.domain.model.TEXT_CONTENT_TYPES
 import com.sun.jna.Pointer
 
 /**
@@ -25,21 +26,13 @@ object MacPasteboard {
     /**
      * 承载纯文本的类型全集。
      *
-     * **读取时**用它在内容里挑出文本表示（见 `MacClipboardDataSource.readText`）。这些类型的
-     * 字节编码并不统一（UTF-8、UTF-16、传统 Mac 编码），因此**解码不交给系统**：
-     * `NSPasteboard.stringForType:` 实测会把 UTF-16 解错（`你好` 得到 `` `O}Y ``）。
+     * 类型名本身定义在领域层（[TEXT_CONTENT_TYPES]）——条目类型判定也要用它区分纯文本与
+     * 附加表示，两处各留一份迟早会漂。这里只负责平台侧的使用：**读取时**用它在内容里挑出
+     * 文本表示（见 `MacClipboardDataSource.readText`）。这些类型的字节编码并不统一（UTF-8、
+     * UTF-16、传统 Mac 编码），因此**解码不交给系统**：`NSPasteboard.stringForType:` 实测会把
+     * UTF-16 解错（`你好` 得到 `` `O}Y ``）。
      */
-    val TEXT_TYPES: Set<String> = setOf(
-        "public.utf8-plain-text",
-        "public.utf8-tab-separated-values-text",
-        "public.utf16-plain-text",
-        // 实测 Finder 复制文件时用它放文件名列表（实测字节是 `a.txt\nb.txt\n…` 的 UTF-16LE）。
-        "public.utf16-external-plain-text",
-        "public.utf8-external-plain-text",
-        "public.text",
-        "public.plain-text",
-        "NSStringPboardType",
-    )
+    val TEXT_TYPES: Set<String> = TEXT_CONTENT_TYPES
 
     /**
      * [TEXT_TYPES] 里能**直接按 UTF-8 解码**的那些。

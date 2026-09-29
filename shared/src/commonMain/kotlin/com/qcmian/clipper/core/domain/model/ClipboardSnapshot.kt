@@ -16,7 +16,12 @@ data class ClipboardSnapshot(
     val image: ClipImage? = null,
     val files: List<String> = emptyList(),
     val types: List<String> = emptyList(),
-    /** 未被 [text] / [image] / [files] 单独建模的额外类型（HTML、RTF、PDF、URL 等）的原始字节。 */
+    /**
+     * 剪贴板上的**全部原始表示**（纯文本、图片、文件 URL、HTML / RTF / PDF…）。
+     *
+     * [text] / [image] / [files] 都是从这里派生出的便利视图，供领域层派生标题 / 类型 / 判空，
+     * 不参与存储与写回；`contents` 才是唯一的原始数据（见 `MacClipboardDataSource.readSnapshot`）。
+     */
     val contents: List<ClipboardContent> = emptyList(),
 ) {
     val isEmpty: Boolean

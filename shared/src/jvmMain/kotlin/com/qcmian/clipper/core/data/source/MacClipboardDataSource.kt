@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipboardContent
 import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
+import com.qcmian.clipper.core.domain.model.FILE_URL_CONTENT_TYPE
 import com.qcmian.clipper.core.domain.model.toClipImage
 import com.qcmian.clipper.core.platform.macos.MacKeyboard
 import com.qcmian.clipper.core.platform.macos.MacNative
@@ -22,8 +23,8 @@ import com.qcmian.clipper.core.util.imageFormatOf
 /** 纯文本类型的现代标准名；剪贴板上的纯文本表示几乎都是它。 */
 private const val PLAIN_TEXT_TYPE = "public.utf8-plain-text"
 
-/** 文件 URL 类型；剪贴板上的文件表示就是这个，路径只是我们在库里存的那一种形式。 */
-private const val FILE_URL_TYPE = "public.file-url"
+/** 文件 URL 类型；类型名定义在领域层（[FILE_URL_CONTENT_TYPE]），这里只是平台侧的短名。 */
+private const val FILE_URL_TYPE = FILE_URL_CONTENT_TYPE
 
 /**
  * 文件图标类型。

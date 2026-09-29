@@ -1,5 +1,6 @@
 package com.qcmian.clipper.core.domain.model
 
+import com.qcmian.clipper.core.settings.ClipFilterType
 import com.qcmian.clipper.core.util.ImageFormat
 import com.qcmian.clipper.core.util.imageFormatOf
 import kotlin.test.Test
@@ -95,6 +96,28 @@ class ClipboardModelTest {
         val item = ClipItem(id = "old", legacyImage = legacy)
 
         assertEquals(legacy, item.image, "旧数据的图片必须仍能从独立列取到")
+    }
+
+    @Test
+    fun `clip type follows the most specific representation`() {
+        // 捕获层会把**全部**原始表示都放进 contents（见 `MacClipboardDataSource.readSnapshot`），
+        // 所以「类型」不能只看 contents 非空——否则纯文本也会被判成富文本。
+        val text = ClipItem(
+            id = "t",
+            text = "hello",
+            contents = listOf(
+                ClipboardContent("public.utf8-plain-text", "hello".encodeToByteArray()),
+            ),
+        )
+        assertEquals(ClipFilterType.TEXT, text.clipType, "只有纯文本表示时，类型应为「文本」")
+
+        val withHtml = text.copy(
+            contents = text.contents + ClipboardContent("public.html", "<p>hello</p>".encodeToByteArray()),
+        )
+        assertEquals(ClipFilterType.RICH_TEXT, withHtml.clipType, "带上 HTML 附加表示才是富文本")
+
+        val withFile = withHtml.copy(files = listOf("/tmp/a.txt"))
+        assertEquals(ClipFilterType.FILE, withFile.clipType, "文件优先于富文本")
     }
 
     @Test

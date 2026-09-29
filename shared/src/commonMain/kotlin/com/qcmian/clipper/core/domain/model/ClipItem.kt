@@ -138,12 +138,16 @@ data class ClipItem(
      *
      * 一次复制可能同时携带多种表示（例如网页同时有纯文本与 HTML），这里取最具体的一种，
      * 优先级：文件 > 图片 > 富文本 > 文本。
+     *
+     * 「富文本」不能判 `contents.isNotEmpty()`：[contents] 装的是**全部**原始表示，纯文本与
+     * 文件 URL 也在其中，那样每一条文本都会被算成富文本，筛选栏里的「文本」反而永远空着。
+     * 只有除下表里三种已建模的表示之外还有别的（HTML / RTF / PDF…）才算富文本。
      */
     val clipType: ClipFilterType
         get() = when {
             files.isNotEmpty() -> ClipFilterType.FILE
             image != null -> ClipFilterType.IMAGE
-            contents.isNotEmpty() -> ClipFilterType.RICH_TEXT
+            contents.any { it.type !in MODELED_CONTENT_TYPES } -> ClipFilterType.RICH_TEXT
             else -> ClipFilterType.TEXT
         }
 
@@ -154,6 +158,16 @@ data class ClipItem(
         const val PINNED_MARKER = "pinned"
     }
 }
+
+/**
+ * 已经有各自建模字段的表示类型：文本 → `ClipItem.text`、图片 → `ClipItem.image`、
+ * 文件 URL → `ClipItem.files`。
+ *
+ * `contents` 里凡是**不**属于这三类的，都算「附加表示」，条目因此归入富文本。用一个集合而不是
+ * 逐个判断，是为了让 `clipType` 的判据只有一处，新增一种已建模的表示时也只改这里。
+ */
+private val MODELED_CONTENT_TYPES: Set<String> =
+    TEXT_CONTENT_TYPES + IMAGE_CONTENT_TYPES + FILE_URL_CONTENT_TYPE
 
 
 /**

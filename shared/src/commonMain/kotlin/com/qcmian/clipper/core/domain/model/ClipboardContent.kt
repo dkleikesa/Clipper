@@ -75,6 +75,31 @@ val IMAGE_CONTENT_TYPES: Set<String> = setOf(
     "public.heic",
 )
 
+/** 剪贴板上的文件表示：`file://` URL；条目的 `files` 只是它解出来的路径。 */
+const val FILE_URL_CONTENT_TYPE: String = "public.file-url"
+
+/**
+ * 承载**纯文本**的表示类型全集。
+ *
+ * 放在领域层而不是平台层，是因为条目的类型判定（`ClipItem.clipType`）要用它把「纯文本」与
+ * 其他附加表示（HTML / RTF / PDF…）分开——`contents` 里装着全部原始表示，只看它非空会把
+ * 每一条文本都算成富文本。
+ *
+ * 这里只列**类型名**；字节编码并不统一（UTF-8 / UTF-16 / 传统 Mac 编码），解码规则仍归平台层
+ * （见 `MacPasteboard.UTF8_TEXT_TYPES` 与 `MacClipboardDataSource.readText`）。
+ */
+val TEXT_CONTENT_TYPES: Set<String> = setOf(
+    "public.utf8-plain-text",
+    "public.utf8-tab-separated-values-text",
+    "public.utf16-plain-text",
+    // 实测 Finder 复制文件时用它放文件名列表（实测字节是 `a.txt\nb.txt\n…` 的 UTF-16LE）。
+    "public.utf16-external-plain-text",
+    "public.utf8-external-plain-text",
+    "public.text",
+    "public.plain-text",
+    "NSStringPboardType",
+)
+
 /**
  * 从一批原始表示里挑出图片的原始字节；没有图片时为 `null`。
  *
