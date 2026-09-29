@@ -234,8 +234,8 @@ private fun ImageUnavailablePlaceholder(height: Dp) {
 /**
  * 条目类型对应的图标。
  *
- * 四者形状刻意分得开：纯文本是「三条线」（没有纸），文件与富文本共用「一张纸」的轮廓、靠纸内
- * 有没有横线区分，图片是相框。这样扫视时先认出大类，再看纸内内容分小类。
+ * 四者形状刻意分得开：纯文本是一个衬线 "T"，富文本是「T 带几行文字」，文件是折角文稿，图片是
+ * 相框。文本与富文本只差**有没有行**——扫视时先认出「这是文字」，再看有没有排版痕迹。
  */
 private fun typeIconKind(kind: ClipFilterType): ClipperIconKind = when (kind) {
     ClipFilterType.TEXT -> ClipperIconKind.TYPE_TEXT

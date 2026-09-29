@@ -69,13 +69,13 @@ enum class ClipperIconKind {
     TAG,
 
     // ---------------------------------------------------------------- 条目类型
-    /** 纯文本：三条递减的横线。 */
+    /** 纯文本：一个带衬线的 "T"。 */
     TYPE_TEXT,
     /** 图片：相框里一座山与一轮太阳。 */
     TYPE_IMAGE,
     /** 文件：带折角的空白文稿。 */
     TYPE_FILE,
-    /** 富文本：带折角的文稿，纸内有两条短横线。 */
+    /** 富文本："T" 右侧跟着三行短横线，下面两行通栏长线。 */
     TYPE_RICH_TEXT,
 }
 
@@ -367,11 +367,14 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
 
         // ---------------------------------------------------------------- 条目类型
         ClipperIconKind.TYPE_TEXT -> {
-            // 三条**长度递减**的横线：等长会读成一个「菜单」，递减才像一段文字。
-            listOf(0.86f, 0.70f, 0.46f).forEachIndexed { index, end ->
-                val y = s * (0.28f + 0.22f * index)
-                drawLine(color, Offset(s * 0.14f, y), Offset(s * end, y), strokeWidth, StrokeCap.Round)
-            }
+            // 一个**带衬线**的 "T"。衬线只保留三处：顶横杠两端向下的小竖、竖笔底部的短横——
+            // 更细的收笔在 13dp 下根本看不见，反而糊成一团。
+            val topY = s * 0.24f
+            drawLine(color, Offset(s * 0.18f, topY), Offset(s * 0.82f, topY), strokeWidth * 1.15f, StrokeCap.Round)
+            drawLine(color, Offset(s * 0.18f, topY), Offset(s * 0.18f, topY + s * 0.10f), strokeWidth * 0.8f, StrokeCap.Round)
+            drawLine(color, Offset(s * 0.82f, topY), Offset(s * 0.82f, topY + s * 0.10f), strokeWidth * 0.8f, StrokeCap.Round)
+            drawLine(color, Offset(s * 0.50f, topY), Offset(s * 0.50f, s * 0.80f), strokeWidth * 1.25f, StrokeCap.Round)
+            drawLine(color, Offset(s * 0.34f, s * 0.80f), Offset(s * 0.66f, s * 0.80f), strokeWidth * 0.9f, StrokeCap.Round)
         }
 
         ClipperIconKind.TYPE_IMAGE -> {
@@ -397,24 +400,37 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
             drawCircle(color, radius = s * 0.075f, center = Offset(s * 0.34f, s * 0.35f), style = Fill)
         }
 
-        ClipperIconKind.TYPE_FILE -> drawDocument(color, s, stroke, lines = 0)
-        ClipperIconKind.TYPE_RICH_TEXT -> drawDocument(color, s, stroke, lines = 3)
+        ClipperIconKind.TYPE_FILE -> drawDocument(color, s, stroke)
+
+        ClipperIconKind.TYPE_RICH_TEXT -> {
+            // 「一个 T 带几行文字」：左上角一个小 "T"，右侧三行短横线，下面两行通栏长线。
+            // 与 [ClipperIconKind.TYPE_TEXT] 的差别就是这些**行**——一眼看出是带格式的文本。
+            val thin = strokeWidth * 0.85f
+            drawLine(color, Offset(s * 0.12f, s * 0.22f), Offset(s * 0.42f, s * 0.22f), strokeWidth, StrokeCap.Round)
+            drawLine(color, Offset(s * 0.27f, s * 0.22f), Offset(s * 0.27f, s * 0.54f), strokeWidth, StrokeCap.Round)
+            listOf(0.22f to 0.88f, 0.38f to 0.88f, 0.54f to 0.74f).forEach { (y, end) ->
+                drawLine(color, Offset(s * 0.54f, s * y), Offset(s * end, s * y), thin, StrokeCap.Round)
+            }
+            listOf(0.70f, 0.86f).forEach { y ->
+                drawLine(color, Offset(s * 0.12f, s * y), Offset(s * 0.88f, s * y), thin, StrokeCap.Round)
+            }
+        }
     }
 }
 
 /**
- * 「一张纸」的图形：右上角折角，纸内按 [lines] 画短横线。
+ * 「一张纸」的图形：右上角折角，纸内是空的。
  *
- * 类型图标里有两枚长得很近（文件 / 富文本），靠**纸内有没有横线**区分：空白纸是「一个文件」，
- * 有内容的是「一份带格式的文本」。两者轮廓一致，扫视时先认出「这是个文档」，再分哪一种。
+ * 文件条目用它，只表达「这是一个文档」。富文本另用「一个 T 带几行文字」的图形
+ * （见 [ClipperIconKind.TYPE_RICH_TEXT]）——两者**不再共用轮廓**：设计稿给的就是两种样子，
+ * 而「纸内有没有横线」在 13dp 下本来也分不出来。
  */
-private fun DrawScope.drawDocument(color: Color, s: Float, stroke: Stroke, lines: Int) {
+private fun DrawScope.drawDocument(color: Color, s: Float, stroke: Stroke) {
     val left = s * 0.20f
     val top = s * 0.12f
     val right = s * 0.80f
     val bottom = s * 0.88f
     val fold = s * 0.20f
-    val inner = Stroke(width = stroke.width * 0.8f, cap = StrokeCap.Round, join = StrokeJoin.Round)
 
     drawPath(
         path = Path().apply {
@@ -436,21 +452,8 @@ private fun DrawScope.drawDocument(color: Color, s: Float, stroke: Stroke, lines
             lineTo(right, top + fold)
         },
         color = color,
-        style = inner,
+        style = Stroke(width = stroke.width * 0.8f, cap = StrokeCap.Round, join = StrokeJoin.Round),
     )
-
-    repeat(lines) { index ->
-        val y = top + fold + s * 0.06f + s * 0.13f * index
-        // 最后一行短一些，读起来才像段落而不是三条等长的杠。
-        val length = if (index == lines - 1) s * 0.22f else s * 0.34f
-        drawLine(
-            color = color,
-            start = Offset(left + s * 0.11f, y),
-            end = Offset(left + s * 0.11f + length, y),
-            strokeWidth = inner.width,
-            cap = StrokeCap.Round,
-        )
-    }
 }
 
 /**
