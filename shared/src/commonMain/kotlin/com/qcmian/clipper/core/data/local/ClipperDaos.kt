@@ -206,8 +206,13 @@ abstract class ClipHistoryDao {
      * 与 `lastCopiedAt` 同理：一次批量置顶要给每条发一个严格递增的时间戳（见
      * `DefaultClipboardRepository.setPinned`），否则同一次置顶的几条分不出先后，顺序会随
      * rowid 漂。
+     *
+     * `WHERE pinned = 1` 不能省：未置顶行的 `pinnedAt` 是占位的 [NOT_PINNED_AT]（= 0），
+     * 不过滤时只要库里有任何一行，`MAX` 就至少是 0，永远轮不到 `null`——「没有任何置顶」
+     * 于是与「有置顶但时间戳都是 0」分不开。过滤后语义与返回值对上，而且正好走
+     * `index_clip_meta_pinned_pinnedAt` 的末梢，是一次索引查找。
      */
-    @Query("SELECT MAX(pinnedAt) FROM clip_meta")
+    @Query("SELECT MAX(pinnedAt) FROM clip_meta WHERE pinned = 1")
     abstract suspend fun maxPinnedAt(): Long?
 
     /**
