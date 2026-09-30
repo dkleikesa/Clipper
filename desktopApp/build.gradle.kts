@@ -29,6 +29,12 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodelCompose)
     implementation(libs.androidx.lifecycle.runtimeCompose)
     implementation(libs.compose.material3)
+
+    // 窗口几何的纯函数（`WindowSizing` / `WindowPlacement`）与 `WindowGeometryController` 的
+    // 状态机直接单测；后者要驱动虚拟时钟与 `delay`（拖拽静默期 / 预览揭示动画）。
+    // compose 与 :shared 由 `testImplementation` 继承 `implementation` 自动可见。
+    testImplementation(kotlin("test"))
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 compose.desktop {

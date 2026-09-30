@@ -21,13 +21,21 @@ import java.awt.Toolkit
 internal fun resolvePosition(
     position: PopupPosition,
     size: DpSize,
-    screenIndex: Int,
+    bounds: Rectangle,
     statusItem: MenuBarAnchor?,
 ): WindowPosition = when (position) {
-    PopupPosition.SCREEN_CENTER -> screenCenterPosition(size, screenIndex)
-    PopupPosition.MENU_BAR -> menuBarPosition(size, screenIndex, statusItem)
-    PopupPosition.CURSOR -> cursorAnchor(screenIndex)
+    PopupPosition.SCREEN_CENTER -> screenCenterPosition(size, bounds)
+    PopupPosition.MENU_BAR -> menuBarPosition(size, bounds, statusItem)
+    PopupPosition.CURSOR -> cursorAnchor(bounds)
 }
+
+/** 自己按 [screenIndex] 取屏幕的版本；索引语义见 [screenBounds]。 */
+internal fun resolvePosition(
+    position: PopupPosition,
+    size: DpSize,
+    screenIndex: Int,
+    statusItem: MenuBarAnchor?,
+): WindowPosition = resolvePosition(position, size, screenBounds(screenIndex), statusItem)
 
 /**
  * 面板挂在菜单栏图标正下方，左边缘对齐图标左边缘。
@@ -35,8 +43,7 @@ internal fun resolvePosition(
  * [statusItem] 是图标的真实水平范围，因此图标被拖到菜单栏别处时也跟得住；
  * 取不到时（非 AppKit 宿主）退回屏幕右边缘。
  */
-internal fun menuBarPosition(size: DpSize, screenIndex: Int, statusItem: MenuBarAnchor?): WindowPosition {
-    val bounds = screenBounds(screenIndex)
+internal fun menuBarPosition(size: DpSize, bounds: Rectangle, statusItem: MenuBarAnchor?): WindowPosition {
     // 左边缘对齐图标左边缘——图标被拖到菜单栏别处时弹窗跟着走。
     val x = statusItem?.left ?: (bounds.x + bounds.width - size.width.value.toInt())
     return constrained(
@@ -47,6 +54,9 @@ internal fun menuBarPosition(size: DpSize, screenIndex: Int, statusItem: MenuBar
         bounds = bounds,
     )
 }
+
+internal fun menuBarPosition(size: DpSize, screenIndex: Int, statusItem: MenuBarAnchor?): WindowPosition =
+    menuBarPosition(size, screenBounds(screenIndex), statusItem)
 
 /**
  * 索引 0 是鼠标所在的屏幕（活动屏幕），其它索引指向 `NSScreen.screens[index - 1]`。
@@ -93,15 +103,20 @@ internal fun GraphicsDevice.visibleBounds(): Rectangle {
  * 一旦按「当前窗口高度」去夹锚点，锚点就会被推高，而高度又是按「锚点下方还剩多少」算的——
  * 高度等于自己的旧高度，于是鼠标往下移时窗口只是被推回原位，**高度再也降不回来**。
  */
-internal fun cursorAnchor(screenIndex: Int): WindowPosition {
+internal fun cursorAnchor(bounds: Rectangle): WindowPosition {
     val mouse = runCatching { MouseInfo.getPointerInfo()?.location }.getOrNull()
-        ?: return screenCenterPosition(DpSize.Zero, screenIndex)
+        ?: return screenCenterPosition(DpSize.Zero, bounds)
     // AWT 在 macOS 上报告的是逻辑点，与 Compose 的 dp 一一对应。
-    return constrained(mouse.x, mouse.y, DpSize.Zero, screenBounds(screenIndex))
+    return constrained(mouse.x, mouse.y, DpSize.Zero, bounds)
 }
 
+internal fun cursorAnchor(screenIndex: Int): WindowPosition = cursorAnchor(screenBounds(screenIndex))
+
+internal fun screenCenterPosition(size: DpSize, bounds: Rectangle): WindowPosition =
+    screenCenterLocation(size, bounds).let { WindowPosition.Absolute(it.x.dp, it.y.dp) }
+
 internal fun screenCenterPosition(size: DpSize, screenIndex: Int): WindowPosition =
-    screenCenterLocation(size, screenIndex).let { WindowPosition.Absolute(it.x.dp, it.y.dp) }
+    screenCenterPosition(size, screenBounds(screenIndex))
 
 /**
  * [size] 这么大的窗口在 [screenIndex] 那块屏幕上居中的左上角坐标（整点）。
@@ -112,8 +127,7 @@ internal fun screenCenterPosition(size: DpSize, screenIndex: Int): WindowPositio
  * 那些窗口的尺寸由自己固定，定位直接 `window.setLocation(...)` 一步到位最省事——改 Compose 的
  * `WindowState.position` 要到下一帧才落到窗口上，多屏下能看到窗口先出现在主屏、再跳过来。
  */
-internal fun screenCenterLocation(size: DpSize, screenIndex: Int): IntOffset {
-    val bounds = screenBounds(screenIndex)
+internal fun screenCenterLocation(size: DpSize, bounds: Rectangle): IntOffset {
     return clampedLocation(
         x = bounds.x + (bounds.width - size.width.value).toInt() / 2,
         y = bounds.y + (bounds.height - size.height.value).toInt() / 2,
@@ -121,6 +135,9 @@ internal fun screenCenterLocation(size: DpSize, screenIndex: Int): IntOffset {
         bounds = bounds,
     )
 }
+
+internal fun screenCenterLocation(size: DpSize, screenIndex: Int): IntOffset =
+    screenCenterLocation(size, screenBounds(screenIndex))
 
 /**
  * [bounds]（某个窗口当前的屏幕矩形）是否落在 [screenIndex] 那块屏幕的可见区域内。

@@ -7,13 +7,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
 import com.qcmian.clipper.core.domain.repository.ClipboardRepository
-import com.qcmian.clipper.core.platform.macos.MacStatusItem
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.PopupPosition
 import com.qcmian.clipper.core.ui.Popup
 import com.qcmian.clipper.desktop.domain.APPLIED_SIZE_HISTORY
+import com.qcmian.clipper.desktop.domain.AwtWindowEnvironment
 import com.qcmian.clipper.desktop.domain.RESIZE_SETTLE_MILLIS
 import com.qcmian.clipper.desktop.domain.RESIZE_TOLERANCE_DP
+import com.qcmian.clipper.desktop.domain.WindowEnvironment
 import com.qcmian.clipper.desktop.domain.autoWindowSize
 import com.qcmian.clipper.desktop.domain.constrained
 import com.qcmian.clipper.desktop.domain.contentWidthOf
@@ -21,7 +22,6 @@ import com.qcmian.clipper.desktop.domain.cursorAnchor
 import com.qcmian.clipper.desktop.domain.minimumWindowSizeOf
 import com.qcmian.clipper.desktop.domain.nearlyEquals
 import com.qcmian.clipper.desktop.domain.resolvePosition
-import com.qcmian.clipper.desktop.domain.screenBounds
 import com.qcmian.clipper.desktop.domain.slideoutWidthOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +46,8 @@ import kotlin.math.roundToInt
  *
  * @param openedByTray 本次显示是否由托盘触发；托盘呼出时锚点固定在菜单栏图标上
  *   （见 [placementPreference]）。
+ * @param environment 屏幕可见区域与菜单栏锚点。默认读 AWT / AppKit；单测注入固定值。
+ * @param now 当前时刻（毫秒）。默认读系统时钟；单测注入可变时钟以驱动拖拽静默期。
  */
 internal class WindowGeometryController(
     private val state: MutableStateFlow<DesktopShellUiState>,
@@ -60,6 +62,8 @@ internal class WindowGeometryController(
      */
     private val applyMinimumSize: (width: Int, height: Int) -> Unit,
     private val openedByTray: () -> Boolean,
+    private val environment: WindowEnvironment = AwtWindowEnvironment,
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
     /**
      * 程序自己最近应用过的窗口尺寸（新的在前）。
@@ -121,7 +125,9 @@ internal class WindowGeometryController(
     fun moveToCursor() {
         val settings = repository.settings.value
         // 锚点跟着光标走：不同步的话，下次切换预览会按旧锚点摆放，窗口跳回去。
-        setContentAnchor(cursorAnchor(settings.popupScreen) as WindowPosition.Absolute)
+        setContentAnchor(
+            cursorAnchor(environment.visibleScreenBounds(settings.popupScreen)) as WindowPosition.Absolute,
+        )
         applyGeometryNow()
     }
 
@@ -224,7 +230,7 @@ internal class WindowGeometryController(
 
         val contentWidth = contentWidthOf(settings)
         val desiredSlideout = slideoutWidthOf(settings)
-        val bounds = screenBounds(settings.popupScreen)
+        val bounds = environment.visibleScreenBounds(settings.popupScreen)
 
         val preferred = placementPreference(settings)
 
@@ -236,8 +242,8 @@ internal class WindowGeometryController(
                 resolvePosition(
                     position = preferred,
                     size = DpSize(contentWidth, windowState.size.height),
-                    screenIndex = settings.popupScreen,
-                    statusItem = MacStatusItem.currentAnchor(),
+                    bounds = bounds,
+                    statusItem = environment.statusItemAnchor(),
                 ) as WindowPosition.Absolute
                 ).also {
                     lastPlacementSignature = signature
@@ -450,7 +456,7 @@ internal class WindowGeometryController(
                 if (wasAppliedByProgram(size)) return@collectLatest
 
                 if (!state.value.userResizing) state.update { it.copy(userResizing = true) }
-                userResizeUntil = System.currentTimeMillis() + RESIZE_SETTLE_MILLIS
+                userResizeUntil = now() + RESIZE_SETTLE_MILLIS
                 delay(RESIZE_SETTLE_MILLIS)
 
                 val settings = repository.settings.value
@@ -516,5 +522,5 @@ internal class WindowGeometryController(
     }
 
     /** 用户是否正在手动调整窗口尺寸（含刚停下的一小段静默期）。 */
-    private fun userIsResizing(): Boolean = System.currentTimeMillis() < userResizeUntil
+    private fun userIsResizing(): Boolean = now() < userResizeUntil
 }
