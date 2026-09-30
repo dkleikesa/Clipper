@@ -145,7 +145,7 @@ class DefaultClipboardRepository(
         // 还没有加载任何数据：此时持久化会用内存默认值覆盖已存偏好。
         if (!loaded) return
         val settings = _settings.value
-        scope.launch { storage.saveSettings(settings) }
+        scope.launch { saveSettingsBestEffort(settings) }
     }
 
     override suspend fun flushNow() {
@@ -155,7 +155,9 @@ class DefaultClipboardRepository(
     }
 
     override suspend fun close() {
-        flushNow()
+        // 落盘失败（磁盘满、库已被关闭……）不该拦住关库：这是退出路径上的最后一步，
+        // 后续的回收与 `storage.close()` 才是必须跑完的。
+        runCatching { flushNow() }
         // 退出时不再压紧（`VACUUM`）：拆表之后载荷表只靠 `incremental_vacuum` 回收，元数据表
         // 小到不必重写；而一个几 GB 的库做一次 `VACUUM` 要几十秒到几分钟，退出路径等不起。
         // 这里只做一次便宜的空闲页回收。
@@ -479,7 +481,28 @@ class DefaultClipboardRepository(
         settingsPersistJob?.cancel()
         settingsPersistJob = scope.launch {
             delay(PERSIST_DEBOUNCE_MILLIS)
-            storage.saveSettings(_settings.value)
+            saveSettingsBestEffort(_settings.value)
+        }
+    }
+
+    /**
+     * 落盘偏好：**尽力而为**，绝不把异常抛到 [scope] 之外。
+     *
+     * 这两条写入路径（防抖的、以及 [flush] 起的那条）跑在 [scope] 上，而它只是一个
+     * `SupervisorJob + Dispatchers.IO`——没有异常处理器，异常会直接冒到 JVM 的未捕获处理器，
+     * 表现为「Exception in thread DefaultDispatcher-worker-N」这种进程级崩溃。一次落盘失败
+     * 不值得这个代价：内存里的偏好已经生效（界面看到的就是它），下一次写入会带上完整的一份，
+     * 退出前还有一次 [flushNow]。
+     *
+     * 取消必须原样抛出去，否则 [settingsPersistJob] 的取消语义就没了（防抖的前提）。
+     */
+    private suspend fun saveSettingsBestEffort(settings: AppSettings) {
+        try {
+            storage.saveSettings(settings)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            // 见上：留给下一次写入。
         }
     }
 
