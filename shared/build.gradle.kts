@@ -57,6 +57,8 @@ kotlin {
             // 剪贴板这条路（类型过滤、item 分组、`writeObjects:` 的语义）没有编译期能验证的东西，
             // 只能对着真实粘贴板跑一遍——见 `MacPasteboardTest`。
             implementation(kotlin("test"))
+            // 全文搜索（`ClipDeepSearch`）的批次 / 预算语义要驱动挂起函数——见 `ClipDeepSearchTest`。
+            implementation(libs.kotlinx.coroutines.test)
             // `rememberImage` 的状态语义（换图必须换状态）只有真跑一遍组合才验证得了——
             // 见 `RememberImageTest`。
             implementation(libs.compose.ui.test)
