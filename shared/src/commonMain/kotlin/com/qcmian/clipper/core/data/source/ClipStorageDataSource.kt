@@ -22,7 +22,6 @@ internal const val SQLCIPHER_SCHEME = "sqlcipher"
  * 启动都要让用户重新输入一次。换钥成功后由 [ClipStorageDataSource.rekey] 回写到这里。
  */
 interface SessionKey {
-    /** 当前是否加密。 */
     val encrypted: Boolean
 
     /** 记录新口令；`null` 表示已解密为明文。 */
@@ -39,10 +38,8 @@ interface EncryptionBackup {
     /** 备份当前库文件；返回是否成功（失败不拦住换钥，只是少了一层保险）。 */
     fun snapshot(): Boolean
 
-    /** 用备份覆盖当前库文件。 */
     fun restore()
 
-    /** 丢弃备份。 */
     fun discard()
 }
 
@@ -153,12 +150,10 @@ interface ClipStorageDataSource {
 
     suspend fun delete(ids: List<String>)
 
-    /** 「清除」：只删未置顶项，保留置顶。 */
     suspend fun deleteAllUnpinned()
 
     suspend fun deleteAll()
 
-    /** 清理元数据里已经不存在的载荷行，返回删除条数。 */
     suspend fun deleteOrphanPayloads(): Int
 
     // -----------------------------------------------------------------------------------
@@ -176,7 +171,6 @@ interface ClipStorageDataSource {
     /** 平台是否支持数据库加密（能拿到会话密钥）；为假时设置页不显示那一项。 */
     val supportsEncryption: Boolean get() = false
 
-    /** 数据库当前是否加密。 */
     val isEncrypted: Boolean get() = false
 
     /**

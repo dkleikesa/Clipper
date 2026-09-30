@@ -23,7 +23,6 @@ data class ClipMeta(
     val title: String,
     /** 条目在筛选栏里的归属类型，与 `ClipItem.clipType` 同源。 */
     val kind: ClipFilterType,
-    /** 文件路径列表；没有文件时为空列表。 */
     val files: List<String>,
     val application: SourceApplication?,
     val firstCopiedAt: Long,
@@ -35,7 +34,6 @@ data class ClipMeta(
     val payloadBytes: Long,
     /** 内容摘要，用于把「这条是否已存在」下推成一次等值查询（见 [contentKeyOf]）。 */
     val contentKey: String,
-    /** 标题是否来自图片文字识别（见 `ClipItem.hasRecognizedText`）。 */
     val hasRecognizedText: Boolean,
     /**
      * 条目是否带图片。

@@ -72,8 +72,7 @@ internal fun historyRowHeight(meta: ClipMeta, imageMaxHeight: Dp): Dp =
     if (meta.hasImage) imageMaxHeight + ImageRowPadding else Popup.itemHeight
 
 /**
- *。一行要么是色块加标题，要么只有图片缩略图——
- * 绝不会同时出现标题与缩略图。
+ * 一条历史记录行：标题 / 高亮文本，或图片缩略图——两者不会同时出现。
  *
  * 行高是**确定性**的，由 [historyRowHeight] 给出。窗口高度与滚动条都按同一函数推算整份内容的
  * 高度，因此两处都必须是固定高度（见 `ListItemRow` 与下方 `ContentScale.Inside`）。

@@ -12,7 +12,6 @@ import java.io.OutputStream
  * 于是格式只有一个出处，两侧不可能对不上。
  */
 
-/** 写一条消息。 */
 fun OutputStream.writeCliFrame(payload: ByteArray) {
     write(CliFraming.frameHeader(payload.size))
     write(payload)

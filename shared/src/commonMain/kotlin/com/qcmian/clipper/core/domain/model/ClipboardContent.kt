@@ -30,7 +30,6 @@ class ClipboardContent(
      */
     val itemIndex: Int = 0,
 ) {
-    /** 原始字节数。 */
     val size: Int get() = value?.size ?: 0
 
     /** 底层的原始字节。调用方不得修改返回的数组。 */

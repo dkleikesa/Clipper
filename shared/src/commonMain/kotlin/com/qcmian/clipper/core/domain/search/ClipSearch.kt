@@ -194,10 +194,8 @@ object ClipSearch {
     // 细节分（三项合计不超过 MAX_DETAIL × 3，跨不过档位间隔）
     // ---------------------------------------------------------------------------------
 
-    /** 命中越靠前越高。 */
     private fun positionScore(index: Int): Int = (MAX_DETAIL - index).coerceAtLeast(0)
 
-    /** 连续命中的字符越多越高。 */
     private fun continuityScore(runLength: Int): Int =
         (runLength * CONTINUITY_PER_CHAR).coerceAtMost(MAX_DETAIL)
 

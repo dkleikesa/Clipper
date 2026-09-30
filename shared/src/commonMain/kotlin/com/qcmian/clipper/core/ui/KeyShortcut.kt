@@ -99,7 +99,6 @@ class ModifierFlags {
             command == shortcut.command
 }
 
-/** 单个被渲染出来的快捷键。 */
 data class KeyShortcut(
     val character: String,
     val control: Boolean = false,

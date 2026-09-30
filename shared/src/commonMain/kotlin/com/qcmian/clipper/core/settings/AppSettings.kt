@@ -3,7 +3,6 @@ package com.qcmian.clipper.core.settings
 import com.qcmian.clipper.core.domain.action.ClipAction
 import kotlinx.serialization.Serializable
 
-/**。 */
 enum class SortBy(val label: String) {
     LAST_COPIED_AT("最后复制"),
     FIRST_COPIED_AT("首次复制"),
@@ -11,7 +10,6 @@ enum class SortBy(val label: String) {
     FILE_SIZE("内容大小"),
 }
 
-/** 排序方向。 */
 enum class SortOrder(val label: String) {
     DESCENDING("降序"),
     ASCENDING("升序"),
@@ -25,13 +23,11 @@ enum class ClipFilterType(val label: String) {
     RICH_TEXT("富文本"),
 }
 
-/**。 */
 enum class PinPosition(val label: String) {
     TOP("顶部"),
     BOTTOM("底部"),
 }
 
-/**。 */
 enum class HighlightMatch(val label: String) {
     BOLD("加粗"),
     ITALIC("斜体"),
@@ -39,24 +35,19 @@ enum class HighlightMatch(val label: String) {
     BACKGROUND("背景"),
 }
 
-/** 应用主题的三种模式。 */
 enum class ThemeMode(val label: String) {
     SYSTEM("跟随系统"),
     LIGHT("浅色"),
     DARK("深色"),
 }
 
-/**。 */
 enum class PopupPosition(val label: String) {
     CURSOR("光标位置"),
     MENU_BAR("托盘图标"),
     SCREEN_CENTER("屏幕中心"),
 }
 
-/**
- * 用户可录制的快捷键， +
- * `KeyboardShortcuts.Shortcut`。[character] 是渲染出来的按键（`"C"`、`"⌫"`、`" "`）。
- */
+/** 用户可录制的快捷键。[character] 是渲染出来的按键（`"C"`、`"⌫"`、`" "`）。 */
 @Serializable
 data class ShortcutSpec(
     val character: String,
@@ -81,8 +72,6 @@ data class ShortcutSpec(
 /**
  * 用户偏好设置。刻意*不*放在领域模型里：它混合了存储、行为、快捷键与外观选项，
  * 因此独立放在 `settings` 包中，而不是与纯领域实体并列。
- *
- * 中在各平台都成立的那个子集。
  */
 @Serializable
 data class AppSettings(
@@ -115,7 +104,6 @@ data class AppSettings(
     val searchThrottleMillis: Int = 200,
     /** 单位毫秒。 */
     val clipboardCheckIntervalMillis: Int = 500,
-    /** 把应用注册为开机自启项。 */
     val launchAtLogin: Boolean = false,
     /**
      * 允许外部进程经本机 socket 访问 Clipper：`clipper` 命令与 AI 助手据此搜索历史、导出图片与
@@ -201,7 +189,6 @@ data class AppSettings(
     val showTypeIcons: Boolean = true,
     val imageMaxHeight: Int = 40,
     val popupPosition: PopupPosition = PopupPosition.SCREEN_CENTER,
-    /** 显示或隐藏菜单栏 / 托盘图标。 */
     val showInStatusBar: Boolean = true,
     /** 0 表示当前活动屏幕，1 及以上指向特定屏幕。 */
     val popupScreen: Int = 0,
@@ -224,7 +211,6 @@ data class AppSettings(
     val recognizeText: Boolean = true,
 ) {
     companion object {
-        /** [historyMaxCount] 的默认值。 */
         const val DEFAULT_HISTORY_MAX_COUNT = 10_000
 
         /**

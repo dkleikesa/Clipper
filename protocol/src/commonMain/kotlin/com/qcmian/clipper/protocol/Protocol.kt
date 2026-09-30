@@ -95,13 +95,11 @@ object CliErrorCode {
     /** 命令名不认识。旧 CLI 打到新 app 上时最可能遇到的就是这个。 */
     const val UNKNOWN_COMMAND: String = "UNKNOWN_COMMAND"
 
-    /** 目标条目不存在。 */
     const val NOT_FOUND: String = "NOT_FOUND"
 
     /** 命令认识，但当前状态做不到（例如平台不支持写剪贴板）。 */
     const val UNSUPPORTED: String = "UNSUPPORTED"
 
-    /** 服务端内部异常。 */
     const val INTERNAL: String = "INTERNAL"
 
     // ---------------------------------------------------------------------------------
@@ -112,7 +110,6 @@ object CliErrorCode {
     /** 连不上 app：没在运行，或 socket 权限不对。 */
     const val DAEMON_UNAVAILABLE: String = "DAEMON_UNAVAILABLE"
 
-    /** 请求超时。 */
     const val TIMEOUT: String = "TIMEOUT"
 
     /** 连接在收到完整响应前断了。 */
@@ -129,19 +126,16 @@ object CliExitCode {
     /** 成功。空结果也算成功。 */
     const val OK: Int = 0
 
-    /** 通用失败。 */
     const val ERROR: Int = 1
 
     /** 用法错误：参数缺失或非法。 */
     const val USAGE: Int = 2
 
-    /** 目标不存在。 */
     const val NOT_FOUND: Int = 3
 
     /** 连不上 app（没在跑，或 socket 权限不对）。 */
     const val NO_DAEMON: Int = 4
 
-    /** 请求超时。 */
     const val TIMEOUT: Int = 5
 
     /** 把错误码映射成退出码；两侧共用，避免映射表各写一份。 */

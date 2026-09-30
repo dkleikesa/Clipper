@@ -21,7 +21,6 @@ import com.qcmian.clipper.core.util.fnv1a64
 class ClipImage(bytes: ByteArray) {
     private val bytes: ByteArray = bytes
 
-    /** 原始字节数。 */
     val size: Int get() = bytes.size
 
     /** 底层的原始字节。调用方不得修改返回的数组。 */

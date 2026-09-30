@@ -15,7 +15,6 @@ data class AppSettingsEntity(
     val payload: String,
 ) {
     companion object {
-        /** 偏好设置固定存在单行中。 */
         const val SINGLE_ROW_ID = 0
     }
 }

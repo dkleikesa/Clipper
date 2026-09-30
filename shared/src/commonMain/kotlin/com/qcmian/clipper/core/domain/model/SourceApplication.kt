@@ -3,9 +3,9 @@ package com.qcmian.clipper.core.domain.model
 import kotlinx.serialization.Serializable
 
 /**
- * 剪贴板条目来源的应用， + `NSWorkspace.frontmostApplication`。
+ * 剪贴板条目来源的应用（见 `NSWorkspace.frontmostApplication`）。
  *
- * 图标不做持久化：它按需从应用包中查找并缓存，方式与 相同。
+ * 图标不做持久化：它按需从应用包中查找并缓存。
  */
 @Serializable
 data class SourceApplication(

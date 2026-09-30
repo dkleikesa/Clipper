@@ -38,7 +38,6 @@ interface ClipboardRepository {
     /** 未置顶条目总数。界面用它判断还有没有下一批。 */
     val totalUnpinned: StateFlow<Int>
 
-    /** 用户偏好。 */
     val settings: StateFlow<AppSettings>
 
     /** 持久化的偏好已加载完成；此前的 [settings] 是内存默认值。 */
@@ -50,10 +49,8 @@ interface ClipboardRepository {
     /** 平台上报的每一次新复制，供领域层解读。 */
     val snapshots: Flow<ClipboardSnapshot>
 
-    /** 开始监听系统剪贴板。 */
     fun start()
 
-    /** 停止监听系统剪贴板。 */
     fun stop()
 
     /** 把待写的偏好落盘，而不等待防抖。历史条目本身就是即时落盘的。 */
@@ -74,7 +71,6 @@ interface ClipboardRepository {
     /** 替换偏好设置，并把平台侧设置同步下去。 */
     fun setSettings(settings: AppSettings)
 
-    /** 显示（或清除）临时状态消息。 */
     fun setStatusMessage(message: String?)
 
     // -----------------------------------------------------------------------------------

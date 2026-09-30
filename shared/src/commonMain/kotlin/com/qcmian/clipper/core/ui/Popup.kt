@@ -3,7 +3,6 @@ package com.qcmian.clipper.core.ui
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/** 弹窗的布局常量。 */
 object Popup {
     val verticalPadding = 8.dp
     val horizontalPadding = 8.dp

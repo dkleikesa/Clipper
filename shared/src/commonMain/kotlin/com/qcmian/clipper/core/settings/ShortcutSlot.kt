@@ -24,9 +24,7 @@ enum class ShortcutGroup(val title: String) {
  * 速查表；现在它们同样进这张表，因此设置页只有一种行、一种交互。
  */
 enum class ShortcutSlot(
-    /** 设置页里显示的名字。 */
     val title: String,
-    /** 设置页里的分组。 */
     val group: ShortcutGroup,
     /** 是否注册为系统级热键：面板没有焦点时也要生效。 */
     val global: Boolean,
@@ -36,7 +34,6 @@ enum class ShortcutSlot(
     val hint: String? = null,
 ) {
     // ---------------------------------------------------------------- 呼出与窗口
-    /** 默认 `⇧⌘C`。 */
     POPUP("呼出面板", ShortcutGroup.WINDOW, global = true, default = ShortcutSpec("C", command = true, shift = true)),
     /**
      * 默认 `⇧⌘D`：打开 / 关闭开发者工具窗口。
@@ -50,47 +47,37 @@ enum class ShortcutSlot(
         "打开 / 关闭开发者工具", ShortcutGroup.WINDOW, global = true,
         default = ShortcutSpec("D", command = true, shift = true), hint = "带当前选中项打开",
     ),
-    /** 默认 `⎋`。 */
     CLOSE("清空搜索 / 关闭面板", ShortcutGroup.WINDOW, global = false, default = ShortcutSpec("\u238b")),
-    /** 默认 `⌘,`。 */
     OPEN_SETTINGS("打开设置", ShortcutGroup.WINDOW, global = false, default = ShortcutSpec(",", command = true)),
 
     // ---------------------------------------------------------------- 列表导航
-    /** 默认 `↑`；按住 `⇧` 变成连续选中。 */
     MOVE_PREVIOUS(
         "选中上一条", ShortcutGroup.NAVIGATION, global = false,
         default = ShortcutSpec("\u2191"), hint = "按住 ⇧ 连续选中",
     ),
-    /** 默认 `↓`；按住 `⇧` 变成连续选中。 */
     MOVE_NEXT(
         "选中下一条", ShortcutGroup.NAVIGATION, global = false,
         default = ShortcutSpec("\u2193"), hint = "按住 ⇧ 连续选中",
     ),
-    /** 默认 `⌘↑`。 */
     MOVE_TO_FIRST("跳到第一条", ShortcutGroup.NAVIGATION, global = false, default = ShortcutSpec("\u2191", command = true)),
-    /** 默认 `⌘↓`。 */
     MOVE_TO_LAST("跳到最后一条", ShortcutGroup.NAVIGATION, global = false, default = ShortcutSpec("\u2193", command = true)),
 
     // ---------------------------------------------------------------- 激活与选择
     // 激活选中项的四种按法各是一条独立绑定，对应 `ClipAction` 的四个取值。它们过去是
     // 「一条 `⏎` + 按修饰键推导演绎」：用户得先记住 `⌘` / `⌥` / `⌥⇧` 各做什么，而那些含义
     // 还会随行为页的开关变化。拆成四条之后，每行下面的小字就是它的全部规则。
-    /** 默认 `⌥⏎`。 */
     ACTIVATE(
         "激活选中项", ShortcutGroup.ACTIVATION, global = false,
         default = ShortcutSpec("\u23ce", option = true), hint = "复制到剪贴板",
     ),
-    /** 默认 `⌥⌘⏎`；只往剪贴板写纯文本。 */
     ACTIVATE_WITHOUT_FORMATTING(
         "去格式激活", ShortcutGroup.ACTIVATION, global = false,
         default = ShortcutSpec("\u23ce", option = true, command = true), hint = "只复制纯文本",
     ),
-    /** 默认 `⏎`。 */
     PASTE(
         "直接粘贴", ShortcutGroup.ACTIVATION, global = false,
         default = ShortcutSpec("\u23ce"), hint = "复制并粘贴到上一个应用",
     ),
-    /** 默认 `⌘⏎`。 */
     PASTE_WITHOUT_FORMATTING(
         "去格式粘贴", ShortcutGroup.ACTIVATION, global = false,
         default = ShortcutSpec("\u23ce", command = true), hint = "粘贴到上一个应用，只留纯文本",
@@ -112,11 +99,8 @@ enum class ShortcutSlot(
     ),
 
     // ---------------------------------------------------------------- 条目与记录
-    /** 默认 `⌥P`。 */
     PIN("置顶 / 取消置顶", ShortcutGroup.ITEM, global = false, default = ShortcutSpec("P", option = true)),
-    /** 默认 `⌥⌫`。 */
     DELETE("删除选中项", ShortcutGroup.ITEM, global = false, default = ShortcutSpec("\u232b", option = true)),
-    /** 默认 `⌃Space`。 */
     TOGGLE_PREVIEW("显示 / 隐藏预览", ShortcutGroup.ITEM, global = false, default = ShortcutSpec(" ", control = true)),
     /**
      * 暂停 / 恢复记录，默认 `⌘P`。
@@ -188,5 +172,4 @@ fun ShortcutSlot.occupiedSpecs(spec: ShortcutSpec): List<ShortcutSpec> = when (t
     else -> listOf(spec)
 }
 
-/** 该绑定是否带了至少一个修饰键。 */
 val ShortcutSpec.hasModifiers: Boolean get() = control || option || shift || command

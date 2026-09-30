@@ -36,7 +36,6 @@ data class CliRequest(
     /** 批量操作的 id（`delete`）。 */
     val ids: List<String>? = null,
 
-    /** 搜索词（`search`）。 */
     val query: String? = null,
 
     /**
@@ -56,7 +55,6 @@ data class CliRequest(
     val order: String? = null,
     /** 只看置顶或只看未置顶（`list`）；`null` 表示两者都要。 */
     val pinned: Boolean? = null,
-    /** 返回条数上限（`list` / `search`）。 */
     val limit: Int? = null,
 
     /**
@@ -135,11 +133,9 @@ object CliCodec {
     fun decodeResponse(bytes: ByteArray): CliResponse =
         json.decodeFromString(CliResponse.serializer(), bytes.decodeToString())
 
-    /** 构造成功响应。 */
     inline fun <reified T> success(data: T): CliResponse =
         CliResponse(ok = true, data = json.encodeToJsonElement(data))
 
-    /** 构造失败响应。 */
     fun failure(code: String, message: String, hint: String? = null): CliResponse =
         CliResponse(ok = false, error = CliError(code = code, message = message, hint = hint))
 
@@ -177,7 +173,6 @@ object CliFraming {
     /** 帧头长度：一个大端 `Int`。 */
     const val HEADER_BYTES: Int = 4
 
-    /** 把载荷长度编成帧头。 */
     fun frameHeader(size: Int): ByteArray {
         require(size in 0..MAX_FRAME_BYTES) { "frame too large: $size" }
         return byteArrayOf(

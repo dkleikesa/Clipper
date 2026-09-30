@@ -51,7 +51,6 @@ data class CliView(
     /** 复制来源的应用名；平台不支持或没有来源时省略。 */
     val sourceApp: String? = null,
 
-    /** 文件类型条目携带的路径。其余类型为空。 */
     val files: List<CliFileView> = emptyList(),
 
     /**
@@ -125,12 +124,10 @@ data class CliAttachmentView(
     val bytes: Int,
 )
 
-/** 图片文字识别结果。 */
 @Serializable
 data class CliOcrView(
     val text: String,
     val chars: Int,
-    /** [text] 是否被截断。 */
     val truncated: Boolean,
 )
 
@@ -181,7 +178,6 @@ data class CliStatsView(
     val pinned: Int,
     /** 数据库文件占用的字节数；平台测不到时省略。 */
     val storageBytes: Long? = null,
-    /** 是否正在暂停记录新的复制。 */
     val paused: Boolean = false,
 )
 
@@ -196,6 +192,5 @@ data class CliAffectedView(
 data class CliPingView(
     val appVersion: String,
     val protocolVersion: Int,
-    /** 服务端已运行的毫秒数。 */
     val uptimeMillis: Long,
 )

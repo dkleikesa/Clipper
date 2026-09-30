@@ -42,7 +42,6 @@ internal object MacNative {
     /** [clazz] 的查找结果。 */
     private val classes = ConcurrentHashMap<String, Pointer>()
 
-    /** [selector] 的查找结果。 */
     private val selectors = ConcurrentHashMap<String, Pointer>()
 
     fun clazz(name: String): Pointer? =

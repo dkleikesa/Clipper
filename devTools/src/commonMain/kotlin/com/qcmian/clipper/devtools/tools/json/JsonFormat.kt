@@ -45,7 +45,6 @@ internal object JsonFormat {
         pretty.encodeToString(JsonElement.serializer(), parser.parseToJsonElement(text))
     }
 
-    /** 压缩成一行。 */
     fun minify(text: String): Result<String> = runCatching {
         compact.encodeToString(JsonElement.serializer(), parser.parseToJsonElement(text))
     }

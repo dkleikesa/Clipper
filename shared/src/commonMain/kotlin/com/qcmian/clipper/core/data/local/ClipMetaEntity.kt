@@ -34,7 +34,6 @@ import androidx.room3.PrimaryKey
 data class ClipMetaEntity(
     @PrimaryKey val id: String,
     val title: String,
-    /** [com.qcmian.clipper.core.settings.ClipFilterType] 的序号。 */
     val kind: Int,
     /**
      * 文件路径，用 NUL（`\u0000`）分隔；没有文件时为空串。
@@ -68,7 +67,6 @@ data class ClipMetaEntity(
     val payloadBytes: Long,
     /** 内容摘要，见 `contentKeyOf`。 */
     val contentKey: String,
-    /** 标题是否来自图片文字识别。 */
     val hasRecognizedText: Boolean,
     /**
      * 条目是否带图片。

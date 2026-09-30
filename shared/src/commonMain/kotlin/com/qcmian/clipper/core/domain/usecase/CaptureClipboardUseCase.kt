@@ -17,8 +17,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
- * 「记录一次新复制」的业务规则。 处理器：
- * 它决定一份快照能否进入历史、合并重复项，并请求对图片做文字识别。
+ * 「记录一次新复制」的业务规则：决定一份快照能否进入历史、合并重复项，并请求对图片做文字识别。
  *
  * 与单表时代的关键差别：**去重不再扫描整份历史**。一次复制的内容由
  * [contentKeyOf] 归纳成一个摘要，重复复制被下推成一次 `WHERE contentKey = ?` 等值查询；

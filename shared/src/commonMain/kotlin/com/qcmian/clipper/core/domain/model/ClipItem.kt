@@ -53,7 +53,7 @@ data class ClipItem(
      */
     val recognizedText: String? = null,
     /**
-* 内容复制来源的应用。平台提供前台应用信息时填写；没有等价能力的
+     * 内容复制来源的应用。平台提供前台应用信息时填写；没有等价能力的
      * 平台保持 `null`，预览会隐藏「应用:」这一行。
      */
     val application: SourceApplication? = null,

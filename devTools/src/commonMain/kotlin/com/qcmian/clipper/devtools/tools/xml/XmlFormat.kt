@@ -25,7 +25,6 @@ import nl.adaptivity.xmlutil.xmlStreaming
 /** 「推荐」格式：4 空格缩进。`XML.v1()` 是 `XML.v1.recommended()` 的非废弃写法，两者等价。 */
 private val Pretty: XML = XML.v1()
 
-/** 紧凑格式：无缩进。 */
 private val Compact: XML = XML.v1.compact()
 
 /** 文档开头的 XML 声明，捕获 `<?xml … ?>` 本体（前导 BOM / 空白归到捕获组之外）。 */
@@ -48,10 +47,8 @@ internal fun isWellFormedXml(text: String): Boolean {
     }
 }
 
-/** 美化：按「推荐」格式的缩进重排。 */
 internal fun formatXml(text: String): Result<String> = transform(text, Pretty.config.indentString)
 
-/** 压缩：丢掉元素之间的空白，压成一行。 */
 internal fun minifyXml(text: String): Result<String> = transform(text, Compact.config.indentString)
 
 /**

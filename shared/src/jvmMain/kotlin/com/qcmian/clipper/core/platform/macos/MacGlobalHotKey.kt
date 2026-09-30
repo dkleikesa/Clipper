@@ -43,7 +43,6 @@ object MacGlobalHotKey {
     /** 取不到热键标识时的返回值：不对应任何注册。 */
     private const val UNKNOWN_HOT_KEY_ID = -1
 
-    /** 一次注册的全部内容。 */
     private class Registration(
         val hotKeyRef: Pointer,
         val onTrigger: () -> Unit,

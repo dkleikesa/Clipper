@@ -66,7 +66,7 @@ data class ClipboardUiState(
     val settings: AppSettings = AppSettings(),
     /** 用户输入的内容，每敲一个键就更新。 */
     val query: String = "",
-    /** 实际应用到历史上的查询词，按 节流。 */
+    /** 实际应用到历史上的查询词，按 `searchThrottleMillis` 节流。 */
     val appliedQuery: String = "",
     /**
      * 全文搜索的状态，以及它**此刻在列表里**补了多少条。
