@@ -1,6 +1,7 @@
 package com.qcmian.clipper.di
 
 import com.qcmian.clipper.core.data.repository.DefaultClipboardRepository
+import com.qcmian.clipper.core.data.source.ClipboardDataSource
 import com.qcmian.clipper.core.data.source.NativeDataSource
 import com.qcmian.clipper.core.data.source.createClipStorageDataSource
 import com.qcmian.clipper.core.data.source.createClipboardDataSource
@@ -28,21 +29,34 @@ import kotlinx.coroutines.SupervisorJob
 class AppContainer(
     /** 用于仓库防抖写入的作用域；固定在 [Dispatchers.IO] 上以便做文件 IO。 */
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    /**
+     * 通往系统剪贴板的桥接。默认真实实现；测试注入一个**只记账**的实现，避免真去读写
+     * 开发机上的粘贴板（那会把当前剪贴板覆盖掉，也会把测试变成「要有人登录图形会话」）。
+     */
+    clipboardDataSource: ClipboardDataSource = createClipboardDataSource(),
+    /**
+     * 可选的原生能力。默认取真实实现；测试注入空实现，避免跑到 `SMAppService` 一类的
+     * 系统副作用（`setLaunchAtLogin` 会真的注册 / 注销登录项）。
+     */
+    nativeDataSource: NativeDataSource = createNativeDataSource(),
 ) {
     /**
      * 可选的原生能力。对外暴露是为了让宿主（例如桌面端托盘）复用同一个实例，
      * 而不必再构建第二个。
      */
-    val native: NativeDataSource = createNativeDataSource()
+    val native: NativeDataSource = nativeDataSource
 
     /**
      * 同一个实现，以两个窄接口对外暴露：历史仓库与宿主平台。
      * 每个使用方只依赖自己用到的那一半。
+     *
+     * 存储不受上面两个注入点影响：它始终是真实实现，路径由 `user.home` 决定，因此测试
+     * 只要把 `user.home` 指到临时目录，拿到的就是一份真的 Room + SQLCipher 存储。
      */
     private val defaultRepository = DefaultClipboardRepository(
-        clipboard = createClipboardDataSource(),
+        clipboard = clipboardDataSource,
         storage = createClipStorageDataSource(),
-        native = native,
+        native = nativeDataSource,
         scope = scope,
     )
 

@@ -5,6 +5,20 @@ plugins {
 }
 
 kotlin {
+    // 与其它模块固定到同一 JDK，保证产物可复现；本机缺失时由 settings.gradle.kts 里的
+    // foojay-resolver 自动下载。
+    jvmToolchain(21)
+
+    /**
+     * JVM 目标**只为测试存在**，不参与分发：`clipper` 命令本身仍是下面的原生二进制。
+     *
+     * 为什么必须有它：F1 的 B 层端到端要在 JVM 上同时拿到两侧——一侧是 `:shared` 的
+     * `CliServer`（Room / JNA / Compose，只能跑在 JVM 上），另一侧是本模块的 `ArgParser` /
+     * `CliRunner`（纯 Kotlin）。没有这个目标，两侧就只有原生/JVM 各一半，无法在同一个进程里
+     * 拼成一条完整的请求链路。见 `cli/src/jvmTest` 的 `CliEndToEndTest`。
+     */
+    jvm()
+
     macosArm64 {
         binaries {
             executable {
@@ -36,6 +50,15 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(project(":protocol"))
+        }
+
+        jvmTest.dependencies {
+            implementation(kotlin("test"))
+            // 服务端（`CliServer` / 真 Room + SQLCipher 存储）与 fake 数据源都在这里。
+            // 这是**测试专用**的依赖：分发包里只有上面那份原生可执行文件，CLI 的运行时
+            // classpath 不会因此带上 Compose / Room / JNA。
+            implementation(project(":shared"))
+            implementation(libs.kotlinx.coroutines.core)
         }
     }
 }
