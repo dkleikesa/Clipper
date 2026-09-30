@@ -220,6 +220,14 @@ interface ClipboardPlatform {
      */
     suspend fun rekeyDatabase(passphrase: String?): Result<Unit>
 
+    /**
+     * 校验 [passphrase] 是否为当前数据库的口令。
+     *
+     * 关闭加密前用它核对身份：解密本身用不着口令（连接上本来就带着当前口令），但少了这一步，
+     * 谁摸到这台已经解锁的机器都能悄悄把保护去掉。平台不支持加密时返回 `false`。
+     */
+    suspend fun verifyDatabasePassphrase(passphrase: String): Boolean
+
     /** 把 [snapshot] 放入系统剪贴板。平台不支持时返回 `false`。 */
     fun writeClipboard(snapshot: ClipboardSnapshot): Boolean
 

@@ -372,6 +372,29 @@ class RoomClipStorageDataSourceTest {
     }
 
     @Test
+    fun `verifyPassphrase 由宿主的口令校验器回答，没接校验器时一律不通过`() = runBlocking {
+        // 没注入校验器：不能因为「没有异议」就放行——关掉加密是不可逆的保护降级。
+        assertFalse(source.verifyPassphrase("secret"))
+
+        val asked = mutableListOf<String>()
+        val verifying = RoomClipStorageDataSource(
+            database = database,
+            sessionKey = FakeSessionKey(encrypted = true),
+            passphraseVerifier = { passphrase ->
+                asked += passphrase
+                passphrase == "secret"
+            },
+        )
+
+        assertTrue(verifying.verifyPassphrase("secret"))
+        assertFalse(verifying.verifyPassphrase("wrong"), "口令不对时不能放行")
+        assertEquals(listOf("secret", "wrong"), asked, "判据由宿主给，这一层只负责转发")
+
+        verifying.close()
+        assertFalse(verifying.verifyPassphrase("secret"), "关闭之后不该再碰库")
+    }
+
+    @Test
     fun `rekey 在平台不支持时直接失败`() = runBlocking {
         // `source` 没注入会话密钥。
         val result = source.rekey("secret")

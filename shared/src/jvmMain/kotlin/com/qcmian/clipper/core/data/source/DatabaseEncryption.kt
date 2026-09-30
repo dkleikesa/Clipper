@@ -88,6 +88,10 @@ internal fun isDatabaseEncrypted(file: File): Boolean {
  *
  * `PRAGMA key` 即使口令错误也返回成功——真正的失败要到第一次读页才出现，因此这里紧跟一条
  * `SELECT count(*) FROM sqlite_master` 作为探针，只有它成功才算口令正确。
+ *
+ * 两处用它：启动解锁（见 [unlockClipperDatabase]），以及**关闭加密**前的身份核对
+ * （见 `SqlCipherDriver` 之外那条 `passphraseVerifier` 装配线）。两处共用一个判据，
+ * 免得「解锁时认的口令」与「关加密时认的口令」各自演化成两套。
  */
 internal fun verifyDatabasePassphrase(file: File, passphrase: String): Boolean {
     if (!file.exists()) return false

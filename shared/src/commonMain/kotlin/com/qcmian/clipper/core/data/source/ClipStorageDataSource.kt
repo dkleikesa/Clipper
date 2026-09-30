@@ -190,6 +190,17 @@ interface ClipStorageDataSource {
      */
     suspend fun rekey(newPassphrase: String?): Result<Unit> = Result.success(Unit)
 
+    /**
+     * 校验 [passphrase] 是否为**当前**库的口令。
+     *
+     * 与 [rekey] 回答的不是同一个问题：`PRAGMA rekey` 用的是连接上已经生效的口令，参数是它要
+     * 换成的**新**口令，因此它没法判断「用户刚输的这一串对不对」。关闭加密必须由知道口令的人
+     * 发起，就需要这么一个判据。
+     *
+     * 平台不支持加密、或宿主没接上校验器时一律返回 `false`。
+     */
+    suspend fun verifyPassphrase(passphrase: String): Boolean = false
+
     // -----------------------------------------------------------------------------------
     // 存储维护
     // -----------------------------------------------------------------------------------

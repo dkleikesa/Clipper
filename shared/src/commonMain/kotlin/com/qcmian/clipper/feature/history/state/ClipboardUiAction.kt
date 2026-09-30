@@ -160,7 +160,10 @@ sealed interface ClipboardUiAction {
      */
     data class RequestDatabaseEncryption(val enabled: Boolean) : ClipboardUiAction
 
-    /** 密码框确认：[passphrase] 是用户输入的新口令（关闭加密时为空串）。 */
+    /**
+     * 密码框确认：[passphrase] 是用户输入的口令——开启时是**新**口令，关闭时是**当前**口令
+     * （先核对身份，再解密）。
+     */
     data class ConfirmDatabaseEncryption(val passphrase: String) : ClipboardUiAction
 
     /** 关闭密码框（取消 / `Esc`）。 */

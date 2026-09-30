@@ -41,4 +41,6 @@ actual fun createClipStorageDataSource(): ClipStorageDataSource =
         sessionKey = DatabaseKey,
         // 换钥前先备份文件，失败即回滚。
         backup = DatabaseFileBackup,
+        // 关闭加密前的口令核对：与启动解锁用的是同一个判据，两处不会各答各的。
+        passphraseVerifier = { verifyDatabasePassphrase(clipperDatabaseFile(), it) },
     )

@@ -40,7 +40,10 @@ data class ClearConfirmation(
  * 口令**不落盘**：它只在这条消息的生命周期里存在，换钥成功后即随密码框一起消失。
  */
 data class EncryptionPrompt(
-    /** `true` = 开启加密（要用户设一个新口令），`false` = 关闭加密（解密回明文）。 */
+    /**
+     * `true` = 开启加密（要用户设一个**新**口令），`false` = 关闭加密（要用户交回**当前**口令，
+     * 解密回明文）。
+     */
     val enabled: Boolean,
     /** 整库正在重写（`PRAGMA rekey`）；此期间输入与按钮都置灰。 */
     val working: Boolean = false,

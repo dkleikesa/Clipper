@@ -16,6 +16,8 @@ import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.SortOrder
 import com.qcmian.clipper.core.util.decodeJsonOrNull
 import com.qcmian.clipper.core.util.encodeJson
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 基于 [ClipperDatabase] 的 [ClipStorageDataSource]，由 Android、iOS 与桌面端共用。
@@ -30,6 +32,11 @@ internal class RoomClipStorageDataSource(
     private val sessionKey: SessionKey? = null,
     /** 换钥前后的备份 / 回滚；`null` 表示不做这层保险。 */
     private val backup: EncryptionBackup? = null,
+    /**
+     * 「这一串是不是当前库的口令」由宿主回答（见 [verifyPassphrase]）；`null` 表示不做这件事，
+     * 此时校验一律不通过。
+     */
+    private val passphraseVerifier: ((String) -> Boolean)? = null,
 ) : ClipStorageDataSource {
     private val history = database.clipHistoryDao()
     private val preferences = database.appSettingsDao()
@@ -236,6 +243,16 @@ internal class RoomClipStorageDataSource(
             }
         }
         return result
+    }
+
+    /**
+     * 口令核对本身要另开一条连接去试读库头（见宿主的 `verifyDatabasePassphrase`），是阻塞 IO，
+     * 因此挪到 [Dispatchers.Default] 上：调用方在设置窗口那条路径上跑的是合成线程。
+     */
+    override suspend fun verifyPassphrase(passphrase: String): Boolean {
+        if (closed) return false
+        val verifier = passphraseVerifier ?: return false
+        return withContext(Dispatchers.Default) { verifier(passphrase) }
     }
 
     // 注意：参数不能与该方法同名，否则这里的调用会解析成方法自身。

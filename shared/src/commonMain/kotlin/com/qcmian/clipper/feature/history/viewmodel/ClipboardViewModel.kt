@@ -650,6 +650,9 @@ class ClipboardViewModel(
      * 实际的整库重写由底层 `PRAGMA rekey` 完成（见 `ClipStorageDataSource.rekey`），这里只驱动
      * 它、把「进行中」与失败原因透给密码框。口令来自用户输入、不落盘，因此这里不做任何缓存。
      *
+     * 两个方向对 [passphrase] 的用法不同：开启时它就是**新**口令；关闭时它是用户交回的**当前**
+     * 口令，只用来核对身份——解密本身不需要它（连接上本来就带着当前口令）。
+     *
      * 加密成功之后把新状态写回界面（[ClipboardUiState.databaseEncrypted]）：存储层的会话密钥
      * 已经换成新值，但界面状态的这一份是投影，不会自己变。
      */
@@ -658,7 +661,15 @@ class ClipboardViewModel(
         if (prompt.working) return
         _uiState.update { it.copy(encryptionPrompt = prompt.copy(working = true, error = null)) }
         viewModelScope.launch {
-            // 关闭加密不需要口令：连接上本来就带着当前口令，空口令即解密。
+            // 关闭加密先核对口令：这个应用解锁之后口令就一直在内存里，若不加这一步，任何摸到
+            // 这台机器的人都能把保护去掉，而用户只会看到开关自己关上了。
+            if (!prompt.enabled && !platform.verifyDatabasePassphrase(passphrase)) {
+                _uiState.update {
+                    it.copy(encryptionPrompt = prompt.copy(working = false, error = "口令不正确。"))
+                }
+                return@launch
+            }
+            // 开启时交给 rekey 的是新口令；关闭时为空串，即解密回明文。
             val target = passphrase.takeIf { prompt.enabled }
             platform.rekeyDatabase(target).fold(
                 onSuccess = {

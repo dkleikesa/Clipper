@@ -116,6 +116,9 @@ class DefaultClipboardRepository(
 
     override suspend fun rekeyDatabase(passphrase: String?): Result<Unit> = storage.rekey(passphrase)
 
+    override suspend fun verifyDatabasePassphrase(passphrase: String): Boolean =
+        storage.verifyPassphrase(passphrase)
+
     override fun start() {
         if (started) return
         started = true

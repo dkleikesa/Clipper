@@ -15,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -216,6 +217,11 @@ fun ApplicationScope.DatabaseUnlockWindow(onUnlocked: () -> Unit) {
                                     enabled = !working,
                                     isError = message != null,
                                     visualTransformation = PasswordVisualTransformation(),
+                                    // 与设置页的加密密码框同一处理：没输入时 label 停在框里当提示，
+                                    // 用应用统一的提示灰，而不是更深的 `onSurfaceVariant`。
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        unfocusedLabelColor = MaterialTheme.hintColor,
+                                    ),
                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                                     keyboardActions = KeyboardActions(onDone = { submit() }),
                                     // 说明与错误共用这一行：错误时换 error 色，其余时候是 hintColor
