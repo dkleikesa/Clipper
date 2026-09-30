@@ -198,10 +198,10 @@ internal class RoomClipStorageDataSource(
      * 四条顺序都是必须的：
      *
      * - **先收掉残留事务**。`rekey` 内部含一次 `VACUUM`，SQLite 明确拒绝在事务中做这件事
-     *   （`cannot VACUUM from within a transaction`）。而驱动在提交失败后会把事务层级强制归零
-     *   （见 `SqlCipherDriver.ConnectionState.resetDepth`）——层级归零之后 Room 回收连接时
-     *   不再补一次回滚，于是那条**单连接**会一直卡在事务里，之后每次 rekey 都注定失败。
-     *   这里主动补一次回滚；没有事务时 SQLite 会回一句 `no transaction is active`，属正常。
+     *   （`cannot VACUUM from within a transaction`）。驱动侧现在会把「提交/回滚失败」留下的
+     *   事务真的收掉（见 `SqlCipherDriver.ConnectionState.abandonTransaction`），但这里仍然补一次
+     *   回滚：它是这条路径上唯一能确认「连接此刻不在事务里」的判据，而整库重写的代价远高于一句
+     *   多余的 `ROLLBACK`。没有事务时 SQLite 会回一句 `no transaction is active`，属正常。
      * - **备份必须在拿到写连接、且回滚之后**。库是 TRUNCATE（回滚日志）模式：写事务进行中，
      *   主库文件里是**半提交**的页，原始页只在 `-journal` 里。若在那时拷文件，`.bak` 本身就是
      *   不一致的——真回滚回去等于把坏快照写回主库。持有写连接保证没有并发写事务，前面的回滚
