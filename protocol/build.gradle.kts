@@ -20,5 +20,11 @@ kotlin {
             // 它出现在公开 API 上，使用方必须能在自己的源码里引用 kotlinx.serialization。
             api(libs.kotlinx.serialization.json)
         }
+
+        // 分帧与编解码是两侧共用的**字节契约**：放在 commonTest 里，JVM 与原生各跑一遍，
+        // 「两边对同一份字节的解释一致」才真的被验证（见 `CliFramingTest`）。
+        commonTest.dependencies {
+            implementation(kotlin("test"))
+        }
     }
 }
