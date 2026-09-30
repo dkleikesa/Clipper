@@ -51,7 +51,7 @@ private const val ICON_CONTENT_TYPE = "com.apple.icns"
  *
  * **本类只针对 macOS**；其他平台的实现后续再补。
  */
-private class MacClipboardDataSource : ClipboardDataSource {
+internal class MacClipboardDataSource : ClipboardDataSource {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** 轮询协程与 [start] / [stop] 分属不同线程，读写都需要可见性保证。 */
@@ -159,7 +159,7 @@ private class MacClipboardDataSource : ClipboardDataSource {
      * `` `O}Y ``）。因此这里自己按类型解——先找 UTF-8 表示（系统几乎总会写一份，也是唯一能
      * 直接按 UTF-8 解码的），没有才按各类型自己的编码解。
      */
-    private fun readText(contents: List<ClipboardContent>): String? {
+    internal fun readText(contents: List<ClipboardContent>): String? {
         contents.firstOrNull { it.type in MacPasteboard.UTF8_TEXT_TYPES }?.value?.let { return it.decodeToString() }
 
         val fallback = contents.firstOrNull { it.type in MacPasteboard.TEXT_TYPES } ?: return null
@@ -195,7 +195,7 @@ private class MacClipboardDataSource : ClipboardDataSource {
      *   读不到——这条排除守的是「万一它们成了真实载荷」以及退化路径（`pasteboardItems` 为空
      *   时改从 `types` 读）。留着它们体积大，又会把「复制文件」变成「存了一张图」。
      */
-    private fun keepAsContent(type: String): Boolean =
+    internal fun keepAsContent(type: String): Boolean =
         type != ICON_CONTENT_TYPE &&
             !type.startsWith(DYNAMIC_TYPE_PREFIX) &&
             !type.startsWith(OLE_SOURCE_PREFIX) &&
@@ -261,7 +261,7 @@ private const val UTF16_EXTERNAL_TEXT_TYPE = "public.utf16-external-plain-text"
 private const val TRADITIONAL_TEXT_TYPE = "com.apple.traditional-mac-plain-text"
 
 /** 按类型解纯文本；解不出来时返回 `null`。 */
-private fun decodeText(type: String, bytes: ByteArray): String? = runCatching {
+internal fun decodeText(type: String, bytes: ByteArray): String? = runCatching {
     when (type) {
         UTF16_TEXT_TYPE, UTF16_EXTERNAL_TEXT_TYPE -> decodeUtf16(bytes)
         TRADITIONAL_TEXT_TYPE -> String(bytes, Charset.forName("Big5"))
@@ -276,7 +276,7 @@ private fun decodeText(type: String, bytes: ByteArray): String? = runCatching {
  * `ff fe` 开头的小端。没有 BOM 时按**小端**——实测系统写出的 `public.utf16-plain-text` 就是
  * 小端（`你好` 的字节是 `60 4F 7D 59`）。
  */
-private fun decodeUtf16(bytes: ByteArray): String {
+internal fun decodeUtf16(bytes: ByteArray): String {
     val hasBom = bytes.size >= 2 &&
         ((bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) ||
             (bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()))
