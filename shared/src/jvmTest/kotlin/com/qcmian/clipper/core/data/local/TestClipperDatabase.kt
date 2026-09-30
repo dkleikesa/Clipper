@@ -23,18 +23,22 @@ internal fun openInMemoryDatabase(): ClipperDatabase =
         .build()
 
 /**
- * 打开一个落在 [file] 上的库，用于验证「关掉再打开，数据还在」。
+ * 打开一个落在 [file] 上的库。
  *
- * 必须落盘才能验持久化：内存库一 `close` 就什么都不剩。
+ * 必须落盘才能验持久化与 `rekey`（内存库一 `close` 就什么都不剩，也不支持整库重写）。
+ * [passphrase] 与线上一样是**每次建连接现读**的提供者，换钥测试靠它切换口令。
  */
-internal fun openFileDatabase(file: File): ClipperDatabase {
+internal fun openFileDatabase(
+    file: File,
+    passphrase: () -> String? = { null },
+): ClipperDatabase {
     file.parentFile?.mkdirs()
     return Room.databaseBuilder<ClipperDatabase>(
         name = file.absolutePath,
         factory = ClipperDatabaseConstructor::initialize,
     )
         .addMigrations(*CLIPPER_MIGRATIONS)
-        .setDriver(SqlCipherDriver())
+        .setDriver(SqlCipherDriver(passphrase = passphrase))
         .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
         .build()
 }
