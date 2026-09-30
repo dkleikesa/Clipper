@@ -108,3 +108,17 @@ internal class FakeBackup(private val snapshotSucceeds: Boolean = true) : Encryp
         discards++
     }
 }
+
+/**
+ * 与线上 `DatabaseKey` 同构的**可变**会话口令：驱动每次建连接都现读 [current]。
+ *
+ * [FakeSessionKey] 只记账，驱动拿不到它；端到端验证换钥（换完要用新口令重开库）必须用这个，
+ * 否则测不出「新口令真的写到了驱动看得见的地方」。
+ */
+internal class MutableSessionKey(var current: String? = null) : SessionKey {
+    override val encrypted: Boolean get() = current != null
+
+    override fun update(passphrase: String?) {
+        current = passphrase
+    }
+}

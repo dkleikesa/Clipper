@@ -14,12 +14,12 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
-import org.junit.Ignore
 
 /**
  * [RoomClipStorageDataSource]：领域模型与 Room 之间的唯一适配层。
@@ -243,14 +243,9 @@ class RoomClipStorageDataSourceTest {
 
     @Test
     fun `initialise 清理孤儿载荷，而且只跑一次`() = runBlocking<Unit> {
-        // 绕过事务路径直接塞一条没有元数据的载荷，伪造「上一次会话异常退出留下的孤儿」，
-        // 然后**关库重开**：生产里 initialise 也是在冷连接上跑的第一件事。
-        // （同一条连接上先写过再 initialise 会撞上驱动的 VACUUM 收尾问题，与 rekey 是同一个坑。）
+        // 绕过事务路径直接塞一条没有元数据的载荷，伪造「上一次会话异常退出留下的孤儿」。
+        // 这一步顺带守着一个回归：先写过再 initialise，内部的 VACUUM 不能因为「有语句没收尾」被拒。
         database.clipHistoryDao().insertPayloads(listOf(payloadRow("orphan", text = "x")))
-        database.close()
-
-        database = openFileDatabase(databaseFile)
-        source = RoomClipStorageDataSource(database, databaseBytes = { STORAGE_BYTES })
 
         source.initialise()
         assertNull(database.clipHistoryDao().loadPayload("orphan"), "第一次 initialise 应当清掉孤儿")
@@ -432,28 +427,59 @@ class RoomClipStorageDataSourceTest {
     }
 
     /**
-     * **已知缺陷（暂不验收）**：只要当前连接上执行过任意一次写，`rekey` 就会以
-     * `cannot VACUUM - SQL statements in progress` 失败；关库重开（新连接）再换钥则正常。
+     * 回归：`rekey` 曾经在「这条连接上执行过任意一次写」之后**必然**失败
+     * （`cannot VACUUM - SQL statements in progress`），而关库重开（新连接）就正常。
      *
-     * 触发条件是「写过」而不是「写过什么」——insert / updateStats / updatePinned / delete 都复现。
-     * 判断是驱动侧少了收尾：[SqlCipherDriver] 只在 `COMMIT` / `ROLLBACK` 之前调用
-     * `finishOutstanding`，而 `PRAGMA rekey` 内部会做一次 VACUUM，同样要求连接上没有未收尾的
-     * 语句；且 `abort()` 在没有结果集时（写语句正是这种）什么都不做，于是写语句永远收不了尾。
-     *
-     * 这不是测试环境的问题——应用只要复制过任何内容，设置页里的「开启数据库加密」就会走这条路。
-     * 修好之后把 [Ignore] 去掉即可。
+     * 根因在驱动：sqlite-jdbc 只在「下一次执行前」或「关闭结果集」时 `sqlite3_reset`，而写语句
+     * 两条路都走不到，于是长期挂在 `nVdbeActive` 上，`PRAGMA rekey` 内部那次 VACUUM 被拒。
+     * 当时四种写都复现，所以这里四种都过一遍——复制过内容的库才是常态。
      */
-    @Ignore("驱动侧未收尾写语句，rekey 在写过数据的库上必然失败；修好后移除本注解")
     @Test
-    fun `写过数据之后 rekey 也应当成功`() = runBlocking {
+    fun `写过数据之后 rekey 仍然成功`() = runBlocking<Unit> {
         val key = FakeSessionKey()
         val encrypting = RoomClipStorageDataSource(database, sessionKey = key, backup = FakeBackup())
         encrypting.insert(clipMeta("written"), clipPayload(text = "写过"))
+        encrypting.updateStats("written", numberOfCopies = 2, lastCopiedAt = 5L)
+        encrypting.updateTitle("written", title = "改过标题", fromRecognition = false)
+        encrypting.updatePinned("written", pinned = true, pinnedAt = 7L)
+        encrypting.insert(clipMeta("doomed"), clipPayload(text = "待删"))
+        encrypting.delete(listOf("doomed"))
 
         val result = encrypting.rekey("secret")
 
         assertTrue(result.isSuccess, "复制过内容的库才是常态，这条路必须能走通：${result.exceptionOrNull()}")
         assertEquals("secret", key.passphrase)
+    }
+
+    @Test
+    fun `rekey 之后要用新口令才打得开库`() = runBlocking<Unit> {
+        // 本用例自己开库，别让 setUp 那个实例占着同一个文件。
+        database.close()
+        // 与线上同构：驱动每次建连接都现读会话口令（`DatabaseKey::current`）。
+        val key = MutableSessionKey()
+        val encrypting = RoomClipStorageDataSource(
+            database = openFileDatabase(databaseFile, passphrase = { key.current }),
+            sessionKey = key,
+            backup = FakeBackup(),
+        )
+        encrypting.insert(clipMeta("written"), clipPayload(text = "写过"))
+        assertTrue(encrypting.rekey("secret").isSuccess)
+        encrypting.close()
+
+        val withNewKey = openFileDatabase(databaseFile, passphrase = { "secret" })
+        try {
+            assertEquals("写过", withNewKey.clipHistoryDao().loadPayload("written")?.text, "数据应当在新口令的库里")
+        } finally {
+            withNewKey.close()
+        }
+
+        // 旧口令（空）必须打不开——否则「加密」就只是把口令记在了内存里。
+        val withOldKey = openFileDatabase(databaseFile, passphrase = { null })
+        try {
+            assertFailsWith<Exception> { withOldKey.clipHistoryDao().countAll() }
+        } finally {
+            withOldKey.close()
+        }
     }
 
     private companion object {
