@@ -88,15 +88,33 @@ internal class SqlCipherDriver(
 
     private fun connect(fileName: String): Connection {
         val url = "jdbc:sqlite:$fileName"
-        // 现读一次口令：换钥之后这里必须给出新值，否则新开的连接会用旧口令去读新库头。
-        val key = passphrase() ?: return DriverManager.getConnection(url)
 
         // 走 Properties 而不是 URL 查询串：密钥里的 `&` `=` 空格等字符不必再做转义。
+        // 明文库也走同一个 config——见下面关掉 generated keys 的理由。
         val config = SQLiteConfig()
-        // 算法与密钥都要给，且建库与开库必须一致：只给 key 会用驱动的默认算法，
-        // 与显式 sqlcipher 建出来的库对不上（同样报 file is not a database）。
-        config.setPragma(SQLiteConfig.Pragma.CIPHER, SQLCIPHER_SCHEME)
-        config.setPragma(SQLiteConfig.Pragma.KEY, key)
+
+        // **必须关掉**：驱动默认 `jdbc.get_generated_keys=true`，于是每执行一条 INSERT，它都会
+        // 自己 `createStatement()` 跑一句 `SELECT last_insert_rowid()`，并把那个结果集一直挂着
+        // （`CoreStatement.updateGeneratedKeys`，直到下一次 `clearGeneratedKeys()` 才释放）。
+        // 这条语句不是经 `prepare()` 建的，本驱动管不到它，可它同样占着 SQLite 的
+        // `nVdbeActive`——于是整库重写（`VACUUM` / `PRAGMA rekey`）必然被拒：
+        //
+        //     cannot VACUUM - SQL statements in progress
+        //
+        // 实际后果是「只要复制过内容，设置页里就换不了密钥」。SQLite 层面没有别的收尾手段：
+        // `sqlite3_reset` 也清不掉它，只有 `close()`（内部会 `clearGeneratedKeys()`）才行，
+        // 而那条语句一直握在驱动手里。Room 用不到这一项（`androidx.sqlite.SQLiteStatement`
+        // 上根本没有 generated keys），因此直接关掉，而不是每写一次就去找它收尾。
+        config.setGetGeneratedKeys(false)
+
+        // 现读一次口令：换钥之后这里必须给出新值，否则新开的连接会用旧口令去读新库头。
+        val key = passphrase()
+        if (key != null) {
+            // 算法与密钥都要给，且建库与开库必须一致：只给 key 会用驱动的默认算法，
+            // 与显式 sqlcipher 建出来的库对不上（同样报 file is not a database）。
+            config.setPragma(SQLiteConfig.Pragma.CIPHER, SQLCIPHER_SCHEME)
+            config.setPragma(SQLiteConfig.Pragma.KEY, key)
+        }
         return DriverManager.getConnection(url, config.toProperties())
     }
 
