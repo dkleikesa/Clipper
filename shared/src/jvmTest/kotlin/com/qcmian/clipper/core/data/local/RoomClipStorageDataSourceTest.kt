@@ -1,5 +1,6 @@
 package com.qcmian.clipper.core.data.local
 
+import androidx.sqlite.SQLiteException
 import com.qcmian.clipper.core.domain.model.ClipText
 import com.qcmian.clipper.core.domain.model.ClipboardContent
 import com.qcmian.clipper.core.domain.model.PNG_CONTENT_TYPE
@@ -10,6 +11,9 @@ import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.SortOrder
 import java.io.File
 import java.nio.file.Files
+import java.sql.Connection
+import java.sql.DriverManager
+import java.sql.ResultSet
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -474,6 +478,40 @@ class RoomClipStorageDataSourceTest {
         assertEquals("secret", key.passphrase)
     }
 
+    /**
+     * 回归：外部读锁把一次写入挡掉之后，写路径必须能恢复。
+     *
+     * 这是线上那次崩溃的**端到端**形态：那条单连接被一次失败卡住之后再也写不进去，用户看到的就是
+     * `cannot start a transaction within a transaction` 从 `saveSettings` 崩到进程级的未捕获处理器。
+     *
+     * 造法是真的：另开一条连接挂着一个没读完的 `SELECT`，TRUNCATE（回滚日志）模式下它持有 SHARED
+     * 锁，写事务的提交需要 EXCLUSIVE。两条底线都要兜住——**SQLite 不会因为一次失败就自己回滚事务**
+     * （残留事务得由驱动收掉），而失败的那条语句在 JDBC 这一层也未必还能再用（驱动会顺手关掉它的
+     * 指针，得能重建）。哪个语句替这次锁买单取决于时序（可能是提交，也可能是紧接着的 `BEGIN`），
+     * 所以这里只断言**解除阻塞之后数据源能立刻继续写**：用户真正在意的就是那个结果。
+     *
+     * 两条底线各自的机制级验证在 [com.qcmian.clipper.core.data.source.SqlCipherDriverTest]。
+     */
+    @Test
+    fun `外部锁挡住写入之后写路径要能恢复`() = runBlocking<Unit> {
+        source.insert(clipMeta("seed"), clipPayload(text = "种子"))
+
+        val lock = lockDatabaseWithUnfinishedRead(databaseFile)
+        try {
+            assertFailsWith<SQLiteException> {
+                source.insert(clipMeta("blocked"), clipPayload(text = "被阻塞"))
+            }
+        } finally {
+            lock.close()
+        }
+
+        source.insert(clipMeta("after"), clipPayload(text = "之后"))
+        assertEquals("之后", source.loadPayload("after")?.text, "被卡住的那条连接必须已经恢复，这条写不该再被挡")
+        assertNull(source.loadMeta("blocked"), "失败的那一次不该留下任何痕迹")
+        assertEquals(2, source.countUnpinned())
+        assertEquals(0, source.deleteOrphanPayloads(), "收尾不该留下孤儿载荷")
+    }
+
     @Test
     fun `rekey 之后要用新口令才打得开库`() = runBlocking<Unit> {
         // 本用例自己开库，别让 setUp 那个实例占着同一个文件。
@@ -503,6 +541,29 @@ class RoomClipStorageDataSourceTest {
         } finally {
             withOldKey.close()
         }
+    }
+
+    /**
+     * 在另一条连接上挂住一个**没读完的** `SELECT`，让写连接无法提交。
+     *
+     * 关掉返回的对象即解除。TRUNCATE（回滚日志）模式下读语句持有 SHARED 锁，而提交需要
+     * EXCLUSIVE；读语句只要没走完就不会放手，这正是「提交失败」最可控的造法。
+     */
+    private class DatabaseLock(
+        private val connection: Connection,
+        private val resultSet: ResultSet,
+    ) : AutoCloseable {
+        override fun close() {
+            runCatching { resultSet.close() }
+            runCatching { connection.close() }
+        }
+    }
+
+    /** 见 [DatabaseLock]。调用方必须保证表里已经有数据：空表上一次 `step` 就走完，锁也就放了。 */
+    private fun lockDatabaseWithUnfinishedRead(file: File): DatabaseLock {
+        val connection = DriverManager.getConnection("jdbc:sqlite:${file.absolutePath}")
+        val rows = connection.createStatement().executeQuery("SELECT * FROM clip_meta")
+        return DatabaseLock(connection, rows)
     }
 
     private companion object {
