@@ -95,3 +95,7 @@ include(":protocol")
 
 // 供 agent 与脚本调用的瘦客户端；数据与业务规则都在 app 里，见 :protocol。
 include(":cli")
+
+// 跨模块共享的测试夹具（假剪贴板 / 假原生能力 / 造数助手）。
+// 只被 :shared 与 :cli 的测试源集依赖，不进任何分发包——见模块内的 build.gradle.kts。
+include(":testing")

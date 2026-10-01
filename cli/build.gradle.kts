@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.kotlinSerialization)
+    // 覆盖率：只有 jvm 目标的端到端测试参与采集，汇总到根项目的报告里。
+    alias(libs.plugins.kover)
     id("distribution")
 }
 
@@ -58,6 +60,8 @@ kotlin {
             // 这是**测试专用**的依赖：分发包里只有上面那份原生可执行文件，CLI 的运行时
             // classpath 不会因此带上 Compose / Room / JNA。
             implementation(project(":shared"))
+            // 与 :shared 的 jvmTest 共用的测试夹具（假剪贴板 / 假原生能力 / 造数助手）。
+            implementation(project(":testing"))
             implementation(libs.kotlinx.coroutines.core)
         }
     }

@@ -5,6 +5,8 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.room3)
+    // 覆盖率：本模块的 jvmTest 覆盖率汇总到根项目的报告里（见根 build.gradle.kts）。
+    alias(libs.plugins.kover)
 }
 
 kotlin {
@@ -54,6 +56,9 @@ kotlin {
         }
 
         jvmTest.dependencies {
+            // 与 :cli 的 jvmTest 共用的测试夹具（假剪贴板 / 假原生能力 / 造数助手）。
+            // 两边的测试源集彼此看不见，夹具集中在这里才不会各自漂移出一份。
+            implementation(project(":testing"))
             // 剪贴板这条路（类型过滤、item 分组、`writeObjects:` 的语义）没有编译期能验证的东西，
             // 只能对着真实粘贴板跑一遍——见 `MacPasteboardTest`。
             implementation(kotlin("test"))

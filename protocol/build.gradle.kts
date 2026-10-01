@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.kotlinSerialization)
+    // 覆盖率：只有 jvm 目标参与采集（commonTest / jvmTest），汇总到根项目的报告里。
+    alias(libs.plugins.kover)
 }
 
 kotlin {

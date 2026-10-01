@@ -2,6 +2,8 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    // 覆盖率：汇总到根项目的报告里（见根 build.gradle.kts）。
+    alias(libs.plugins.kover)
 }
 
 kotlin {

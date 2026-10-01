@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.kotlinJvm)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    // 覆盖率：桌面外壳（窗口几何等）的 test 覆盖率汇总到根项目的报告里。
+    alias(libs.plugins.kover)
 }
 
 kotlin {
@@ -35,6 +37,9 @@ dependencies {
     // compose 与 :shared 由 `testImplementation` 继承 `implementation` 自动可见。
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.coroutines.test)
+    // 外壳控制器（`GlobalHotKeyController` / `PanelPresentationController`）的行为测试用共享夹具里的
+    // `RecordingNative`（假原生能力，含修饰键开关）。
+    testImplementation(project(":testing"))
 }
 
 compose.desktop {
