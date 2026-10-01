@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    name: 构建与检查
+    name: 构建
     # 本项目依赖 AppKit / NSStatusItem，只能在 macOS 上编译与运行
     runs-on: macos-latest
     timeout-minutes: 30
@@ -39,8 +39,13 @@ jobs:
       - name: 配置 Gradle 缓存
         uses: gradle/actions/setup-gradle@v4
 
-      - name: 构建
-        run: ./gradlew build --stacktrace
+      - name: 构建（不跑单测）
+        # CI 只负责「能不能编出来、能不能打出包」，单测一律在本地跑。
+        #
+        # 因此用 `assemble` 而不是 `build`：后者会带上 `check`，而 `check` 依赖各模块的测试任务
+        # 与覆盖率校验（Kover 的 `koverVerify` 也挂在 `check` 上）。`assemble` 只编译主产物、
+        # 链接原生可执行文件、打出分发包，不触达任何测试任务。
+        run: ./gradlew assemble --stacktrace
 
       - name: 失败时上传报告
         if: failure()
