@@ -1,14 +1,6 @@
 package com.qcmian.clipper.cli
 
-import com.qcmian.clipper.core.data.source.ClipboardDataSource
-import com.qcmian.clipper.core.data.source.NativeDataSource
 import com.qcmian.clipper.core.domain.model.ClipItem
-import com.qcmian.clipper.core.domain.model.ClipPayload
-import com.qcmian.clipper.core.domain.model.ClipboardContent
-import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
-import com.qcmian.clipper.core.domain.model.FILE_URL_CONTENT_TYPE
-import com.qcmian.clipper.core.domain.model.PNG_CONTENT_TYPE
-import com.qcmian.clipper.core.domain.model.toMeta
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.di.AppContainer
 import com.qcmian.clipper.host.cli.CliServer
@@ -26,6 +18,13 @@ import com.qcmian.clipper.protocol.DEFAULT_LIMIT
 import com.qcmian.clipper.protocol.PROTOCOL_VERSION
 import com.qcmian.clipper.protocol.readCliFrame
 import com.qcmian.clipper.protocol.writeCliFrame
+import com.qcmian.clipper.testing.RecordingClipboard
+import com.qcmian.clipper.testing.RecordingNative
+import com.qcmian.clipper.testing.seedFile
+import com.qcmian.clipper.testing.seedImage
+import com.qcmian.clipper.testing.seedLongText
+import com.qcmian.clipper.testing.seedRichText
+import com.qcmian.clipper.testing.seedText
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
@@ -103,7 +102,7 @@ class CliEndToEndTest {
 
     @Test
     fun `信封形状与各退出码`() = runBlocking<Unit> {
-        seedText("t1", "甲", lastCopiedAt = 1)
+        cluster.repository.seedText("t1", "甲", lastCopiedAt = 1)
 
         // 成功：`{"ok":true,"data":…}`，退出码 0。
         val ping = runCli("ping")
@@ -139,7 +138,7 @@ class CliEndToEndTest {
 
     @Test
     fun `平台表示不了时退出码是 1`() = runBlocking<Unit> {
-        seedText("t1", "甲", lastCopiedAt = 1)
+        cluster.repository.seedText("t1", "甲", lastCopiedAt = 1)
         // 写剪贴板失败 → 服务端回 UNSUPPORTED；它既不是用法错误也不是未找到，退出码落回 1。
         cluster.clipboard.writeSucceeds = false
 
@@ -156,7 +155,7 @@ class CliEndToEndTest {
     fun `list 的筛选 排序与 limit 口径`() = runBlocking<Unit> {
         // 25 条文本（复制次数有高有低），外加图片 / 文件 / 富文本各一条，共 28 条。
         for (index in 1..25) {
-            seedText(
+            cluster.repository.seedText(
                 id = "t%02d".format(index),
                 text = "文本 $index",
                 lastCopiedAt = index.toLong(),
@@ -168,9 +167,9 @@ class CliEndToEndTest {
                 },
             )
         }
-        seedImage("img", lastCopiedAt = 50)
-        seedFile("file", lastCopiedAt = 51)
-        seedRichText("rich", lastCopiedAt = 52)
+        cluster.repository.seedImage("img", lastCopiedAt = 50)
+        cluster.repository.seedFile("file", lastCopiedAt = 51)
+        cluster.repository.seedRichText("rich", lastCopiedAt = 52)
 
         // 默认 limit：DEFAULT_LIMIT(20) 条 + total 是筛选后的总数 + truncated 标记被切短了。
         val default = runCli("list").listView()
@@ -221,9 +220,9 @@ class CliEndToEndTest {
 
     @Test
     fun `search 多词是 AND，deep 追加正文命中`() = runBlocking<Unit> {
-        seedText("t-a", "发票 报销 单据", lastCopiedAt = 1)
-        seedText("t-b", "发票 存根", lastCopiedAt = 2)
-        seedText("t-c", "报销 说明", lastCopiedAt = 3)
+        cluster.repository.seedText("t-a", "发票 报销 单据", lastCopiedAt = 1)
+        cluster.repository.seedText("t-b", "发票 存根", lastCopiedAt = 2)
+        cluster.repository.seedText("t-c", "报销 说明", lastCopiedAt = 3)
 
         // 两个词必须同时命中：只含其中一个的两条都不该出现。
         val and = runCli("search", "发票 报销").listView()
@@ -238,9 +237,9 @@ class CliEndToEndTest {
 
         // 正文命中：一条标题里有「量子纠缠」，另一条只有正文深处才有（标题是正文按
         // MAX_TITLE_LENGTH 截断后落库的，前 1000 字符里没有这个词）。
-        seedText("t-title", "量子纠缠 笔记", lastCopiedAt = 4)
+        cluster.repository.seedText("t-title", "量子纠缠 笔记", lastCopiedAt = 4)
         val bodyOnly = "甲".repeat(ClipItem.MAX_TITLE_LENGTH) + " 量子纠缠"
-        seedLongText("t-body", bodyOnly, lastCopiedAt = 5)
+        cluster.repository.seedLongText("t-body", bodyOnly, lastCopiedAt = 5)
 
         // 只搜标题：只有 t-title 命中，t-body 的正文没被碰。
         assertEquals(listOf("t-title"), runCli("search", "量子纠缠").listView().items.map { it.id })
@@ -259,7 +258,7 @@ class CliEndToEndTest {
     @Test
     fun `get 的 raw 原样直出 不补换行`() = runBlocking<Unit> {
         val text = "第一行\n第二行"
-        seedText("t-text", text, lastCopiedAt = 1)
+        cluster.repository.seedText("t-text", text, lastCopiedAt = 1)
 
         // 不带 --raw：走 JSON 信封，text 是全文。
         val envelope = runCli("get", "t-text").envelope()
@@ -274,14 +273,14 @@ class CliEndToEndTest {
     @Test
     fun `get 的 ocr 直出识别原文`() = runBlocking<Unit> {
         val recognized = "识别出的原文\n第二段"
-        seedImage("img", lastCopiedAt = 1, recognizedText = recognized)
+        cluster.repository.seedImage("img", lastCopiedAt = 1, recognizedText = recognized)
 
         val ocr = runCli("get", "img", "--ocr")
         assertEquals(CliExitCode.OK, ocr.exitCode)
         assertEquals(recognized, ocr.stdout)
 
         // 文本条目没有识别结果：明确报 NOT_FOUND，而不是给一段空字符串。
-        seedText("t-text", "没有识别", lastCopiedAt = 2)
+        cluster.repository.seedText("t-text", "没有识别", lastCopiedAt = 2)
         val missing = runCli("get", "t-text", "--ocr")
         assertEquals(CliExitCode.NOT_FOUND, missing.exitCode)
         assertEquals(CliErrorCode.NOT_FOUND, missing.errorCode())
@@ -290,7 +289,7 @@ class CliEndToEndTest {
     @Test
     fun `get 的 format 把附加表示落盘并给出路径`() = runBlocking<Unit> {
         val html = "<h1>你好世界</h1>"
-        seedRichText("rich", lastCopiedAt = 1, html = html)
+        cluster.repository.seedRichText("rich", lastCopiedAt = 1, html = html)
 
         val exported = runCli("get", "rich", "--format", "html").envelope()
         val path = assertNotNull(
@@ -312,9 +311,9 @@ class CliEndToEndTest {
 
     @Test
     fun `pin unpin delete copy stats 都真的生效`() = runBlocking<Unit> {
-        seedText("t1", "甲", lastCopiedAt = 1)
-        seedText("t2", "乙", lastCopiedAt = 2)
-        seedText("t3", "丙", lastCopiedAt = 3)
+        cluster.repository.seedText("t1", "甲", lastCopiedAt = 1)
+        cluster.repository.seedText("t2", "乙", lastCopiedAt = 2)
+        cluster.repository.seedText("t3", "丙", lastCopiedAt = 3)
 
         // pin / unpin
         assertTrue(runCli("list", "--pinned").listView().items.isEmpty())
@@ -358,7 +357,7 @@ class CliEndToEndTest {
 
     @Test
     fun `关掉授权后除 ping 一律 UNSUPPORTED`() = runBlocking<Unit> {
-        seedText("t1", "甲", lastCopiedAt = 1)
+        cluster.repository.seedText("t1", "甲", lastCopiedAt = 1)
         cluster.repository.setSettings(AppSettings(allowCliAccess = false))
 
         // ping 是 CLI 区分「用户不允许」与「app 没在运行」的唯一依据，必须照旧放行。
@@ -394,8 +393,8 @@ class CliEndToEndTest {
 
         private val container = AppContainer(
             clipboardDataSource = clipboard,
-            // 空的原生能力：`setLaunchAtLogin` 会真的去注册 / 注销登录项，测试不该有这种副作用。
-            nativeDataSource = object : NativeDataSource {},
+            // 什么都不支持的原生能力：`setLaunchAtLogin` 会真的去注册 / 注销登录项，测试不该有这种副作用。
+            nativeDataSource = RecordingNative(),
         )
 
         private val server = CliServer(container, appVersion = TEST_APP_VERSION, socketPath = socketPath)
@@ -471,21 +470,6 @@ class CliEndToEndTest {
         private fun reasonOf(e: IOException): String = e.message ?: e::class.java.simpleName
     }
 
-    private class RecordingClipboard(var writeSucceeds: Boolean = true) : ClipboardDataSource {
-        var written: ClipboardSnapshot? = null
-            private set
-
-        override fun write(snapshot: ClipboardSnapshot): Boolean {
-            if (!writeSucceeds) return false
-            written = snapshot
-            return true
-        }
-
-        override fun start(onChange: (ClipboardSnapshot) -> Unit) {}
-
-        override fun stop() {}
-    }
-
     /** 一次 CLI 调用的可观察结果：退出码 + stdout。 */
     private class CliRun(val exitCode: Int, val stdout: String) {
         /** stdout 上的 JSON 信封。只对「输出信封」的那些调用有意义（`--raw` / `--ocr` 除外）。 */
@@ -537,92 +521,8 @@ class CliEndToEndTest {
         }
     }
 
-    // -------------------------------------------------------------------------------------
-    // 造数据
-    // -------------------------------------------------------------------------------------
-
-    /** 文本条目：标题就是正文（线上就是这个口径，`toMeta` 从正文派生标题）。 */
-    private suspend fun seedText(
-        id: String,
-        text: String,
-        lastCopiedAt: Long,
-        copies: Int = 1,
-    ) = seed(
-        ClipItem(
-            id = id,
-            text = text,
-            contents = listOf(ClipboardContent("public.utf8-plain-text", text.encodeToByteArray())),
-            firstCopiedAt = lastCopiedAt,
-            lastCopiedAt = lastCopiedAt,
-            numberOfCopies = copies,
-        ),
-    )
-
-    /**
-     * 造一条「标题里没有、正文里才有」的条目。
-     *
-     * 走的正是线上口径：标题是正文按 `MAX_TITLE_LENGTH` 截断后落库的，正文另存一份。
-     */
-    private suspend fun seedLongText(id: String, text: String, lastCopiedAt: Long) = seed(
-        ClipItem(
-            id = id,
-            text = text,
-            contents = listOf(ClipboardContent("public.utf8-plain-text", text.encodeToByteArray())),
-            firstCopiedAt = lastCopiedAt,
-            lastCopiedAt = lastCopiedAt,
-            title = text,
-        ),
-    )
-
-    private suspend fun seedImage(id: String, lastCopiedAt: Long, recognizedText: String? = null) = seed(
-        ClipItem(
-            id = id,
-            contents = listOf(ClipboardContent(PNG_CONTENT_TYPE, PNG_BYTES.copyOf())),
-            firstCopiedAt = lastCopiedAt,
-            lastCopiedAt = lastCopiedAt,
-            title = "图片条目",
-            hasRecognizedText = recognizedText != null,
-            recognizedText = recognizedText,
-        ),
-    )
-
-    private suspend fun seedFile(id: String, lastCopiedAt: Long) = seed(
-        ClipItem(
-            id = id,
-            files = listOf("/tmp/不存在的文件.txt"),
-            contents = listOf(
-                ClipboardContent(FILE_URL_CONTENT_TYPE, "file:///tmp/不存在.txt".encodeToByteArray()),
-            ),
-            firstCopiedAt = lastCopiedAt,
-            lastCopiedAt = lastCopiedAt,
-        ),
-    )
-
-    private suspend fun seedRichText(id: String, lastCopiedAt: Long, html: String = "<p>你好世界</p>") = seed(
-        ClipItem(
-            id = id,
-            contents = listOf(ClipboardContent("public.html", html.encodeToByteArray())),
-            firstCopiedAt = lastCopiedAt,
-            lastCopiedAt = lastCopiedAt,
-        ),
-    )
-
-    /** 走仓库的公开写入路径，因此落盘口径与真实捕获完全一致。 */
-    private suspend fun seed(item: ClipItem) = cluster.repository.insert(
-        item.toMeta(),
-        // 不能直接用 `item.toPayload()`：它会丢掉识别原文，而 `--ocr` 正是靠那一列。
-        ClipPayload(
-            contents = item.contents,
-            text = item.text,
-            recognizedText = item.recognizedText,
-        ),
-    )
-
     private companion object {
         const val TEST_APP_VERSION = "0.0.0-test"
         const val START_TIMEOUT_MILLIS = 15_000L
-
-        /** 一串带 PNG 魔数的字节：`imageFormatOf` 只需魔数就能认出格式。 */
-        val PNG_BYTES: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01, 0x02)
     }
 }

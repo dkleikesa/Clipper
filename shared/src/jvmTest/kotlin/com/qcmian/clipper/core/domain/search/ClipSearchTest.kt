@@ -14,6 +14,9 @@ import kotlin.test.assertTrue
  * 只断言**排序与命中区间**这类可观察结果，不碰分数怎么算：档位主导、同档细节、多词 AND、
  * 子序列对齐、折叠后索引对齐——这些是「用户看到哪条排前面、哪几个字被高亮」，改内部算式
  * 不该让它们变。
+ *
+ * 打分之外的那一半——筛选、排序、深搜追加与作废、高亮区间落在真实存储的正文上——必须经过
+ * `ClipboardViewModel` 才成立，由 `AcceptanceSearchTest`（F3）端到端覆盖，这里不重复。
  */
 class ClipSearchTest {
 

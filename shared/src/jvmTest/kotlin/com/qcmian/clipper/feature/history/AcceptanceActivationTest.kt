@@ -6,6 +6,7 @@ import com.qcmian.clipper.core.domain.model.ClipboardContent
 import com.qcmian.clipper.core.domain.model.PNG_CONTENT_TYPE
 import com.qcmian.clipper.core.domain.usecase.SelectResult
 import com.qcmian.clipper.core.testutil.InProcessCluster
+import com.qcmian.clipper.testing.TEST_PNG_BYTES
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -111,7 +112,7 @@ class AcceptanceActivationTest {
             cluster.seed(
                 ClipItem(
                     id = "img",
-                    contents = listOf(ClipboardContent(PNG_CONTENT_TYPE, PNG_BYTES.copyOf())),
+                    contents = listOf(ClipboardContent(PNG_CONTENT_TYPE, TEST_PNG_BYTES.copyOf())),
                     firstCopiedAt = 1,
                     lastCopiedAt = 1,
                 ),
@@ -252,8 +253,4 @@ class AcceptanceActivationTest {
         firstCopiedAt = copiedAt,
         lastCopiedAt = copiedAt,
     )
-
-    private companion object {
-        val PNG_BYTES: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01)
-    }
 }

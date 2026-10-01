@@ -9,6 +9,7 @@ import com.qcmian.clipper.core.domain.model.SourceApplication
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.ClipFilterType
 import com.qcmian.clipper.core.testutil.InProcessCluster
+import com.qcmian.clipper.testing.TEST_PNG_BYTES
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -242,7 +243,7 @@ class AcceptanceCaptureHistoryTest {
     )
 
     private fun imageSnapshot(): ClipboardSnapshot {
-        val bytes = PNG_BYTES.copyOf()
+        val bytes = TEST_PNG_BYTES.copyOf()
         return ClipboardSnapshot(
             image = ClipImage(bytes),
             types = listOf(PNG_CONTENT_TYPE),
@@ -260,9 +261,4 @@ class AcceptanceCaptureHistoryTest {
         types = listOf("public.html"),
         contents = listOf(ClipboardContent("public.html", html.encodeToByteArray())),
     )
-
-    private companion object {
-        /** 带 PNG 魔数的字节，`imageFormatOf` 只需魔数就能认出格式。 */
-        val PNG_BYTES: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01)
-    }
 }

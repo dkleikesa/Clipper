@@ -9,6 +9,7 @@ import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
 import com.qcmian.clipper.core.domain.model.PNG_CONTENT_TYPE
 import com.qcmian.clipper.core.settings.ClipFilterType
 import com.qcmian.clipper.core.testutil.InProcessCluster
+import com.qcmian.clipper.testing.TEST_PNG_BYTES
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import kotlinx.coroutines.CoroutineStart
@@ -194,7 +195,7 @@ class AcceptancePreviewTest {
     }
 
     private fun imageSnapshot(): ClipboardSnapshot {
-        val bytes = PNG_BYTES.copyOf()
+        val bytes = TEST_PNG_BYTES.copyOf()
         return ClipboardSnapshot(
             image = ClipImage(bytes),
             types = listOf(PNG_CONTENT_TYPE),
@@ -208,7 +209,5 @@ class AcceptancePreviewTest {
 
         /** 落库标题 = 识别原文截断到上限。 */
         val OCR_TITLE: String = "甲".repeat(ClipItem.MAX_TITLE_LENGTH)
-
-        val PNG_BYTES: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01)
     }
 }

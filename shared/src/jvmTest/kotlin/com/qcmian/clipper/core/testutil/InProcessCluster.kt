@@ -4,24 +4,20 @@ import com.qcmian.clipper.core.data.local.ClipperDatabase
 import com.qcmian.clipper.core.data.local.RoomClipStorageDataSource
 import com.qcmian.clipper.core.data.local.openInMemoryDatabase
 import com.qcmian.clipper.core.data.repository.DefaultClipboardRepository
-import com.qcmian.clipper.core.data.source.ClipboardDataSource
 import com.qcmian.clipper.core.data.source.EncryptionBackup
-import com.qcmian.clipper.core.data.source.NativeDataSource
 import com.qcmian.clipper.core.data.source.SessionKey
-import com.qcmian.clipper.di.ClipboardUseCases
-import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
-import com.qcmian.clipper.core.domain.model.ClipboardContent
-import com.qcmian.clipper.core.domain.model.ClipboardSnapshot
-import com.qcmian.clipper.core.domain.model.SourceApplication
-import com.qcmian.clipper.core.domain.model.toMeta
-import com.qcmian.clipper.core.domain.model.toPayload
 import com.qcmian.clipper.core.domain.usecase.CaptureClipboardUseCase
 import com.qcmian.clipper.core.domain.usecase.ClearHistoryUseCase
 import com.qcmian.clipper.core.domain.usecase.HandleQuitUseCase
 import com.qcmian.clipper.core.domain.usecase.SelectClipUseCase
 import com.qcmian.clipper.core.domain.usecase.TogglePinUseCase
 import com.qcmian.clipper.core.domain.usecase.UpdateSettingsUseCase
+import com.qcmian.clipper.di.ClipboardUseCases
+import com.qcmian.clipper.testing.RecordingClipboard
+import com.qcmian.clipper.testing.RecordingNative
+import com.qcmian.clipper.testing.seed
+import com.qcmian.clipper.testing.seedText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -118,19 +114,11 @@ class InProcessCluster(
     // -------------------------------------------------------------------------------------
 
     /** 走仓库的公开写入路径落一条完整条目，因此口径与真实捕获一致。 */
-    suspend fun seed(item: ClipItem) = repository.insert(item.toMeta(), item.toPayload())
+    suspend fun seed(item: ClipItem) = repository.seed(item)
 
     /** 一条普通文本条目；`lastCopiedAt` 显式给出，便于断言排序。 */
-    suspend fun seedText(id: String, text: String, lastCopiedAt: Long, copies: Int = 1) = seed(
-        ClipItem(
-            id = id,
-            text = text,
-            contents = listOf(ClipboardContent("public.utf8-plain-text", text.encodeToByteArray())),
-            firstCopiedAt = lastCopiedAt,
-            lastCopiedAt = lastCopiedAt,
-            numberOfCopies = copies,
-        ),
-    )
+    suspend fun seedText(id: String, text: String, lastCopiedAt: Long, copies: Int = 1) =
+        repository.seedText(id, text, lastCopiedAt, copies)
 
     /**
      * 走退出路径关库：先把待写偏好落盘（`flushNow`）再关连接。
@@ -154,87 +142,4 @@ class InProcessCluster(
         const val POLL_INTERVAL_MILLIS = 5L
         const val SETTLE_MILLIS = 250L
     }
-}
-
-/**
- * 只记账的剪贴板：**不会**碰开发机上真正的粘贴板。
- *
- * [emit] 模拟一次外部复制（用户 / 其它应用往剪贴板写入），这是 A 层「喂系统输入」的入口；
- * 写入与按键只累加计数，供「写回是否逐条进行」这类断言使用。
- */
-class RecordingClipboard : ClipboardDataSource {
-    var writeSucceeds: Boolean = true
-    var pasteSucceeds: Boolean = true
-    var returnSucceeds: Boolean = true
-
-    /** 每一次写回的快照，按发生顺序；单条场景取 [written]。 */
-    val writes: MutableList<ClipboardSnapshot> = mutableListOf()
-    val written: ClipboardSnapshot? get() = writes.lastOrNull()
-
-    var pasteCount: Int = 0
-        private set
-    var returnCount: Int = 0
-        private set
-
-    private var onChange: ((ClipboardSnapshot) -> Unit)? = null
-
-    override fun write(snapshot: ClipboardSnapshot): Boolean {
-        if (!writeSucceeds) return false
-        writes += snapshot
-        return true
-    }
-
-    override fun start(onChange: (ClipboardSnapshot) -> Unit) {
-        this.onChange = onChange
-    }
-
-    override fun stop() {
-        onChange = null
-    }
-
-    override fun paste(): Boolean {
-        pasteCount++
-        return pasteSucceeds
-    }
-
-    override fun pressReturn(): Boolean {
-        returnCount++
-        return returnSucceeds
-    }
-
-    /** 模拟一次外部复制。监听尚未接上时静默丢弃——与真实的监听器一致。 */
-    fun emit(snapshot: ClipboardSnapshot) {
-        onChange?.invoke(snapshot)
-    }
-
-    /**
-     * 监听接上了才返回。
-     *
-     * 仓库在 `start()` 的后半程才注册回调，而那个回调是快照唯一的入口：早于此发出的
-     * [emit] 会静默丢失，测试于是「什么都没记录」却看不出原因。
-     */
-    suspend fun awaitListening(timeoutMillis: Long = 15_000L) {
-        withTimeout(timeoutMillis) {
-            while (onChange == null) delay(5L)
-        }
-    }
-}
-
-/**
- * 可配置的假原生能力：默认什么都不支持，与服务端测试里的空实现一致。
- *
- * 能力开关是**可变的**：`DefaultClipboardRepository` 在每次调用时现读它们（见
- * `currentSourceApplication` 的前置判断），因此测试可以中途打开某一项再喂快照。
- * 打开 [supportsTextRecognition] 并给 [recognizedText] 即可驱动「图片 → 标题」那条协程。
- */
-class RecordingNative(
-    override var supportsApplicationInfo: Boolean = false,
-    override var supportsTextRecognition: Boolean = false,
-) : NativeDataSource {
-    var sourceApplication: SourceApplication? = null
-    var recognizedText: String? = null
-
-    override fun frontmostApplication(): SourceApplication? = sourceApplication
-
-    override suspend fun recognizeText(image: ClipImage): String? = recognizedText
 }

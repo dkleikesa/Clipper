@@ -11,6 +11,7 @@ import com.qcmian.clipper.core.settings.ClipFilterType
 import com.qcmian.clipper.core.settings.SortBy
 import com.qcmian.clipper.core.settings.SortOrder
 import com.qcmian.clipper.core.testutil.InProcessCluster
+import com.qcmian.clipper.testing.TEST_PNG_BYTES
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.state.ClipboardUiState
 import com.qcmian.clipper.feature.history.state.DeepSearchState
@@ -34,6 +35,10 @@ import kotlin.test.assertEquals
  * 结果追加在标题命中之后、并在删除 / 筛选变化后收敛」。因此这里驱动**真的 ViewModel**（真
  * 存储、真导航状态），而不是把它的规则抄一遍。
  *
+ * 分工：**打分档位本身**（五档主导、同档细节、多词 AND、子序列对齐、全角折叠）由
+ * `ClipSearchTest`（U1）守——那是纯算法、单测最快也最不容易漏边界；这里只留**必须经过
+ * 存储与 ViewModel 才成立**的行为（筛选、排序、深搜追加与作废、档位压过默认排序、高亮区间）。
+ *
  * `viewModelScope` 需要主调度器，测试里换成 `Dispatchers.Default`（真实线程，非虚拟时间），
  * 断言一律用「轮询到条件成立」而不是固定等待。
  */
@@ -50,14 +55,17 @@ class AcceptanceSearchTest {
     }
 
     @Test
-    fun `五档顺序在同一次查询里成立`() = runBlocking<Unit> {
+    fun `搜索档位顺序压过默认的时间排序`() = runBlocking<Unit> {
         val (cluster, viewModel) = startClusterWithViewModel()
         try {
-            cluster.seedText("subsequence", "my gist list", lastCopiedAt = 1)
-            cluster.seedText("substring", "xgitx", lastCopiedAt = 2)
+            // 时间戳与档位**反着来**：默认排序（最后复制降序）会给出正好相反的次序。
+            // 因此未带查询时的默认排序满足不了这条断言，只有「打分档位压过默认排序」能——
+            // 这正是必须经过 ViewModel 才成立的、U1 的纯算法测试表达不了的那一半。
+            cluster.seedText("subsequence", "my gist list", lastCopiedAt = 5)
+            cluster.seedText("substring", "xgitx", lastCopiedAt = 4)
             cluster.seedText("prefix", "gitignore", lastCopiedAt = 3)
-            cluster.seedText("word", "git commit", lastCopiedAt = 4)
-            cluster.seedText("exact", "git", lastCopiedAt = 5)
+            cluster.seedText("word", "git commit", lastCopiedAt = 2)
+            cluster.seedText("exact", "git", lastCopiedAt = 1)
 
             viewModel.onAction(ClipboardUiAction.UpdateQuery("git"))
 
@@ -71,22 +79,6 @@ class AcceptanceSearchTest {
     }
 
     @Test
-    fun `多词查询是 AND`() = runBlocking<Unit> {
-        val (cluster, viewModel) = startClusterWithViewModel()
-        try {
-            cluster.seedText("both", "gi co", lastCopiedAt = 1)
-            cluster.seedText("only-first", "gi only", lastCopiedAt = 2)
-            cluster.seedText("only-second", "co only", lastCopiedAt = 3)
-
-            viewModel.onAction(ClipboardUiAction.UpdateQuery("gi co"))
-
-            awaitIds(viewModel, listOf("both"))
-        } finally {
-            cluster.close()
-        }
-    }
-
-    @Test
     fun `类型筛选生效`() = runBlocking<Unit> {
         val (cluster, viewModel) = startClusterWithViewModel()
         try {
@@ -94,7 +86,7 @@ class AcceptanceSearchTest {
             cluster.seed(
                 ClipItem(
                     id = "image",
-                    contents = listOf(ClipboardContent(PNG_CONTENT_TYPE, PNG_BYTES.copyOf())),
+                    contents = listOf(ClipboardContent(PNG_CONTENT_TYPE, TEST_PNG_BYTES.copyOf())),
                     firstCopiedAt = 2,
                     lastCopiedAt = 2,
                 ),
@@ -274,7 +266,5 @@ class AcceptanceSearchTest {
 
     private companion object {
         const val AWAIT_TIMEOUT_MILLIS = 10_000L
-
-        val PNG_BYTES: ByteArray = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01)
     }
 }
