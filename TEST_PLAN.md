@@ -12,22 +12,22 @@
 | --- | --- | --- |
 | S1 窗口几何行为测试 | ✅ 完成 | 5 |
 | 单测 U1–U4（算法与契约） | ✅ 完成 | 36 |
-| 单测 U5–U10（shared 隐性不变量） | ⬜ 未开始 | — |
-| 功能验收 F1–F8 | 🚧 F1 完成 | 10 |
+| 单测 U5–U10（shared 隐性不变量） | ✅ 完成 | 58 |
+| 功能验收 F1–F8 | ✅ 完成 | 57 |
 
 已完成明细见 §四。
 
 ---
 
-## 一、功能验收测试　`1 / 8`
+## 一、功能验收测试　`8 / 8`
 
 四个层级，按 CI 可行性排序：
 
 | 层 | 覆盖 | 怎么搭 | CI |
 | --- | --- | --- | --- |
-| **A. In-process 全链路** | 真 Room + 真 SqlCipher 驱动（临时目录）；捕获 / 搜索 / 置顶 / 淘汰 / 预览 | 复用 `TestClipperDatabase`、`DataSourceFixtures`；用假「系统输入」喂快照 | ✅ |
+| **A. In-process 全链路** | 真 Room + 真 SqlCipher 驱动（临时目录）；捕获 / 搜索 / 置顶 / 淘汰 / 预览 | 复用 `openInMemoryDatabase` / `openFileDatabase`、`DataSourceFixtures` 与 `InProcessCluster`；用假「系统输入」喂快照 | ✅ |
 | **B. 真 socket CLI 端到端** | `CliServer` + `CliRequestHandler` ↔ `:protocol` 分帧 ↔ CLI 请求 | 临时 socket + 真存储；断言 JSON 与退出码 | ✅ |
-| **C. Compose UI 交互** | 面板渲染、键盘导航、预览开合、多选 | `compose-ui-test`（已在依赖里，`HistoryRowTest` 是例子） | ✅ |
+| **C. Compose UI 交互** | 面板渲染、键盘导航、预览开合、多选 | `compose-ui-test`（已在依赖里；`HistoryRowTest`、`AcceptancePanelInteractionTest` 是例子） | ✅ |
 | **D. 真启动 app** | 托盘、全局热键、辅助功能、粘贴 | `:desktopApp:run` + CLI 驱动 | ⚠️ 需 GUI 会话，**默认跳过**（同 `CLIPPER_PASTEBOARD_TESTS` 的门控） |
 
 功能清单（验收标准取自 README / ROADMAP 里对用户承诺的行为）：
@@ -35,17 +35,17 @@
 | # | 状态 | 功能 | 层 | 验收标准（可观察） |
 | --- | --- | --- | --- | --- |
 | F1 | ✅ | CLI 端到端 | B | 输出恒为 `{"ok":true,"data":…}` / `{"ok":false,"error":{code,message,hint}}`；退出码 0/1/2/3/4/5；`list` 的 `--kind/--sort/--order/--pinned/--limit`（默认 20、上限 200）；`search` 多词 AND、`--deep` 回 `deepSearchTruncated`；`get --raw` 直出全文**不补换行**、`--ocr` 直出识别原文、`--format html\|rtf\|pdf` 落盘给路径；`pin/unpin/delete/copy/stats/ping` 均生效；关掉「允许访问剪贴板历史」后除 `ping` 一律 `UNSUPPORTED` |
-| F2 | ⬜ | 捕获与历史 | A | 文本/图片/文件/富文本都进历史；机密 / 临时 / 自动生成类型**永不**记录；暂停期间不记录；自己写回的不重复记录；重复复制只更新计数与时间戳；置顶不计入上限、也不被淘汰；超限按最后复制时间淘汰；清除只清未置顶 / 全部；退出清空（开启时） |
-| F3 | ⬜ | 搜索 | A | 五档顺序（精确 > 整词 > 前缀 > 子串 > 子序列）在同一次查询里成立；多词 AND；类型筛选与排序字段/方向生效；深搜结果**追加**在标题命中之后，删除/筛选变化后收敛；高亮区间落在正文对应位置 |
-| F4 | ⬜ | 激活与写回 | A | 单条原样写回（保 HTML / RTF）；去格式只写纯文本；多条复制合成一段纯文本（有一条拿不出文本则退回最后一条）；多条粘贴逐条进行；激活后计数 +1 且按最后复制时间重排 |
-| F5 | ⬜ | 预览与展示 | A/C | 图片 OCR 结果作标题、可复制识别原文；富文本提取文字作标题；预览显示**全文**（不被 1000 字符截断） |
-| F6 | ⬜ | 面板交互 | C | `↑`/`↓` 导航、`⇧` 连续选、`⌃` 多选、`⌥⏎` 复制、`⏎` 粘贴、`⌥P` 置顶、`⌥⌫` 删除、`⌃Space` 预览、`⎋` 逐级退出（设置 → 多选 → 搜索 → 关窗）、`⌘1…9` 快速粘贴置顶项、`⌘P` 暂停 |
-| F7 | ⬜ | 设置与持久化 | A | 改设置落盘并即时生效；重启后保持；「恢复默认设置」回到出厂值；槽位被清除/改名后旧偏好仍读得出 |
-| F8 | ⬜ | 数据库加密 | A | 开启后重启需口令；错误口令被拒；关闭前必须核对当前口令 |
+| F2 | ✅ | 捕获与历史 | A | 文本/图片/文件/富文本都进历史；机密 / 临时 / 自动生成类型**永不**记录；暂停期间不记录；自己写回的不重复记录；重复复制只更新计数与时间戳；置顶不计入上限、也不被淘汰；超限按最后复制时间淘汰；清除只清未置顶 / 全部；退出清空（开启时） |
+| F3 | ✅ | 搜索 | A | 五档顺序（精确 > 整词 > 前缀 > 子串 > 子序列）在同一次查询里成立；多词 AND；类型筛选与排序字段/方向生效；深搜结果**追加**在标题命中之后，删除/筛选变化后收敛；高亮区间落在正文对应位置 |
+| F4 | ✅ | 激活与写回 | A | 单条原样写回（保 HTML / RTF）；去格式只写纯文本；多条复制合成一段纯文本（有一条拿不出文本则退回最后一条）；多条粘贴逐条进行；激活后计数 +1 且按最后复制时间重排 |
+| F5 | ✅ | 预览与展示 | A/C | 图片 OCR 结果作标题、可复制识别原文；富文本提取文字作标题；预览显示**全文**（不被 1000 字符截断） |
+| F6 | ✅ | 面板交互 | C | `↑`/`↓` 导航、`⇧` 连续选、`⌃` 多选、`⌥⏎` 复制、`⏎` 粘贴、`⌥P` 置顶、`⌥⌫` 删除、`⌃Space` 预览、`⎋` 逐级退出（设置 → 多选 → 搜索 → 关窗）、`⌘1…9` 快速粘贴置顶项、`⌘P` 暂停 |
+| F7 | ✅ | 设置与持久化 | A | 改设置落盘并即时生效；重启后保持；「恢复默认设置」回到出厂值；槽位被清除/改名后旧偏好仍读得出 |
+| F8 | ✅ | 数据库加密 | A | 开启后重启需口令；错误口令被拒；关闭前必须核对当前口令 |
 
 ---
 
-## 二、值得做的单测　`4 / 10`
+## 二、值得做的单测　`10 / 10`
 
 判据：**没有可观察的用户行为面**，只能对着算法契约或隐性不变量测；或者错了会**静默**。
 
@@ -55,12 +55,12 @@
 | U2 | ✅ | `ClipDeepSearch` 预算 | 只在高负载下显形，功能测试难稳定复现 | `BATCH_SIZE` 分批；`MAX_HITS`/`MAX_CHARS` 截断与 `truncated` 语义；同 id 去重 |
 | U3 | ✅ | `CliFraming` 分帧 | 无行为面；字节序写歪两侧都「能跑」，只静默读歪 | 大端 golden 字节；编解码往返；越界 / 短头 / 超大抛错 |
 | U4 | ✅ | `CliCodec` + `CliExitCode` | 契约型：缺省省略 / null 省略 / 未知字段忽略，跨版本兼容 | 信封形状；`dataAs` 结构不符返回 `null`；错误码 → 退出码全映射 |
-| U5 | ⬜ | `ClipItem` 等值替换与标题截断 | 隐性不变量（**必须等长**），破坏后只表现为高亮错位 | `toStoredTitle` 截断 + `\uFFFC` 过滤；`titleForDisplay` 等长；`deriveTitle` 与 `previewableText` 的分叉 |
-| U6 | ⬜ | `ClipboardContent` 内容语义 | `ByteArray` 默认按引用比；错了只表现为去重 / diff 静默失效 | `equals/hashCode` 按内容；`contentKeyOf` 与顺序无关、item 序号参与 |
-| U7 | ⬜ | `ClipEntityMappings` 往返 | 持久化兼容，只在读旧数据时暴露 | `toEntity/toModel` 往返；枚举越界兜底；NUL 分隔文件；pin 标记；CBOR / legacy 列 |
-| U8 | ⬜ | `AppSettings` 序列化 + 槽位迁移 | 改名 / 增删字段只静默让旧偏好对不上号 | 默认值 == `ShortcutSlot.default`；`shortcut/withShortcut` 全槽位覆盖；未知 / 缺失字段兼容 |
-| U9 | ⬜ | `shortcutProblem` / `occupiedSpecs` | 规则表密集的纯判定；走 UI 才能触达成功能测试，成本高 | 六种返回；派生组合查重；数字键 `RESERVED`；裸键需修饰键 |
-| U10 | ⬜ | `HistoryNavigation` | 纯状态转移但边界密集 | 各转移 × 空列表 / 单元素 / 越界 / 锚点伸缩 |
+| U5 | ✅ | `ClipItem` 等值替换与标题截断 | 隐性不变量（**必须等长**），破坏后只表现为高亮错位 | `toStoredTitle` 截断 + `\uFFFC` 过滤；`titleForDisplay` 等长；`deriveTitle` 与 `previewableText` 的分叉 |
+| U6 | ✅ | `ClipboardContent` 内容语义 | `ByteArray` 默认按引用比；错了只表现为去重 / diff 静默失效 | `equals/hashCode` 按内容；`contentKeyOf` 与顺序无关、item 序号参与 |
+| U7 | ✅ | `ClipEntityMappings` 往返 | 持久化兼容，只在读旧数据时暴露 | `toEntity/toModel` 往返；枚举越界兜底；NUL 分隔文件；pin 标记；CBOR / legacy 列 |
+| U8 | ✅ | `AppSettings` 序列化 + 槽位迁移 | 改名 / 增删字段只静默让旧偏好对不上号 | 默认值 == `ShortcutSlot.default`；`shortcut/withShortcut` 全槽位覆盖；未知 / 缺失字段兼容 |
+| U9 | ✅ | `shortcutProblem` / `occupiedSpecs` | 规则表密集的纯判定；走 UI 才能触达成功能测试，成本高 | 六种返回；派生组合查重；数字键 `RESERVED`；裸键需修饰键 |
+| U10 | ✅ | `HistoryNavigation` | 纯状态转移但边界密集 | 各转移 × 空列表 / 单元素 / 越界 / 锚点伸缩 |
 
 ---
 
@@ -81,6 +81,20 @@
 - **U3 分帧**（7 例）：`CliFramingTest` 5 例——commonTest 的大端 golden 字节与往返、越界 / 短头拒绝；`FramingStreamTest` 2 例——jvmTest 的流上多条往返、空载荷、截断读作 `null`。
 - **U4 编解码与退出码**（11 例）：`CliCodecTest` 8 例——缺省与 `null` 省略、未知字段宽容、`dataAs` 结构不符返回 `null`；`CliExitCodeTest` 3 例——错误码 → 退出码全映射与数值契约。
 - **F1 CLI 端到端**（10 例，`:cli` 的 `CliEndToEndTest`）：真 socket（`CliRunner` ↔ `:protocol` 分帧 ↔ `CliServer`）+ 真 Room / SQLCipher 存储（临时 `user.home`）。覆盖信封形状、退出码 0/1/2/3/4/5、`list` 的 `--kind/--sort/--order/--pinned/--limit`，`search` 多词 AND 与 `--deep`，`get` 的 `--raw`/`--ocr`/`--format`，`pin/unpin/delete/copy/stats`，以及关掉授权后除 `ping` 一律 `UNSUPPORTED`。配套两处缝：`:cli` 增加**仅测试用**的 JVM 目标（原生 `DaemonClient` / 入口移入 `macosMain`），`AppContainer` 可注入剪贴板与原生数据源（存储仍是真实现）。
+- **U5–U10 shared 隐性不变量**（58 例）：`ClipItemTitleTest` 9 例——`toStoredTitle` 先过滤 `\uFFFC` 再截断、`titleForDisplay` 逐字符等长替换（含关闭特殊符号时不裁剪）、`deriveTitle` 与 `previewableText` 的末档优先级分叉；`ClipboardContentSemanticsTest` 6 例——`equals/hashCode` 按内容、`null` 与空字节不同、`contentKeyOf` 只取决于内容；`ClipEntityMappingsTest` 9 例——元数据 / 载荷往返、NUL 分隔文件、枚举越界兜底、pin 标记、CBOR 与 legacy 图片列；`AppSettingsSerializationTest` 7 例——出厂默认 == `ShortcutSlot.default`、`withShortcut` 全槽位覆盖、JSON 往返、未知 / 缺失字段与「枚举成员被删」的 `coerceInputValues` 兜底；`ShortcutValidationTest` 12 例——五种本地判定 + `null`、派生组合查重、数字键 `RESERVED`、规则优先级；`HistoryNavigationTest` 15 例——`cursor/single/range/toggle/collapse/next/previous/last/footer` × 空列表 / 单元素 / 越界 / 锚点伸缩。
+- 踩坑：`shortcutProblem` 的「输入字符」集只含**大写**字母（录制器已把字母归一到大写，见 `normalizeShortcutCharacter`），用小写字母构造用例会被判为可用。
+- **F2 / F3 / F4（A 层功能验收）**（26 例）：配套夹具 `InProcessCluster`（`core/testutil`）——真 Room / SQLCipher（内存库，同一驱动与 schema）+ 假 `RecordingClipboard` / `RecordingNative`，只替换「系统」两条支路。
+  - `AcceptanceCaptureHistoryTest`（10 例）：四类内容都进历史、三种「永不记录」类型、暂停、自己写回不重复记录、重复复制只更新计数与时间戳、超限按最后复制时间淘汰且置顶豁免、两种清除、退出清空、来源应用、连续复制时间戳递增。
+  - `AcceptanceSearchTest`（7 例）：驱动**真** `ClipboardViewModel`——五档顺序与多词 AND、类型筛选、排序字段 / 方向、深搜结果追加在标题命中之后并在**删除**后收敛、筛选变化让上一次深搜作废、正文高亮区间对齐。
+  - `AcceptanceActivationTest`（9 例）：`SelectClipUseCase` 跑在 `runTest` 的虚拟时间下——单条原样写回（保 HTML / RTF）、去格式只写纯文本、多条复制合成纯文本、有一条拿不出文本时退回最后一条、多条粘贴逐条进行且单条不补回车、激活后计数 +1 并重排、写失败 `UNSUPPORTED`、条目不存在 `IGNORED`。
+- A 层踩坑：`RecordingNative` 的能力开关必须**可变**——`currentSourceApplication()` 每次现读 `supportsApplicationInfo`，默认 `false` 会让「来源应用」那条静默为 `null`；`ClipboardViewModel` 的 `viewModelScope` 需要主调度器，F3 用 `Dispatchers.setMain(Dispatchers.Default)`（真实线程）并一律轮询断言，避免引入虚拟时间与真 JDBC 的耦合。
+- **F5 / F7 / F8（A 层）与 F6（C 层）**（21 例）：
+  - `AcceptancePreviewTest`（5 例）：识别结果作标题、完整原文留在载荷且「复制图片文字」写的是它、只写 HTML 的条目从附加表示提取标题、预览给**全文**（不被 1000 字符截断）、无识别能力的平台不给图片造标题。
+  - `AcceptancePanelInteractionTest`（11 例）：**渲染真 `HistoryScreen`**，按键经 `onPreviewKeyEvent` 送进去——面板渲染条目、`↑`/`↓` 导航、`⏎` 粘贴、`⌥⏎` 只复制、`⌥P` 置顶 / 取消、`⌥⌫` 删除、`⌃Space` 预览开合、`⌘1` 快速粘贴置顶项、`⌘P` 暂停 / 恢复、`⇧↓` 连续选、`⎋` 逐级退出（多选 → 搜索 → 关窗）。
+  - `AcceptanceSettingsPersistenceTest`（3 例）：用**落盘库**验改设置即时生效并重启保持、恢复默认回到出厂值且不动历史、旧存档里清除的槽位 / 已删枚举 / 新增字段都读得出。
+  - `AcceptanceDatabaseEncryptionTest`（2 例）：真 SQLCipher + 落盘库 + 真 ViewModel——开启后重启需口令（无口令读不动、错口令被拒）、关闭加密前必须核对当前口令。
+- C 层踩坑（F6）：桌面端 compose-ui-test 的**按键与指针注入都不带修饰键状态**（`InputDispatcher.skiko.kt` 构造 `KeyEvent` 时只给 key / type / codePoint）。默认绑定里 `↑`/`↓`/`⏎`/`⎋` 本就是裸键，可照常注入；带 `⌥`/`⌘`/`⌃`/`⇧` 的组合改用 `KeyEvent(...)`（`@InternalComposeUiApi`，注解在 `ui-util`）构造后经 `performKeyPress` 送入**同一条**分发路径。多选在渲染层读的是指针事件里的修饰键，测试里改为直接派发「点击本来就会产生的那条动作」。
+- 夹具扩展（F7 / F8）：`InProcessCluster` 现在可注入 `database`（用 `openFileDatabase` 换成落盘库）与会话密钥 / 换钥备份 / 口令核对，另加 `shutdown()`（走 `repository.close()`：先 `flushNow` 再关库）——否则防抖中的那次设置写入会丢。
 - `:protocol` 已加 `commonTest` 源集（`kotlin-test`）；JVM 与原生**各跑一遍**，字节契约两侧一致（原生 16 例通过）。
 
 **环境要点（踩过的坑）**
@@ -95,9 +109,9 @@
 
 1. ~~**U1–U4**（算法与契约，零依赖，立刻能写）~~ ✅ 已完成
 2. ~~**F1（B 层 CLI 端到端）**——收益最大的一条~~ ✅ 已完成
-3. **F2 / F3 / F4（A 层）**
-4. **U5–U10**（shared 隐性不变量）
-5. **F6（C 层面板交互）**、**F5 / F7 / F8**
+3. ~~**F2 / F3 / F4（A 层）**~~ ✅ 已完成
+4. ~~**U5–U10**（shared 隐性不变量）~~ ✅ 已完成
+5. ~~**F6（C 层面板交互）**、**F5 / F7 / F8**~~ ✅ 已完成
 
 ## 待确认
 
