@@ -73,7 +73,13 @@ data class HostUiState(
  * 与 [HotkeyController] 的分工：这里传递的是「窗口事件」（切换显示、隐藏、退出、
  * 窗口内容的搜索/退出能力），与按键无关；按键意图见 [HotkeyController]。
  */
-class WindowController {
+class WindowController(
+    /**
+     * 当前时刻。默认读系统时钟；单测注入可变时钟，才能把「托盘点击宽限期」这类时序判定
+     * 跑满边界（见 `PanelPresentationController`）。
+     */
+    private val now: () -> Long = ::currentTimeMillis,
+) {
     private val _hostUiState = MutableStateFlow(HostUiState())
 
     /** 由 `App` 从界面状态镜像过来；宿主只读取它。 */
@@ -122,7 +128,7 @@ class WindowController {
 
     /** 对应托盘的点击：窗口侧 ViewModel 观察该请求后按当前可见性呼出或收起面板。 */
     fun requestToggle() {
-        lastTrayClickAtMillis = currentTimeMillis()
+        lastTrayClickAtMillis = now()
         _toggleRequests.value++
     }
 

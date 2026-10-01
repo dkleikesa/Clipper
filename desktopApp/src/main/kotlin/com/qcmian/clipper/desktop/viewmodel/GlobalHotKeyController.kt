@@ -67,6 +67,8 @@ internal class GlobalHotKeyController(
     private val onHotKeyOpened: () -> Unit,
     /** 托盘呼出的面板再按热键：把窗口移到鼠标位置（几何层的动作）。 */
     private val onMoveToCursor: () -> Unit,
+    /** 当前时刻（毫秒）。默认读系统时钟；单测注入虚拟时钟以驱动按住会话的计时。 */
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
     /**
      * 每一次热键按下自增，驱动 [observeHotKeyHold] 里的按住会话。
@@ -142,7 +144,7 @@ internal class GlobalHotKeyController(
             // 已经循环过的事实保留：这一次修饰键一直没抬起来，松手时仍然要选中。
             hotkey.requestCycle()
             holdPressCount++
-            holdStartedAt = System.currentTimeMillis()
+            holdStartedAt = now()
             lastCycleAt = 0L
             mainKeyDown = true
             MacModifierMonitor.assumeHeld(requiredModifierMask())
@@ -165,7 +167,7 @@ internal class GlobalHotKeyController(
 
     /** 开启一次新的按住会话；上一次会话（如果还在跑）会被 [observeHotKeyHold] 随即取代。 */
     private fun beginHoldSession() {
-        holdStartedAt = System.currentTimeMillis()
+        holdStartedAt = now()
         holdActive = true
         holdCycled = false
         holdPressCount = 1
@@ -245,18 +247,18 @@ internal class GlobalHotKeyController(
             if (combo == ComboState.COMPLETE) {
                 if (previous != ComboState.COMPLETE) {
                     // 松了一个键又按回来：这是一次新的「按住」，延迟从头计。
-                    holdStartedAt = System.currentTimeMillis()
+                    holdStartedAt = now()
                     lastCycleAt = 0L
                 }
-                val now = System.currentTimeMillis()
-                if (now - holdStartedAt < CYCLE_START_DELAY_MILLIS) {
+                val at = now()
+                if (at - holdStartedAt < CYCLE_START_DELAY_MILLIS) {
                     setPopupMode(PopupMode.OPENING)
                 } else {
                     setPopupMode(PopupMode.CYCLE)
                     // 延迟刚结束时先推进一条，之后每 [CYCLE_INTERVAL_MILLIS] 一条。
-                    if (!holdCycled || now - lastCycleAt >= CYCLE_INTERVAL_MILLIS) {
+                    if (!holdCycled || at - lastCycleAt >= CYCLE_INTERVAL_MILLIS) {
                         holdCycled = true
-                        lastCycleAt = now
+                        lastCycleAt = at
                         hotkey.requestCycle()
                     }
                 }

@@ -1,12 +1,8 @@
 package com.qcmian.clipper.desktop.viewmodel
 
-import com.qcmian.clipper.core.platform.macos.MacKeyboard
-import com.qcmian.clipper.core.platform.macos.MacOutsideClickMonitor
-import com.qcmian.clipper.core.platform.macos.MacWorkspace
-import com.qcmian.clipper.desktop.domain.DEVTOOLS_WINDOW_TITLE
 import com.qcmian.clipper.desktop.domain.FOCUS_GRACE_MILLIS
-import com.qcmian.clipper.desktop.domain.PANEL_WINDOW_TITLE
-import com.qcmian.clipper.desktop.domain.SETTINGS_WINDOW_TITLE
+import com.qcmian.clipper.desktop.domain.MacPanelEnvironment
+import com.qcmian.clipper.desktop.domain.PanelEnvironment
 import com.qcmian.clipper.desktop.domain.PopupMode
 import com.qcmian.clipper.desktop.domain.TRAY_CLICK_GRACE_MILLIS
 import com.qcmian.clipper.host.HotkeyController
@@ -41,6 +37,10 @@ internal class PanelPresentationController(
      * 一帧，判定「这次失焦是谁抢的」不能信投影。
      */
     private val isDevToolsWindowOpen: () -> Boolean = { false },
+    /** 外界：此前最前的外部应用、还焦点、面板外点击。默认走 AppKit；单测注入替身。 */
+    private val environment: PanelEnvironment = MacPanelEnvironment,
+    /** 当前时刻（毫秒）。默认读系统时钟；单测注入可变时钟以驱动两条宽限期。 */
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
     /**
      * 本次显示是否由点击托盘图标触发。是的话位置直接锚定菜单栏图标：点托盘那一刻光标就在
@@ -57,7 +57,7 @@ internal class PanelPresentationController(
     /** 面板显示前最前的那个外部应用 pid，隐藏时用于把焦点还回去。 */
     private var previousAppPid = -1L
 
-    private var lastFocusGainedAt = System.currentTimeMillis()
+    private var lastFocusGainedAt = now()
 
     /** 最近一次「点击面板之外」导致的收起时刻，用于识别同一次点击触发的托盘切换。 */
     private var lastOutsideHideAtMillis = 0L
@@ -86,7 +86,7 @@ internal class PanelPresentationController(
     fun togglePanel() {
         // 面板外的点击收起与托盘切换可能来自同一次点击（点在本应用托盘图标上）：
         // 轮询先收起、托盘回调随后到达，这里跳过，避免刚收起又被重新打开。
-        if (System.currentTimeMillis() - lastOutsideHideAtMillis < TRAY_CLICK_GRACE_MILLIS) return
+        if (now() - lastOutsideHideAtMillis < TRAY_CLICK_GRACE_MILLIS) return
         if (state.value.windowVisible) hidePanel() else showPanel()
     }
 
@@ -107,15 +107,12 @@ internal class PanelPresentationController(
         panel.clearSearch()
         // 把焦点还给此前聚焦的应用：合成粘贴（⌘V）才会落到它上面。
         if (restoreFocus && pid > 0) {
-            // `activate` 只是异步请求，⌘V 发出时目标应用未必已到前台；
-            // 把 pid 交给 [MacKeyboard]，让它用 `CGEventPostToPid` 直接投递，绕开时序竞态。
-            MacKeyboard.pasteTargetPid = pid
-            runCatching { MacWorkspace.activate(pid) }
+            environment.restoreFocus(pid)
         }
     }
 
     fun onWindowGainedFocus() {
-        lastFocusGainedAt = System.currentTimeMillis()
+        lastFocusGainedAt = now()
         // 面板真正成为 key window 时，搜索框重新获得焦点并选中第一条。
         // 聚焦跟着「窗口取得键盘焦点」走，而不是跟着
         // 「打开意图」走——后者可能落在窗口显示之前，`requestFocus()` 会静默失效，
@@ -146,10 +143,10 @@ internal class PanelPresentationController(
         }
         if (host.isModalOpen) return
         // 忽略面板刚显示之后那一次短暂的失焦。
-        if (System.currentTimeMillis() - lastFocusGainedAt < FOCUS_GRACE_MILLIS) return
+        if (now() - lastFocusGainedAt < FOCUS_GRACE_MILLIS) return
         // 刚点过菜单栏图标：这次失焦是点击本身造成的，收起与否交给 [togglePanel] 决定。
         // 否则会先在这里被隐藏、再被 toggle 重新打开，看起来就是「点托盘关不掉」。
-        if (System.currentTimeMillis() - panel.lastTrayClickAtMillis < TRAY_CLICK_GRACE_MILLIS) return
+        if (now() - panel.lastTrayClickAtMillis < TRAY_CLICK_GRACE_MILLIS) return
         // 用户已经点了别处，不能再把焦点抢回来。
         hidePanel(restoreFocus = false)
     }
@@ -173,15 +170,9 @@ internal class PanelPresentationController(
      * 「点击别处收起」这一条能力静默缺失，其余收起路径（失焦、Esc、托盘、热键）不受影响。
      */
     suspend fun observeOutsideClicks() {
-        // 设置窗口、开发者工具窗口也是本应用自己的窗口：点在里面不算「点了别处」，否则面板一
-        // 让位、用户去点那些窗口就会把面板（连带它）当成被点掉。
-        MacOutsideClickMonitor.install(
-            PANEL_WINDOW_TITLE,
-            listOf(SETTINGS_WINDOW_TITLE, DEVTOOLS_WINDOW_TITLE),
-        )
-        MacOutsideClickMonitor.outsideClicks.collect {
+        environment.outsideClicks().collect {
             if (state.value.windowVisible && !panel.hostUiState.value.isModalOpen) {
-                lastOutsideHideAtMillis = System.currentTimeMillis()
+                lastOutsideHideAtMillis = now()
                 hidePanel(restoreFocus = false)
             }
         }
@@ -192,7 +183,7 @@ internal class PanelPresentationController(
      * 这样「自动粘贴」的 ⌘V 才会落到它上面。
      */
     fun captureFrontmostWindow() {
-        val pid = runCatching { MacWorkspace.frontmostExternalPid() }.getOrDefault(-1L)
+        val pid = environment.frontmostExternalPid()
         // 抓不到外部应用时（例如本应用已在最前）保留上一次记录。
         if (pid > 0) previousAppPid = pid
     }
