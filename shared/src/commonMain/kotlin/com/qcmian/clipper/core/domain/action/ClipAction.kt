@@ -15,13 +15,13 @@ enum class ClipAction(val pastes: Boolean, val stripsFormatting: Boolean) {
     /** 写入剪贴板，保留富文本 / 图片 / 文件等全部表示（「激活选中项」）。 */
     COPY(pastes = false, stripsFormatting = false),
 
-    /** 只写纯文本；文件 URL 仍写进去，因此仍然能粘贴文件（「去格式激活」）。 */
+    /** 只写纯文本，内容与预览面板显示的文本一致；不附带 file-url，文件因此粘出路径文本（「去格式激活」）。 */
     COPY_WITHOUT_FORMATTING(pastes = false, stripsFormatting = true),
 
     /** 写入剪贴板，并向上一个应用合成一次粘贴（「直接粘贴」）。 */
     PASTE(pastes = true, stripsFormatting = false),
 
-    /** 同上，但只写纯文本（「去格式粘贴」）。 */
+    /** 同 [PASTE]，但只写纯文本（「去格式粘贴」）。 */
     PASTE_WITHOUT_FORMATTING(pastes = true, stripsFormatting = true),
 }
 

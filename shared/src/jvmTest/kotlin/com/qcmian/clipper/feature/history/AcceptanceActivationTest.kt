@@ -3,6 +3,7 @@ package com.qcmian.clipper.feature.history
 import com.qcmian.clipper.core.domain.action.ClipAction
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.domain.model.ClipboardContent
+import com.qcmian.clipper.core.domain.model.FILE_URL_CONTENT_TYPE
 import com.qcmian.clipper.core.domain.model.PNG_CONTENT_TYPE
 import com.qcmian.clipper.core.domain.usecase.SelectResult
 import com.qcmian.clipper.core.testutil.InProcessCluster
@@ -73,6 +74,41 @@ class AcceptanceActivationTest {
             assertTrue(
                 cluster.clipboard.written?.contents.orEmpty().isEmpty(),
                 "去格式就不能再带上 HTML / RTF 这些附加表示",
+            )
+        } finally {
+            cluster.close()
+        }
+    }
+
+    @Test
+    fun `去格式粘贴文件时粘路径文本而不粘文件`() = runTest {
+        val cluster = InProcessCluster(scope = backgroundScope)
+        try {
+            val path = "/Users/x/报告.txt"
+            cluster.seed(
+                ClipItem(
+                    id = "file",
+                    text = "报告.txt",
+                    files = listOf(path),
+                    contents = listOf(
+                        ClipboardContent(FILE_URL_CONTENT_TYPE, "file://$path".encodeToByteArray()),
+                        ClipboardContent("public.utf16-external-plain-text", "报告.txt".encodeToByteArray()),
+                    ),
+                    firstCopiedAt = 1,
+                    lastCopiedAt = 1,
+                ),
+            )
+
+            cluster.useCases.selectClip(listOf("file"), ClipAction.PASTE_WITHOUT_FORMATTING) {}
+
+            assertEquals(
+                path,
+                cluster.clipboard.written?.text,
+                "去格式粘贴文件应与预览一致：粘的是路径文本",
+            )
+            assertTrue(
+                cluster.clipboard.written?.contents.orEmpty().isEmpty(),
+                "不能再附带 file-url，否则目标端粘出来还是文件",
             )
         } finally {
             cluster.close()

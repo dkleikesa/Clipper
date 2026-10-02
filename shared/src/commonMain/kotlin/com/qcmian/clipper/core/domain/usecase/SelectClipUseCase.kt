@@ -169,7 +169,13 @@ class SelectClipUseCase(
             )
         }
 
-        // 去格式也保留纯文本与文件 URL，这样仍然能粘贴文件；没有任何字符串表示时与普通复制一致。
+        // 文件条目：去格式粘的是**预览面板显示的文本**（文件路径），不再附带 file-url——否则
+        // 目标端粘出来还是文件，与普通复制没有区别。
+        if (item.files.isNotEmpty()) {
+            return ClipboardSnapshot(text = item.previewText)
+        }
+
+        // 其余条目与原来一致：保留纯文本表示。
         if (item.text == null) {
             return ClipboardSnapshot(
                 text = if (item.image == null && item.files.isEmpty()) item.previewableText else null,
