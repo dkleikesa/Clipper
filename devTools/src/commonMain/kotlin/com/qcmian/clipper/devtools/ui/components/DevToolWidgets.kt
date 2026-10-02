@@ -59,12 +59,19 @@ fun DevToolEditor(
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
     placeholder: String = "",
+    /** 标题行右端那块地方，用来放只属于这个框的动作；与 `DevToolCodeField` 的同名参数一致。 */
+    actions: @Composable () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(6.dp)
 
     Column(modifier.fillMaxWidth()) {
-        Text(label, fontSize = 11.sp, color = MaterialTheme.hintColor)
+        // 标签在左、动作在右：动作属于这个框，就该跟它的名字同处一行。
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 11.sp, color = MaterialTheme.hintColor)
+            Spacer(Modifier.weight(1f))
+            actions()
+        }
         Spacer(Modifier.height(4.dp))
         Box(
             modifier = Modifier

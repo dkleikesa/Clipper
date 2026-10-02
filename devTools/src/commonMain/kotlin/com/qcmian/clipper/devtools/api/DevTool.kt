@@ -2,6 +2,7 @@ package com.qcmian.clipper.devtools.api
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.draganddrop.DragAndDropEvent
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 
@@ -44,8 +45,12 @@ data class DevToolMetadata(
 /**
  * 主面板提供给工具的少量宿主能力。
  *
- * 刻意只开这两个口子：工具不该自己去碰系统剪贴板或界面全局状态——写回与提示统一由面板负责，
- * 工具的职责被限制在「算 + 画」。
+ * 刻意只开这几道口子：工具不该自己去碰系统剪贴板、原生文件对话框或界面全局状态——那些统一由
+ * 面板负责，工具的职责被限制在「算 + 画」。
+ *
+ * 文件那一组只负责**拿路径**，不负责读写：读写走 `readTextFileOrNull` / `writeTextFile`
+ * （kotlinx-io，留在 commonMain），于是工具侧一行就能读能写，也不必为文件系统开
+ * `expect`/`actual`；而原生对话框与拖放载荷的解析只有宿主做得了。
  */
 interface DevToolHost {
     /** 把结果写回系统剪贴板（面板会顺带提示一次）。 */
@@ -53,6 +58,24 @@ interface DevToolHost {
 
     /** 在面板底部闪一条状态提示。 */
     fun showStatus(message: String)
+
+    /** 弹出「打开」对话框，返回用户挑中的路径；取消时返回 `null`。 */
+    fun pickFileToOpen(): String?
+
+    /**
+     * 弹出「保存」对话框，返回用户挑中的路径；取消时返回 `null`。
+     *
+     * [suggestedName] 是预填的文件名，免得用户自己想一个。
+     */
+    fun pickFileToSave(suggestedName: String): String?
+
+    /**
+     * 从一次拖放里取出被拖进来的文件路径；拖的不是文件（例如一段选中的文字）时返回空表。
+     *
+     * 之所以由宿主解析：这要读平台自己的拖放载荷（桌面端是 AWT 的 `Transferable`），属于平台
+     * 细节；工具只该拿到一串路径。
+     */
+    fun droppedFilePaths(event: DragAndDropEvent): List<String>
 }
 
 /**

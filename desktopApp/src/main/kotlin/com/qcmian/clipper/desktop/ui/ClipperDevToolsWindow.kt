@@ -186,6 +186,11 @@ fun ApplicationScope.ClipperDevToolsWindow(
                 item = state.devToolsItem,
                 onClose = { viewModel.onAction(ClipboardUiAction.CloseDevTools) },
                 onCopyToClipboard = viewModel::copyToClipboardFromDevTools,
+                // 文件那一组：只给路径，读写留在工具侧（kotlinx-io）。`window` 是 Compose 的
+                // `ComposeWindow`，本身就是 AWT 的 `Frame`，可直接当原生对话框的父窗口。
+                onPickFileToOpen = { pickFileToOpen(window) },
+                onPickFileToSave = { suggestedName -> pickFileToSave(window, suggestedName) },
+                onDroppedFilePaths = ::droppedFilePaths,
                 titleBarDragModifier = dragTitleBar,
             )
         }

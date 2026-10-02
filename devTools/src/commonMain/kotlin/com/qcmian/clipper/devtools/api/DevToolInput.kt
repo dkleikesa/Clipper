@@ -5,6 +5,7 @@ import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readByteArray
+import kotlinx.io.writeString
 
 /**
  * 把一条剪贴板记录解析成工具要吃的**文本**。
@@ -20,7 +21,7 @@ import kotlinx.io.readByteArray
  */
 internal fun ClipItem.devToolText(): String {
     if (files.isEmpty()) return previewText
-    return files.joinToString("\n") { readTextFile(it) ?: it }
+    return files.joinToString("\n") { readTextFileOrNull(it) ?: it }
 }
 
 /** 单个文件读入内存的上限：再大就不是「粘贴一段内容」的用法，读进来只会卡住界面。 */
@@ -33,9 +34,10 @@ private const val BINARY_SNIFF_BYTES = 8_000
  * 读一个文本文件；不是可读文本时返回 `null`（不存在、是目录、是二进制、超过大小上限）。
  *
  * 走 kotlinx-io 的 [SystemFileSystem] 而不是 `java.io.File`：读文件因此留在 commonMain，
- * 不必为文件系统开一对 `expect`/`actual`。
+ * 不必为文件系统开一对 `expect`/`actual`。工具界面的「打开文件」与「拖文件进来」也走它，
+ * 于是「剪贴板里的文件条目」与「用户自己挑的文件」在工具看来完全一样。
  */
-private fun readTextFile(path: String): String? = runCatching {
+internal fun readTextFileOrNull(path: String): String? = runCatching {
     val file = Path(path)
     val metadata = SystemFileSystem.metadataOrNull(file) ?: return@runCatching null
     if (!metadata.isRegularFile || metadata.size > MAX_TEXT_FILE_BYTES) return@runCatching null
@@ -48,6 +50,19 @@ private fun readTextFile(path: String): String? = runCatching {
     if (looksBinary(bytes)) return@runCatching null
     bytes.decodeToString()
 }.getOrNull()
+
+/**
+ * 把 [text] 写到 [path]；写成返回 `true`。
+ *
+ * 与读一样走 kotlinx-io，留在 commonMain。写不进去（没权限、目录不存在、磁盘满、路径其实是个
+ * 目录）时返回 `false`，由调用方给一句提示——静默失败比报错更难查。
+ *
+ * 不设大小上限：这是用户自己指定要保存的文件，拦下来反而莫名其妙。
+ */
+internal fun writeTextFile(path: String, text: String): Boolean = runCatching {
+    SystemFileSystem.sink(Path(path)).buffered().use { it.writeString(text) }
+    true
+}.getOrDefault(false)
 
 private fun looksBinary(bytes: ByteArray): Boolean {
     val limit = minOf(bytes.size, BINARY_SNIFF_BYTES)

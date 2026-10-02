@@ -26,9 +26,13 @@ import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
+import com.qcmian.clipper.devtools.api.readTextFileOrNull
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolEditor
+import com.qcmian.clipper.devtools.ui.components.DevToolInputActions
+import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
+import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
 import com.qcmian.clipper.devtools.ui.components.DevToolMessage
 
 /**
@@ -85,8 +89,14 @@ internal object XmlDevTool : DevTool {
                 label = "输入",
                 value = source,
                 onValueChange = { source = it },
-                placeholder = "在此粘贴 XML，或从剪贴板条目打开",
-                modifier = Modifier.weight(1f),
+                placeholder = "在此粘贴 XML，从剪贴板条目打开，或把文件拖进来",
+                // 拖进来的文件与「打开文件」走同一条读法，读不出内容才退回显示路径。
+                modifier = Modifier
+                    .weight(1f)
+                    .devToolFileDrop(host) { paths ->
+                        source = paths.joinToString("\n") { readTextFileOrNull(it) ?: it }
+                    },
+                actions = { DevToolInputActions(source, { source = it }, host) },
             )
 
             Spacer(Modifier.height(8.dp))
@@ -103,12 +113,6 @@ internal object XmlDevTool : DevTool {
                     title = "压缩",
                     enabled = source.isNotBlank(),
                     onClick = { apply(minifyXml(source), "已压缩") },
-                )
-                DevToolActionSpacer()
-                DevToolButton(
-                    title = "复制结果",
-                    enabled = output.isNotEmpty(),
-                    onClick = { host.copyToClipboard(output) },
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
@@ -130,6 +134,10 @@ internal object XmlDevTool : DevTool {
                 onValueChange = {},
                 placeholder = "格式化 / 压缩的结果会显示在这里",
                 modifier = Modifier.weight(1f),
+                // 与 JSON 工具同一套动作，只是预填的文件名不同。
+                actions = {
+                    DevToolResultActions(output, host, suggestedFileName = "formatted.xml")
+                },
             )
         }
     }

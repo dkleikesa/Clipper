@@ -100,6 +100,10 @@ private val ChevronStroke = 1.5.dp
  *
  * [labelHint] 是跟在 [label] 后面的一句状态说明，用来交代「框里这份内容处于什么状态」。文案由
  * 调用方给：控件不认识「排版中」这类说法，它只负责把这句话摆在标签旁边。
+ *
+ * [actions] 是标题行右端那块地方，用来放只属于**这个框**的动作（输入框的「打开文件 / 清空」、
+ * 结果框的「保存文件 / 复制」）。做成插槽而不是几个布尔开关：控件不该认识「打开文件」是什么，
+ * 那是调用方与宿主之间的事（见 `DevToolFieldActions`）。
  */
 @Composable
 internal fun DevToolCodeField(
@@ -111,6 +115,7 @@ internal fun DevToolCodeField(
     placeholder: String = "",
     isError: Boolean = false,
     labelHint: String = "",
+    actions: @Composable () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val hint = MaterialTheme.hintColor
@@ -191,12 +196,15 @@ internal fun DevToolCodeField(
     }
 
     Column(modifier.fillMaxWidth()) {
+        // 标签在左、动作在右：动作属于这个框，就该跟它的名字同处一行。
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 11.sp, color = hint)
             if (labelHint.isNotEmpty()) {
                 Spacer(Modifier.width(6.dp))
                 Text(labelHint, fontSize = 11.sp, color = hint)
             }
+            Spacer(Modifier.weight(1f))
+            actions()
         }
         Spacer(Modifier.height(4.dp))
         Box(

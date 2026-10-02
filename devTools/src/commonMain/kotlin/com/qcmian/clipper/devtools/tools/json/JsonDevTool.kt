@@ -27,9 +27,13 @@ import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
+import com.qcmian.clipper.devtools.api.readTextFileOrNull
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
+import com.qcmian.clipper.devtools.ui.components.DevToolInputActions
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
+import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
+import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -165,14 +169,9 @@ internal object JsonDevTool : DevTool {
                     primary = mode == JsonResultMode.Compact,
                     onClick = { mode = JsonResultMode.Compact },
                 )
-                DevToolActionSpacer()
-                DevToolButton(
-                    title = "复制结果",
-                    // 过期时一并禁用：这时框里那份不属于眼前的输入，拷出去就是错的。
-                    enabled = output.isNotEmpty() && !resultIsStale,
-                    onClick = { host.copyToClipboard(output) },
-                )
-
+                // 「复制结果」搬去了结果框的标题行：产出的是那个框里的内容，按钮留在工具栏上
+                // 会让人先找按钮、再对框（见 `DevToolResultActions`）。这里因此只剩一个更宽的
+                // 间隔，把「选模式」和右边那组「决定输出长什么样」的控件分开。
                 Spacer(Modifier.width(12.dp))
 
                 // 缩进只影响「美化」（压缩根本没有换行），但这里**不**按模式禁用：缩进是用户的口味
@@ -217,8 +216,15 @@ internal object JsonDevTool : DevTool {
                     label = "输入",
                     value = source,
                     onValueChange = { source = it },
-                    placeholder = "在此粘贴 JSON，或从剪贴板条目打开",
-                    modifier = Modifier.weight(1f),
+                    placeholder = "在此粘贴 JSON，从剪贴板条目打开，或把文件拖进来",
+                    // 拖进来的文件与「打开文件」走同一条读法，读不出内容才退回显示路径——
+                    // 与剪贴板里的文件条目完全一致（见 `readTextFileOrNull`）。
+                    modifier = Modifier
+                        .weight(1f)
+                        .devToolFileDrop(host) { paths ->
+                            source = paths.joinToString("\n") { readTextFileOrNull(it) ?: it }
+                        },
+                    actions = { DevToolInputActions(source, { source = it }, host) },
                 )
 
                 Spacer(Modifier.width(8.dp))
@@ -233,9 +239,19 @@ internal object JsonDevTool : DevTool {
                     onValueChange = {},
                     placeholder = "美化 / 压缩的结果会显示在这里",
                     // 排版还没跟上输入：说明框里这份是旧的。打字时会一直亮着（正文一直在变），
-                    // 停下来 250ms 后消失——所以它读起来是「正在算」，而不是每按一键闪一下。
+                    // 停下来 150ms 后消失——所以它读起来是「正在算」，而不是每按一键闪一下。
                     labelHint = if (resultIsStale) "排版中…" else "",
                     modifier = Modifier.weight(1f),
+                    // 「保存 / 复制」跟着结果走：产出的是这个框里的内容，动作就该在这儿。
+                    // 过期时传空串，两个动作随之禁用——那时框里那份不属于眼前的输入，
+                    // 存下来或拷出去都是错的（与工具栏上「复制结果」原先的判据一致）。
+                    actions = {
+                        DevToolResultActions(
+                            value = if (resultIsStale) "" else output,
+                            host = host,
+                            suggestedFileName = "formatted.json",
+                        )
+                    },
                 )
             }
         }

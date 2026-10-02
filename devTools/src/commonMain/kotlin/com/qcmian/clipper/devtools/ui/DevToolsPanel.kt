@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +68,10 @@ private const val STATUS_DURATION_MILLIS = 1_600L
  * @param item 打开时带过来的那条剪贴板记录；`null` 表示这次没有输入（用户从侧边栏点进来，或历史
  *   为空）。工具拿到的是整条记录，按需取正文 / 图片 / 附加表示。
  * @param onClose 关闭窗口（由宿主决定窗口存亡，见 `ClipperDevToolsWindow`）。
+ * @param onPickFileToOpen 弹「打开」对话框并返回路径；`null` 表示取消。工具那边用
+ *   `readTextFileOrNull` 读内容——面板不碰文件内容。
+ * @param onPickFileToSave 弹「保存」对话框并返回路径；`null` 表示取消。
+ * @param onDroppedFilePaths 从一次拖放里取出文件路径；由宿主解析平台载荷（见 [DevToolHost]）。
  * @param titleBarDragModifier 「按住标题栏拖动窗口」的手势，由宿主注入。
  */
 @Composable
@@ -75,6 +80,9 @@ fun DevToolsPanel(
     item: ClipItem?,
     onClose: () -> Unit,
     onCopyToClipboard: (String) -> Unit,
+    onPickFileToOpen: () -> String? = { null },
+    onPickFileToSave: (String) -> String? = { null },
+    onDroppedFilePaths: (DragAndDropEvent) -> List<String> = { emptyList() },
     modifier: Modifier = Modifier,
     titleBarDragModifier: Modifier = Modifier,
 ) {
@@ -106,9 +114,12 @@ fun DevToolsPanel(
     val selectedTool = effectiveSelectedId?.let(registry::tool)
 
     val status = remember { mutableStateOf<String?>(null) }
-    // 宿主能力：按 `onCopyToClipboard` 记忆——它一变（宿主换了实现）就重建，其余时候保持稳定，
+    // 宿主能力：按这几个回调一起记忆——它们一变（宿主换了实现）就重建，其余时候保持稳定，
     // 免得工具界面因为「host 引用变了」而整块重组。
-    val host = remember(onCopyToClipboard) {
+    //
+    // 文件那一组只把「弹对话框 / 解析拖放」转给宿主：读写文件由工具侧用 kotlinx-io 自己做
+    // （见 `readTextFileOrNull`），这里因此不碰文件内容。
+    val host = remember(onCopyToClipboard, onPickFileToOpen, onPickFileToSave, onDroppedFilePaths) {
         object : DevToolHost {
             override fun copyToClipboard(text: String) {
                 if (text.isEmpty()) return
@@ -119,6 +130,14 @@ fun DevToolsPanel(
             override fun showStatus(message: String) {
                 status.value = message
             }
+
+            override fun pickFileToOpen(): String? = onPickFileToOpen()
+
+            override fun pickFileToSave(suggestedName: String): String? =
+                onPickFileToSave(suggestedName)
+
+            override fun droppedFilePaths(event: DragAndDropEvent): List<String> =
+                onDroppedFilePaths(event)
         }
     }
     LaunchedEffect(status.value) {
