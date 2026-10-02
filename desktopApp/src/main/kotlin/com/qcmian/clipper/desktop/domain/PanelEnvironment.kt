@@ -31,6 +31,15 @@ internal interface PanelEnvironment {
     fun restoreFocus(pid: Long)
 
     /**
+     * 把随后的 ⌘V 投给**本应用自己**——用户此前正在开发者工具窗口里编辑。
+     *
+     * 与 [restoreFocus] 分开而不是复用同一个「pid 参数」：那条路要做的是**激活另一个应用**，
+     * 而这里本应用已经在前台，需要的是「别去动别人」。也不能顺手把自己再激活一次——
+     * 那会把键盘焦点从开发窗口的输入框上挪开，粘进去的内容就不知道落到哪了。
+     */
+    fun targetSelfForPaste()
+
+    /**
      * 安装「面板外点击」监视器，并返回其事件流（每次面板外点击发一个元素）。
      *
      * 装不上时返回一个不发射的流——那只是「点击别处收起」这一条能力静默缺失，其余收起路径
@@ -50,6 +59,11 @@ internal object MacPanelEnvironment : PanelEnvironment {
         // 让它用 `CGEventPostToPid` 直接投递，绕开时序竞态。
         MacKeyboard.pasteTargetPid = pid
         runCatching { MacWorkspace.activate(pid) }
+    }
+
+    override fun targetSelfForPaste() {
+        // 只改投递目标，不做任何激活：本应用已经在前台，开发窗口的输入框也已经握着键盘焦点。
+        MacKeyboard.pasteTargetPid = MacWorkspace.ownPid
     }
 
     override fun outsideClicks(): Flow<Unit> {

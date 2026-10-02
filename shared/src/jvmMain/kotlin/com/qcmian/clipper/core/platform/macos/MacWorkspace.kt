@@ -14,7 +14,14 @@ object MacWorkspace {
         foundation || appKit
     }
 
-    private val ownPid: Long = runCatching { ProcessHandle.current().pid() }.getOrDefault(-1L)
+    /**
+     * 本进程 pid。
+     *
+     * 公开出来是因为「合成的 ⌘V 该投给谁」需要知道「自己是谁」：开发者工具窗口是一个正常的
+     * 编辑面，它自己在最前时粘贴应当落在它的光标处，而不是回头找上一次那个外部应用
+     * （见 `MacKeyboard.pasteTargetPid`）。
+     */
+    val ownPid: Long = runCatching { ProcessHandle.current().pid() }.getOrDefault(-1L)
 
     /** `NSWorkspace.shared.frontmostApplication`。 */
     fun frontmostApplication(): SourceApplication? {

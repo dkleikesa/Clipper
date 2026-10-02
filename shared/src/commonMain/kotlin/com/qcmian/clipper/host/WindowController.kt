@@ -98,6 +98,21 @@ class WindowController(
     var lastTrayClickAtMillis: Long = 0L
         private set
 
+    /**
+     * 开发者工具窗口此刻是不是本应用的 key window。
+     *
+     * 由那个窗口自己的焦点监听维护（见 `ClipperDevToolsWindow`）。**不复用
+     * [HostUiState.isDevToolsWindowOpen]**：窗口开着不等于用户在看它——设置窗口在最前时开发窗口
+     * 也是开着的，而那一次粘贴该落到别处。
+     *
+     * 这一位的用途只有一个：开发窗口是个正常的编辑面，它自己在最前时，面板收起后的 ⌘V 该投给
+     * 本应用、落在它的光标处，而不是回头找上一次那个外部应用（见 `PanelPresentationController`）。
+     *
+     * `@Volatile`：写在 AWT 的焦点回调里，读在 AppKit 的热键回调里，是两个线程。
+     */
+    @Volatile
+    var isDevToolsWindowFocused: Boolean = false
+
     private val _hideRequests = MutableStateFlow(0)
 
     /** 宿主隐藏面板时自增，使预览与之一同关闭。 */

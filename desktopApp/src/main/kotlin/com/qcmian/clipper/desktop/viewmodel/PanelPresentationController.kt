@@ -54,8 +54,27 @@ internal class PanelPresentationController(
     /** 几何层读取「本次是否托盘呼出」，据此决定锚点。 */
     val openedByTray: Boolean get() = _openedByTray
 
-    /** 面板显示前最前的那个外部应用 pid，隐藏时用于把焦点还回去。 */
-    private var previousAppPid = -1L
+    /**
+     * 面板收起后，合成的粘贴（⌘V）该落到哪。
+     *
+     * 用一个取值，而不是「一个 pid 加一个标志位」：后者拼得出「投给自己、同时又记着某个外部
+     * pid」这种没有意义的状态，而收起时该激活谁、该不该通知宿主，两件事都要看这个取值。
+     */
+    private sealed interface PasteTarget {
+        /** 此前聚焦的**外部**应用。 */
+        data class External(val pid: Long) : PasteTarget
+
+        /**
+         * 本应用自己的开发者工具窗口。
+         *
+         * 它是个正常的编辑面：用户刚才在那里编辑，粘贴就该落在它的光标处，而不是回头去找上一次
+         * 那个外部应用——「开发窗口在前台，内容却粘到了背后的应用」正是这么来的。
+         */
+        data object OwnDevTools : PasteTarget
+    }
+
+    /** 面板显示前用户正在用的那一处；`null` 表示还没抓到过。 */
+    private var pasteTarget: PasteTarget? = null
 
     private var lastFocusGainedAt = now()
 
@@ -98,16 +117,23 @@ internal class PanelPresentationController(
      * 但那不是「关闭主窗口」，因此那一条路径传 `false`。
      */
     fun hidePanel(restoreFocus: Boolean = true, notifyHidden: Boolean = true) {
-        val pid = previousAppPid
+        val target = pasteTarget
         state.update {
             it.copy(windowVisible = false, popupMode = PopupMode.TOGGLE, panelOpenedByTray = false)
         }
         // `FloatingPanel.close()`：关闭弹窗时一并关闭预览。
-        if (notifyHidden) panel.requestHide()
+        //
+        // 目标是自己的开发窗口时不发这一条：那一路会让状态持有者把这次收起理解成「用户关闭主
+        // 窗口」，从而把用户正要往里粘东西的那个开发窗口一起关掉（见 `ClipboardViewModel.onHidden`）。
+        if (notifyHidden && target !is PasteTarget.OwnDevTools) panel.requestHide()
         panel.clearSearch()
-        // 把焦点还给此前聚焦的应用：合成粘贴（⌘V）才会落到它上面。
-        if (restoreFocus && pid > 0) {
-            environment.restoreFocus(pid)
+        // 合成粘贴（⌘V）要落到用户此前正在用的那一处。
+        if (restoreFocus) {
+            when (target) {
+                is PasteTarget.External -> if (target.pid > 0) environment.restoreFocus(target.pid)
+                PasteTarget.OwnDevTools -> environment.targetSelfForPaste()
+                null -> Unit
+            }
         }
     }
 
@@ -179,12 +205,19 @@ internal class PanelPresentationController(
     }
 
     /**
-     * 记住面板显示前处于最前的那个外部应用，隐藏时把焦点还回去，
+     * 记住面板显示前用户正在用的那一处，隐藏时把焦点还回去，
      * 这样「自动粘贴」的 ⌘V 才会落到它上面。
      */
     fun captureFrontmostWindow() {
+        // 开发窗口在最前时，「此前的应用」就是本应用自己。它是个正常编辑面，粘贴要落进它的光标处。
+        // 这里**不能**走下面那条「抓不到外部应用就保留上一次记录」：那会拿着一个早已过期的 pid，
+        // 把内容粘到开发窗口背后的应用上去。
+        if (panel.isDevToolsWindowFocused) {
+            pasteTarget = PasteTarget.OwnDevTools
+            return
+        }
         val pid = environment.frontmostExternalPid()
-        // 抓不到外部应用时（例如本应用已在最前）保留上一次记录。
-        if (pid > 0) previousAppPid = pid
+        // 抓不到外部应用时（例如面板自己已在最前）保留上一次记录。
+        if (pid > 0) pasteTarget = PasteTarget.External(pid)
     }
 }

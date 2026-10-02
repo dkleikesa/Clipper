@@ -165,10 +165,18 @@ object MacKeyboard {
 
         val source = createEventSource()
         val argument = source ?: Pointer.NULL
+        val targetPid = pasteTargetPid
+        val directPost = postToPid
+
+        // 投给**自己**（开发窗口里的粘贴）时绝不能设下面那段抑制过滤器：它只放行鼠标与系统
+        // 事件，会把这次 ⌘V 连同键盘事件一起滤掉，于是「粘进开发窗口」永远粘不进去。抑制期的
+        // 目的是别让合成按键反过来触发本应用自己的热键与全局监听（见文件头第 4 条），而自投递
+        // 本来就落在本进程、由那个输入框吃掉——正是我们想让它被消化掉的情形。
+        val postsToSelf = targetPid > 0 && targetPid == MacWorkspace.ownPid
         // 抑制期内只放行鼠标与系统事件。这个符号拿不到就跳过——它只影响
         // 本应用自身在抑制期里收到什么，不影响事件向目标应用的投递。
         val filter = setLocalEventsFilter
-        if (source != null && filter != null) {
+        if (!postsToSelf && source != null && filter != null) {
             runCatching {
                 filter.invoke(
                     arrayOf(source, FILTER_PERMIT_MOUSE_OR_SYSTEM, SUPPRESSION_STATE_INTERVAL)
@@ -185,8 +193,6 @@ object MacKeyboard {
 
         // 不带 `⌘` 时只留「非合并」标记：部分应用只认带该标记的合成事件。
         val flags = (if (command) FLAG_COMMAND else 0L) or FLAG_NON_COALESCED
-        val targetPid = pasteTargetPid
-        val directPost = postToPid
         val posted = runCatching {
             setFlags.invoke(arrayOf(down, flags))
             setFlags.invoke(arrayOf(up, flags))

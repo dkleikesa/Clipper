@@ -119,16 +119,25 @@ fun ApplicationScope.ClipperDevToolsWindow(
 
         // 每次成为 key window 都把 AWT 焦点补到内容组件上：否则从别的应用切回来之后，
         // 工具里的编辑区收不到键盘输入（见 [focusKeyboardTarget]）。
+        //
+        // 顺带维护「本窗口是不是在最前」这一位：面板要靠它决定收起后的 ⌘V 投给谁——用户在开发
+        // 窗口里编辑时，粘贴应当落在这个窗口的光标处（见 `WindowController.isDevToolsWindowFocused`）。
         DisposableEffect(window) {
             val listener = object : WindowFocusListener {
                 override fun windowGainedFocus(event: WindowEvent?) {
+                    windowController.isDevToolsWindowFocused = true
                     focusKeyboardTarget(window)
                 }
 
-                override fun windowLostFocus(event: WindowEvent?) = Unit
+                override fun windowLostFocus(event: WindowEvent?) {
+                    windowController.isDevToolsWindowFocused = false
+                }
             }
             window.addWindowFocusListener(listener)
-            onDispose { window.removeWindowFocusListener(listener) }
+            onDispose {
+                window.removeWindowFocusListener(listener)
+                windowController.isDevToolsWindowFocused = false
+            }
         }
 
         // 显示时把本应用带到前台：本应用是菜单栏应用（`LSUIElement`），不激活则窗口成为不了
@@ -153,7 +162,12 @@ fun ApplicationScope.ClipperDevToolsWindow(
                 val location = screenCenterLocation(DevToolsWindowSize, screenIndex = 0)
                 window.setLocation(location.x, location.y)
             }
-            if (!visible) return@LaunchedEffect
+            if (!visible) {
+                // 窗口藏起来了就不再是「用户正在这里编辑」：不清的话，下次从别的应用呼出面板
+                // 会把粘贴误投给一个看不见的窗口。
+                windowController.isDevToolsWindowFocused = false
+                return@LaunchedEffect
+            }
             // 与面板、设置窗口同样的理由放到后台线程：macOS 对刚启动的应用会延迟处理「激活自己」。
             launch(Dispatchers.IO) { runCatching { MacWorkspace.activateSelf() } }
             window.toFront()

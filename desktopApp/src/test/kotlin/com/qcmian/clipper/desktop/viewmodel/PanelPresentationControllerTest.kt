@@ -191,6 +191,60 @@ class PanelPresentationControllerTest {
         assertTrue(f.environment.restoredFocus.isEmpty())
     }
 
+    // -------------------------------------------------------------------------------------
+    // 开发窗口是正常的编辑面
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * 「开发窗口开着」与「开发窗口在最前」是两件事：只有后者才该把粘贴收进自己的窗口。
+     * 这一条与下面那条配对，钉住这个区分。
+     */
+    @Test
+    fun `开发窗口只是开着 但不在最前时 仍然投给此前的外部应用`() = runTest {
+        val f = fixture(devToolsWindowOpen = { true })
+        f.environment.frontmostPid = 42
+        f.controller.showPanel()
+
+        f.controller.hidePanel()
+
+        assertEquals(listOf(42L), f.environment.restoredFocus)
+        assertEquals(0, f.environment.selfPasteTargets, "用户刚才在别的应用里，不该把内容收进开发窗口")
+    }
+
+    @Test
+    fun `开发窗口在最前时 不再把内容投给上一次那个外部应用`() = runTest {
+        val f = fixture()
+        // 上一次用面板时正在外部应用 42 里：这一次记录会留在控制器里。
+        f.environment.frontmostPid = 42
+        f.controller.showPanel()
+        f.controller.hidePanel()
+        assertEquals(listOf(42L), f.environment.restoredFocus)
+
+        // 用户随后切到开发窗口里编辑。此刻「最前的外部应用」抓不到——最前的就是本应用。
+        f.panel.isDevToolsWindowFocused = true
+        f.environment.frontmostPid = -1
+        f.controller.showPanel()
+        f.controller.hidePanel()
+
+        assertEquals(1, f.environment.selfPasteTargets, "⌘V 该投给自己，落在开发窗口的光标处")
+        assertEquals(listOf(42L), f.environment.restoredFocus, "那个外部 pid 已经过期，不能再拿它当目标")
+    }
+
+    @Test
+    fun `投给开发窗口时 不通知宿主 免得把开发窗口一起关掉`() = runTest {
+        val f = fixture()
+        f.panel.isDevToolsWindowFocused = true
+        f.controller.showPanel()
+
+        f.controller.hidePanel()
+
+        assertEquals(
+            0,
+            f.panel.hideRequests.value,
+            "这一路会让状态持有者把收起理解成「用户关闭主窗口」，从而关掉正要往里粘东西的开发窗口",
+        )
+    }
+
     @Test
     fun `呼出时标记为托盘触发`() = runTest {
         val f = fixture()
@@ -213,16 +267,21 @@ class PanelPresentationControllerTest {
         devToolsWindowOpen: () -> Boolean = { false },
     ): Fixture = Fixture(windowVisible, settingsWindowOpen, devToolsWindowOpen)
 
-    /** 记录调用的替身：前台应用 pid 可设，还焦点与面板外点击都记账。 */
+    /** 记录调用的替身：前台应用 pid 可设，还焦点、自投递与面板外点击都记账。 */
     private class FakePanelEnvironment : PanelEnvironment {
         var frontmostPid: Long = -1L
         val restoredFocus = mutableListOf<Long>()
+        var selfPasteTargets = 0
         val clicks = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
 
         override fun frontmostExternalPid(): Long = frontmostPid
 
         override fun restoreFocus(pid: Long) {
             restoredFocus += pid
+        }
+
+        override fun targetSelfForPaste() {
+            selfPasteTargets++
         }
 
         override fun outsideClicks(): Flow<Unit> = clicks
