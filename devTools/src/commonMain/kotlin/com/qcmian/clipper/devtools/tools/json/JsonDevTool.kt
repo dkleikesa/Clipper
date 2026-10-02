@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -81,16 +82,8 @@ internal object JsonDevTool : DevTool {
         }
 
         Column(Modifier.fillMaxSize()) {
-            DevToolEditor(
-                label = "输入",
-                value = source,
-                onValueChange = { source = it },
-                placeholder = "在此粘贴 JSON，或从剪贴板条目打开",
-                modifier = Modifier.weight(1f),
-            )
-
-            Spacer(Modifier.height(8.dp))
-
+            // 操作栏固定在最上方：输入与结果并排后，按钮留在两列之间既挤窄结果框，
+            // 也打断了「先动作、后对照」的阅读顺序。
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DevToolButton(
                     title = "格式化",
@@ -123,14 +116,30 @@ internal object JsonDevTool : DevTool {
 
             Spacer(Modifier.height(8.dp))
 
-            DevToolEditor(
-                label = "结果",
-                value = output,
-                readOnly = true,
-                onValueChange = {},
-                placeholder = "格式化 / 压缩的结果会显示在这里",
-                modifier = Modifier.weight(1f),
-            )
+            // 输入与结果左右等分，便于逐行对照格式化前后的差异。
+            // 两侧都用 [DevToolEditor]（原生 `BasicTextField`）：与 XML 工具、与项目里其它
+            // 文本输入同一套控件。曾经换过自绘的代码编辑器（为了折叠），但它把输入法、光标、
+            // 选区这些平台能力都变成了自研代码，代价高于折叠带来的收益，因此退回原生控件。
+            Row(Modifier.weight(1f)) {
+                DevToolEditor(
+                    label = "输入",
+                    value = source,
+                    onValueChange = { source = it },
+                    placeholder = "在此粘贴 JSON，或从剪贴板条目打开",
+                    modifier = Modifier.weight(1f),
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                DevToolEditor(
+                    label = "结果",
+                    value = output,
+                    readOnly = true,
+                    onValueChange = {},
+                    placeholder = "格式化 / 压缩的结果会显示在这里",
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }
