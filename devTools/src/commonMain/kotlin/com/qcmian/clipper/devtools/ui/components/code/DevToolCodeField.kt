@@ -63,14 +63,17 @@ import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.ui.theme.hintColor
 import kotlin.math.roundToInt
 
-/** 折叠箭头所在列的宽度（够放 9dp 的箭头，两侧还留得出余量）。 */
+/** 折叠箭头所在列的宽度（够放 [ChevronLong] 的箭头，两侧还留得出余量）。 */
 private val ChevronColumnWidth = 18.dp
 
 /** 行号与折叠列之间的间距。 */
 private val GutterNumbersGap = 10.dp
 
-/** 折叠列与正文之间的间距。 */
+/** 折叠列与分隔线之间的间距。 */
 private val GutterEndPadding = 6.dp
+
+/** 分隔线与正文之间的间距：紧贴着看，正文首列会像是压在线上。 */
+private val GutterTextGap = 5.dp
 
 /** 折叠箭头尺寸：圆头 chevron。 */
 private val ChevronLong = 8.dp
@@ -160,9 +163,7 @@ internal fun DevToolCodeField(
                 GutterNumbersGap.toPx() + GutterEndPadding.toPx()
             ).toDp()
     }
-    // 装订线的底色 / 分隔线也按 IDEA 的两套方案给（浅色 #F7F7F7 + #E0E0E0，深色 #313335 + #3C3F41）：
-    // 只用一层半透明灰的话，浅色主题下正文与装订线几乎分不开。
-
+    // 装订线不单独上色：与正文同一块底色，只靠一条竖分隔线分界（见两套配色里的 gutterDivider）。
 
     fun toggleFold(pair: BracketPair) {
         if (pair.foldStart in foldedStarts) {
@@ -189,14 +190,7 @@ internal fun DevToolCodeField(
                 .border(1.dp, colors.outline.copy(alpha = 0.6f), shape)
                 .padding(horizontal = 2.dp, vertical = 4.dp),
         ) {
-            // 装订线的底色铺满整块面板（不随内容滚动），行号与箭头画在它上面：
-            // 只给「有文字的那一列」上色的话，内容短于面板时那一列会中途断掉。
-            Box(
-                modifier = Modifier
-                    .width(gutterWidth)
-                    .fillMaxHeight()
-                    .background(codeColors.gutterBackground)
-            )
+            // 分界线铺满整块面板（不随内容滚动）：只按内容高度画的话，内容短于面板时那一列会中途断掉。
             Box(
                 modifier = Modifier
                     .width(1.dp)
@@ -225,6 +219,8 @@ internal fun DevToolCodeField(
                     interactionSource = interactionSource,
                     onToggle = ::toggleFold,
                 )
+                // 分隔线画在装订线的右缘（`x = gutterWidth`），正文从它右边再让出一点才开始。
+                Spacer(Modifier.width(GutterTextGap))
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -514,7 +510,7 @@ private fun unfoldAroundCaret(
  * 常量 = keyword、标点 = 正文色。
  */
 private val IdeaLightCodeColors = CodeColors(
-    editorBackground = Color(0xFFFFFFFF), // IDEA 的代码区就是纯白，装订线才是浅灰
+    editorBackground = Color(0xFFFFFFFF), // IDEA 的代码区就是纯白
     key = Color(0xFF7A3E9D), // field / property（截图里 parser、pretty、compact 那个紫）
     string = Color(0xFF067D17),
     number = Color(0xFF1750EB),
@@ -522,7 +518,6 @@ private val IdeaLightCodeColors = CodeColors(
     punctuation = Color(0xFF000000),
     foldPlaceholder = Color(0xFF8C8C8C),
     foldPlaceholderBackground = Color(0x14000000),
-    gutterBackground = Color(0xFFF7F7F7),
     gutterDivider = Color(0xFFE0E0E0),
 )
 
@@ -536,7 +531,6 @@ private val DarculaCodeColors = CodeColors(
     punctuation = Color(0xFFA9B7C6),
     foldPlaceholder = Color(0xFFA9B7C6),
     foldPlaceholderBackground = Color(0x33A9B7C6),
-    gutterBackground = Color(0xFF313335),
     gutterDivider = Color(0xFF3C3F41),
 )
 

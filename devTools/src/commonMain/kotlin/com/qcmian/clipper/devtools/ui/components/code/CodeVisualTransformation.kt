@@ -17,7 +17,6 @@ internal data class CodeColors(
     val punctuation: Color,
     val foldPlaceholder: Color,
     val foldPlaceholderBackground: Color,
-    val gutterBackground: Color,
     val gutterDivider: Color
 )
 

@@ -23,7 +23,6 @@ class CodeVisualTransformationTest {
         punctuation = Color(0xFF000005),
         foldPlaceholder = Color(0xFF000006),
         foldPlaceholderBackground = Color(0x11000006),
-        gutterBackground = Color(0xFF000007),
         gutterDivider = Color(0xFF000008),
     )
 
