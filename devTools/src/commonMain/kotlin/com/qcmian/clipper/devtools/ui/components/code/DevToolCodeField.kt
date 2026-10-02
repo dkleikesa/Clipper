@@ -97,6 +97,9 @@ private val ChevronStroke = 1.5.dp
  *
  * [isError] 表示 [value] 本身是一条失败说明（而不是排好版的内容），正文改用错误色：调用方因此
  * 可以像普通结果一样把错误交给这个控件，不必在框外另开一行提示。
+ *
+ * [labelHint] 是跟在 [label] 后面的一句状态说明，用来交代「框里这份内容处于什么状态」。文案由
+ * 调用方给：控件不认识「排版中」这类说法，它只负责把这句话摆在标签旁边。
  */
 @Composable
 internal fun DevToolCodeField(
@@ -107,6 +110,7 @@ internal fun DevToolCodeField(
     readOnly: Boolean = false,
     placeholder: String = "",
     isError: Boolean = false,
+    labelHint: String = "",
 ) {
     val colors = MaterialTheme.colorScheme
     val hint = MaterialTheme.hintColor
@@ -187,7 +191,13 @@ internal fun DevToolCodeField(
     }
 
     Column(modifier.fillMaxWidth()) {
-        Text(label, fontSize = 11.sp, color = hint)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 11.sp, color = hint)
+            if (labelHint.isNotEmpty()) {
+                Spacer(Modifier.width(6.dp))
+                Text(labelHint, fontSize = 11.sp, color = hint)
+            }
+        }
         Spacer(Modifier.height(4.dp))
         Box(
             modifier = Modifier

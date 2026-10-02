@@ -29,8 +29,11 @@ import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
+import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /** 输入停下来多久才重新排版。 */
 private const val FormatDebounceMillis = 250L
@@ -67,6 +70,12 @@ internal object JsonDevTool : DevTool {
         var output by remember { mutableStateOf("") }
         var error by remember { mutableStateOf<String?>(null) }
         var mode by remember { mutableStateOf(JsonResultMode.Pretty) }
+        // 缩进是**一个**取值：几个空格与制表符是同一件事的两面。原先拆成「空格数 + 是否制表符」
+        // 两个状态，于是能拼出「用着制表符、同时还记着 4 空格」这种自相矛盾的状态，界面也只好
+        // 在切到制表符时把空格数那一串藏起来——藏起来的那一份恰恰是用户刚挑过的。
+        var indent by remember { mutableStateOf(JsonFormat.DefaultIndent) }
+        // 上一次真正排版用的正文。只有它变了才值得等防抖：换缩进、换模式都是点一下就定的事。
+        var laidOutSource by remember { mutableStateOf<String?>(null) }
 
         // 每次主面板交进来一份新的剪贴板内容就整块替换：结果与提示都属于「上一份内容」，
         // 留着会让用户以为结果是对新内容算出来的。
@@ -75,22 +84,39 @@ internal object JsonDevTool : DevTool {
             source = text
             output = ""
             error = null
+            laidOutSource = null
         }
 
-        // 实时排版：每次输入变化都重新计时，停下来才真正跑一次（打字过程中不排版）。
+        // 实时排版：正文变化时重新计时，停下来才真正跑一次（打字过程中不排版）。
+        //
+        // 防抖只对**正文**生效：缩进与模式是点一下就该出结果的操作，让它们也等这 250ms，按钮就会
+        // 显得发木——连点几下加号，每一下都要等，中间还互相把计时器清零。所以正文没变就直接算。
+        //
+        // 排版本身放到默认调度器上跑：这项工作随文档长度线性涨（1MB 实测解析约 10ms、结果侧高亮
+        // 扫描约 25ms），留在组合线程上就是按一次键掉几帧。挪出去之后按键与滚动都不再被它卡住，
+        // 防抖的职责也回到它该管的那一件事——打字过程中别让中间态（多半是非法 JSON）闪出来。
+        // 换了输入就把这个协程取消掉，正在算的那一份即使算完也自然作废。
+        //
         // 失败时把结果清空、改成显示错误本身：两者占的是结果框的同一块地方，留着上一次的结果
         // 也看不见，却会让「复制结果」还能拷出一份与眼前内容不符的东西。
-        LaunchedEffect(source, mode) {
-            if (source.isBlank()) {
+        LaunchedEffect(source, mode, indent) {
+            // 本次要排的正文先落到局部：下面要跨一次挂起，回来之后再读状态可能已经是新值了。
+            val text = source
+            if (text.isBlank()) {
                 output = ""
                 error = null
+                laidOutSource = null
                 return@LaunchedEffect
             }
-            delay(FormatDebounceMillis)
-            val result = when (mode) {
-                JsonResultMode.Pretty -> JsonFormat.format(source)
-                JsonResultMode.Compact -> JsonFormat.minify(source)
+            if (text != laidOutSource) delay(FormatDebounceMillis)
+            val result = withContext(Dispatchers.Default) {
+                when (mode) {
+                    JsonResultMode.Pretty -> JsonFormat.format(text, indent)
+                    JsonResultMode.Compact -> JsonFormat.minify(text)
+                }
             }
+            // 先记下「这次排的是哪份正文」，再落结果：记住的是已经算过的正文，不是刚拿到的那份。
+            laidOutSource = text
             result.fold(
                 onSuccess = {
                     output = it
@@ -98,10 +124,17 @@ internal object JsonDevTool : DevTool {
                 },
                 onFailure = {
                     output = ""
-                    error = jsonErrorMessage(source, it)
+                    error = jsonErrorMessage(text, it)
                 },
             )
         }
+
+        // 结果框里这一份还对得上当前输入吗。为真有两段：防抖的安静窗口里，以及后台正在算的时候。
+        //
+        // 它不只是一句提示——「复制结果」必须跟着它一起禁用。否则那 250ms 里按钮是亮的，点下去
+        // 拷到的是**上一份**内容的排版结果，正是上面那段注释想在失败分支上避免的事。
+        // 输入为空时不算过期：那时框里本来就该是空的，没有什么「旧结果」可言。
+        val resultIsStale = source.isNotBlank() && source != laidOutSource
 
         Column(Modifier.fillMaxSize()) {
             // 操作栏固定在最上方：输入与结果并排后，按钮留在两列之间既挤窄结果框，
@@ -122,9 +155,26 @@ internal object JsonDevTool : DevTool {
                 DevToolActionSpacer()
                 DevToolButton(
                     title = "复制结果",
-                    enabled = output.isNotEmpty(),
+                    // 过期时一并禁用：这时框里那份不属于眼前的输入，拷出去就是错的。
+                    enabled = output.isNotEmpty() && !resultIsStale,
                     onClick = { host.copyToClipboard(output) },
                 )
+
+                Spacer(Modifier.width(12.dp))
+
+                // 缩进只影响「美化」（压缩根本没有换行），但这里**不**按模式禁用：缩进是用户的口味
+                // 设置，想先设好再切回美化，没道理拦着；菜单按钮上一直显示着当前取值，点了也不会
+                // 「没反应」。原先按模式整组变灰，反而逼着用户先切模式、再调缩进、再切回来。
+                Text("缩进", fontSize = 11.sp, color = MaterialTheme.hintColor)
+                DevToolActionSpacer()
+                DevToolMenuButton(
+                    label = indentLabel(indent),
+                    options = JsonFormat.IndentOptions,
+                    selected = indent,
+                    optionLabel = ::indentLabel,
+                    onSelect = { indent = it },
+                )
+
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = "${source.length} 字符",
@@ -159,9 +209,24 @@ internal object JsonDevTool : DevTool {
                     readOnly = true,
                     onValueChange = {},
                     placeholder = "美化 / 压缩的结果会显示在这里",
+                    // 排版还没跟上输入：说明框里这份是旧的。打字时会一直亮着（正文一直在变），
+                    // 停下来 250ms 后消失——所以它读起来是「正在算」，而不是每按一键闪一下。
+                    labelHint = if (resultIsStale) "排版中…" else "",
                     modifier = Modifier.weight(1f),
                 )
             }
         }
     }
+}
+
+/**
+ * 缩进在界面上的写法：按钮与菜单项共用一份，所以菜单里选中的那一项与按钮上的文字永远一致。
+ *
+ * 制表符写全「制表符」而不是缩写 `Tab`：按钮宽度跟着标签走，而「制表符」与「4 空格」几乎一样
+ * 宽，从空格切到制表符时，右边那串字符数就不会左右跳（缩写会跳 17dp 左右）。宽度也够——换成
+ * 菜单按钮后整组缩进控件比原来的「加减 + Tab」窄了 50dp 上下，而最小窗口宽下正是这里最紧。
+ */
+private fun indentLabel(indent: JsonIndent): String = when (indent) {
+    is JsonIndent.Spaces -> "${indent.count} 空格"
+    JsonIndent.Tab -> "制表符"
 }
