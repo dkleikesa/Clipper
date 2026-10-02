@@ -109,3 +109,58 @@ internal fun slideoutWidthOf(settings: AppSettings): Dp =
 internal fun DpSize.nearlyEquals(other: DpSize): Boolean =
     abs(width.value - other.width.value) <= RESIZE_TOLERANCE_DP &&
         abs(height.value - other.height.value) <= RESIZE_TOLERANCE_DP
+
+/**
+ * 开发者工具窗口的首选尺寸。
+ *
+ * 这个值是被**内容**推出来的，不是拍脑袋定的：左右并排两个编辑区，每个要放得下约 50 个等宽
+ * 字符（12sp 实测步进 7.9dp），加上装订线、内边距与 216dp 的侧边栏，1180dp 正好卡在这个位置。
+ * 900dp（旧默认）只给得起 32 个字符，连一行稍长的 JSON 都放不下。
+ *
+ * 高度取 760dp：一屏能看下 30 行左右，同时不至于在 1117dp 高的屏幕上顶天立地。
+ */
+private val PreferredDevToolsWindowSize = DpSize(1180.dp, 760.dp)
+
+/**
+ * 首选尺寸最多占屏幕**可用区域**的这个比例。
+ *
+ * 取 0.8 而不是 1：小屏（13 寸 Air 的 1440×900）上若按首选值铺开，窗口会几乎顶满，作为
+ * 「按快捷键呼出来看一眼」的伴随窗口太重。留两成余量，用户还看得见底下的东西。
+ */
+private const val DEV_TOOLS_SCREEN_FRACTION = 0.8f
+
+/**
+ * 开发者工具窗口该多大：用户拖过就用用户的，否则按屏幕算一个（见 [PreferredDevToolsWindowSize]）。
+ *
+ * 先按屏幕夹再取用户值，**不能反过来**：用户值是在某块屏幕上拖出来的，换到一块更小的屏幕
+ * （或副屏被拔掉）之后那个尺寸可能根本放不下，夹一次才不会开出一个伸出屏幕的窗口。
+ *
+ * 下限用 [minimumDevToolsWindowSize] 兜底：旧存档里若留着一个比下限还小的值（下限曾经调过），
+ * 直接开出来会让布局挤成一团。
+ */
+internal fun devToolsWindowSizeOf(settings: AppSettings, bounds: Rectangle): DpSize {
+    val capped = DpSize(
+        width = minOf(PreferredDevToolsWindowSize.width, bounds.width.dp * DEV_TOOLS_SCREEN_FRACTION),
+        height = minOf(PreferredDevToolsWindowSize.height, bounds.height.dp * DEV_TOOLS_SCREEN_FRACTION),
+    )
+    val minimum = minimumDevToolsWindowSize(bounds)
+    return DpSize(
+        width = (settings.devToolsWindowWidth?.dp ?: capped.width).coerceIn(minimum.width, bounds.width.dp),
+        height = (settings.devToolsWindowHeight?.dp ?: capped.height).coerceIn(minimum.height, bounds.height.dp),
+    )
+}
+
+/**
+ * 开发者工具窗口的尺寸下限：再小就摆不下一对编辑区了（用户拖边缩放时由框架据此拦下）。
+ *
+ * 宽度取 720dp：这是「两个编辑区各约 21 个等宽字符」的位置，已经是能用的边缘——真要更窄，
+ * 该由界面把侧边栏收成图标栏去腾地方，而不是让窗口继续缩。
+ */
+private val DevToolsWindowMinimumSize = DpSize(720.dp, 480.dp)
+
+/** 尺寸下限与屏幕可用区域的交集：屏幕本身比下限还小时（极端缩放）以屏幕为准。 */
+internal fun minimumDevToolsWindowSize(bounds: Rectangle): DpSize = DpSize(
+    width = minOf(DevToolsWindowMinimumSize.width, bounds.width.dp),
+    height = minOf(DevToolsWindowMinimumSize.height, bounds.height.dp),
+)
+
