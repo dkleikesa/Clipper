@@ -24,6 +24,20 @@ internal data class CodeColors(
 internal const val FoldPlaceholder = "\u2026"
 
 /**
+ * 一个制表符在屏幕上占几列。
+ *
+ * 取 4：制表符本来就是一整个缩进档，而 Compose 自己的排版把它画成**正好一个空格宽**（实测
+ * 8px == 1 个空格），于是「制表符」与「1 个空格」在屏幕上一模一样，偏偏前者本该缩进一格。
+ *
+ * 这里只是把宽度摆正，不额外画标记。代价是它与「4 个空格」在屏幕上也一样宽——但那是制表符的
+ * 本性：它没有固有宽度，「一档等于几列」是排版策略（tab size），不同编辑器可以不一样。
+ * 想区分只能靠标记，而标记属于「显示里多出一个字符」，不要。
+ *
+ * 只按显示算，`value` 里仍是那一个 `\t`。
+ */
+internal const val TabDisplayWidth = 4
+
+/**
  * 把高亮与折叠做成**纯显示层**的变换。
  *
  * 关键取舍：`value` 始终是真实文档，折叠只改变「画出来的样子」。因此
@@ -43,7 +57,8 @@ internal class CodeVisualTransformation(
     override fun filter(text: AnnotatedString): TransformedText {
         val source = text.text
         val hidden = outermostFolds(folded)
-        if (hidden.isEmpty() && tokens.isEmpty()) {
+        // 制表符要展开成多列，映射就不再是恒等的，因此快路径多一个前提。
+        if (hidden.isEmpty() && tokens.isEmpty() && '\t' !in source) {
             return TransformedText(text, OffsetMapping.Identity)
         }
 
@@ -92,8 +107,15 @@ internal class CodeVisualTransformation(
             }
 
             forward[i] = builder.length
-            builder.append(source[i])
-            backward.add(i)
+            if (source[i] == '\t') {
+                // 一个制表符占满一档：只把宽度摆正，不额外画标记——显示里不该多出文本里没有的字符。
+                builder.append(" ".repeat(TabDisplayWidth))
+                // 展开出来的每一列都映射回这一个制表符：光标落在其中哪一列，文档偏移都是它。
+                repeat(TabDisplayWidth) { backward.add(i) }
+            } else {
+                builder.append(source[i])
+                backward.add(i)
+            }
             i++
         }
         if (activeKind != null) builder.pop()

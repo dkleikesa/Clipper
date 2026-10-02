@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
@@ -100,5 +101,79 @@ class CodeVisualTransformationTest {
         val text = "{\n  \"a\": 1\n}"
         val result = transform(text, emptyList())
         assertEquals(text, result.text.text)
+    }
+
+    // ------------------------------------------------------------------ 制表符
+
+    /**
+     * 这条钉住用户报的现象：选「制表符」与选「1 个空格」，在屏幕上必须看得出不同。
+     *
+     * 数据本来就不同（`JsonFormatTest` 断言过一个产出 `\t`、一个产出空格），坏的是显示——
+     * Compose 自己的排版把 `\t` 画成**正好一个空格宽**（实测 8px == 1 个空格），于是两者一模一样。
+     */
+    @Test
+    fun `制表符与一个空格在屏幕上不再一样`() {
+        val tabbed = transform("{\n\t\"a\": 1\n}").text.text
+        val spaced = transform("{\n \"a\": 1\n}").text.text
+
+        assertNotEquals(spaced, tabbed)
+        assertEquals(TabDisplayWidth, tabbed.lines()[1].takeWhile { it == ' ' }.length)
+        assertEquals(1, spaced.lines()[1].takeWhile { it == ' ' }.length)
+    }
+
+    /** 显示里只该有宽度上的差别：不该多出文本里没有的字符（例如标记箭头）。 */
+    @Test
+    fun `展开只补空格不加别的字符`() {
+        assertEquals(" ".repeat(TabDisplayWidth) + "X", transform("\tX").text.text)
+    }
+
+    @Test
+    fun `制表符在屏幕上占满一个缩进档`() {
+        val line = transform("{\n\t\"a\": 1\n}").text.text.lines()[1]
+
+        assertEquals(" ".repeat(TabDisplayWidth) + "\"a\": 1", line)
+    }
+
+    /**
+     * 展开成多列之后，偏移映射必须跟着改：否则光标会画到错的地方、点一下落错位。
+     * 关键性质是「展开出来的每一列都指回那一个制表符」。
+     */
+    @Test
+    fun `制表符展开后每一列都指回它自己且映射仍然单调`() {
+        val text = "\tX"
+        val result = transform(text)
+        val mapping = result.offsetMapping
+
+        assertEquals(0, mapping.originalToTransformed(0))
+        assertEquals(TabDisplayWidth, mapping.originalToTransformed(1), "制表符之后的原文偏移要跨过整档")
+        assertEquals(TabDisplayWidth + 1, mapping.originalToTransformed(2))
+
+        for (column in 0 until TabDisplayWidth) {
+            assertEquals(0, mapping.transformedToOriginal(column), "第 $column 列属于那个制表符")
+        }
+        assertEquals(1, mapping.transformedToOriginal(TabDisplayWidth))
+
+        var previous = -1
+        for (offset in 0..text.length) {
+            val mapped = mapping.originalToTransformed(offset)
+            assertTrue(mapped >= previous, "偏移 $offset 破坏了 originalToTransformed 的单调性")
+            previous = mapped
+        }
+        previous = -1
+        for (offset in 0..result.text.text.length) {
+            val mapped = mapping.transformedToOriginal(offset)
+            assertTrue(mapped >= previous, "偏移 $offset 破坏了 transformedToOriginal 的单调性")
+            previous = mapped
+        }
+    }
+
+    /** 制表符与折叠同时出现时，折叠照样把它整段盖掉——两条规则各管各的。 */
+    @Test
+    fun `折叠区间里的制表符跟着一起被盖住`() {
+        val text = "{\n\t\"a\": 1\n}"
+        val pair = scanJson(text).brackets.single()
+        val result = transform(text, listOf(pair))
+
+        assertEquals("{…}", result.text.text)
     }
 }
