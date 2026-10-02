@@ -66,6 +66,18 @@ compose.desktop {
             description = "Compose Multiplatform clipboard history manager"
             vendor = "qcmian"
 
+            // 应用自身的许可证。jpackage 的 `--license-file`：macOS 放进
+            // `.app/Contents/Resources`，Windows 安装向导会显示，deb 放进 `/usr/share/doc`。
+            licenseFile.set(rootProject.file("LICENSE"))
+
+            // 第三方声明与 Apache-2.0 全文：发行物里除本项目自己的 MIT 之外，还带着以
+            // Apache-2.0 分发的依赖（kotlinx、Compose Multiplatform 等）。§4(a)/(d) 要求把
+            // 许可证副本与归属声明随发行物一并交给接收者，而 Gradle 依赖那套不会替我们做这件事。
+            //
+            // 注意 `appResourcesRootDir` 取的是根目录下的**按平台分的子目录**（插件会读
+            // `common/`、`<os>/`、`<target>/`），所以文件放在 `legal/common/` 下，三个平台通吃。
+            appResourcesRootDir.set(rootProject.layout.projectDirectory.dir("legal"))
+
             // 保持最小化运行时：`suggestModules` 基于当前桌面端依赖分析出的补充模块。
             // 不启用 includeAllModules，避免把完整 JDK 一并打入发行包。
             //

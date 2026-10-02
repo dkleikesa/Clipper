@@ -218,4 +218,8 @@ Clipper/
 
 ## 许可证
 
-[MIT](LICENSE)
+本项目自身的代码以 [MIT](LICENSE) 发布。
+
+发行物中**还包含**以 Apache-2.0 授权的第三方依赖（kotlinx、Compose Multiplatform 等）。
+这些组件不受 MIT 覆盖，各自的归属声明与许可证全文见
+[`legal/THIRD_PARTY_NOTICES.md`](legal/THIRD_PARTY_NOTICES.md)；打包时该目录会一并放入安装包。
