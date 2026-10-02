@@ -42,6 +42,10 @@ kotlin {
         // 折叠与高亮的正确性全在这几个纯函数上，靠眼看界面是测不出来的。
         jvmTest.dependencies {
             implementation(kotlin("test"))
+            // 离屏渲染用的 harness（`PanelRenderHarness` 等）要把 Compose 画进图片，因此需要
+            // skiko 的原生库；公共的 `compose.ui` 只有跨平台部分，缺了它会在初始化
+            // `org.jetbrains.skia.Surface` 时失败，报错完全不提「依赖缺失」。
+            implementation(compose.desktop.currentOs)
         }
     }
 }
