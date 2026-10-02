@@ -618,6 +618,9 @@ private fun unfoldAroundCaret(
  * 用固定色值而不是从 Material 色板派生：这套配色的意义就在于「看起来像 IDEA」，
  * 派生出来的近似色反而会四不像。取值对应 IDEA 的 role——键 = field/property、
  * 常量 = keyword、标点 = 正文色。
+ *
+ * 浅色这一侧**保持原样**，因为它本来就与应用的色板处得来：编辑区底色取纯白，正是应用
+ * `surface` 的值，而它比 `background`（`#F5F5F7`）亮一档——「纸比桌面亮」的关系成立。
  */
 private val IdeaLightCodeColors = CodeColors(
     editorBackground = Color(0xFFFFFFFF), // IDEA 的代码区就是纯白
@@ -631,24 +634,38 @@ private val IdeaLightCodeColors = CodeColors(
     gutterDivider = Color(0xFFE0E0E0),
 )
 
-/** Darcula 的语法配色，对应 IDEA 深色方案。 */
-private val DarculaCodeColors = CodeColors(
-    editorBackground = Color(0xFF2B2B2B),
-    key = Color(0xFF9876AA),
-    string = Color(0xFF6A8759),
-    number = Color(0xFF6897BB),
-    constant = Color(0xFFCC7832),
-    punctuation = Color(0xFFA9B7C6),
-    foldPlaceholder = Color(0xFFA9B7C6),
-    foldPlaceholderBackground = Color(0x33A9B7C6),
-    gutterDivider = Color(0xFF3C3F41),
+/**
+ * 深色下的语法配色，**从应用自己的色板派生**，而不是照搬 Darcula。
+ *
+ * 原先用的是 Darcula 原色，问题出在底色：`#2B2B2B` 是一块偏暖、偏绿的灰，而应用的面板底色是
+ * `#1B1B1E`、窗口内的 chrome 是 `#26262A`——都是带一点蓝的中性灰。三种灰摆在一起，编辑区就成了
+ * 整个窗口里唯一的外来物：它比周围亮，还偏绿。语法色同样打架，Darcula 的键紫 `#9876AA` 与字符串
+ * 橄榄绿 `#6A8759` 跟强调色 `#0A84FF` 不是一个体系。
+ *
+ * 现在这套：
+ *  - 底色 `#232328` 仍在应用的蓝灰族里，且**比 `background` 亮一档**——浅色下「纸比桌面亮」的
+ *    关系在深色下同样成立，两套主题不会一个凹一个凸。
+ *  - 键色取 `#7AA2F7`，与强调色 `#0A84FF` 同族，选中态、按钮与语法高亮因此像一套东西。
+ *  - 字符串、数字、常量挑同族的低饱和色，既分得开又不与蓝色抢。
+ *  - 标点直接用应用的 `onSurfaceVariant`（`#B4B4BD`），正文与界面文字同色。
+ */
+private val AppDarkCodeColors = CodeColors(
+    editorBackground = Color(0xFF232328),
+    key = Color(0xFF7AA2F7),
+    string = Color(0xFF9ECE6A),
+    number = Color(0xFFFF9E64),
+    constant = Color(0xFFBB9AF7),
+    punctuation = Color(0xFFB4B4BD),
+    foldPlaceholder = Color(0xFF8E8E93),
+    foldPlaceholderBackground = Color(0x33B4B4BD),
+    gutterDivider = Color(0xFF35353B), // 应用的 surfaceVariant
 )
 
 /** 当前主题该用哪套语法配色。 */
 @Composable
 private fun rememberCodeColors(): CodeColors =
     if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
-        DarculaCodeColors
+        AppDarkCodeColors
     } else {
         IdeaLightCodeColors
     }
