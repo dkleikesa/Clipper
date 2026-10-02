@@ -68,7 +68,7 @@ internal object JsonDevTool : DevTool {
     override val metadata: DevToolMetadata = DevToolMetadata(
         id = "json",
         name = "JSON 格式化",
-        description = "实时美化或压缩 JSON，非法输入会报出出错位置。",
+        description = "实时美化、压缩或按键排序 JSON，非法输入会报出出错位置。",
         group = DevToolGroup.FORMATTER,
         icon = ClipperIconKind.BRACES,
     )
@@ -85,6 +85,8 @@ internal object JsonDevTool : DevTool {
         // 两个状态，于是能拼出「用着制表符、同时还记着 4 空格」这种自相矛盾的状态，界面也只好
         // 在切到制表符时把空格数那一串藏起来——藏起来的那一份恰恰是用户刚挑过的。
         var indent by remember { mutableStateOf(JsonFormat.DefaultIndent) }
+        // 排序与缩进、模式都正交：它既不决定合不合法，也不决定空白，只决定键的先后。
+        var sortKeys by remember { mutableStateOf(false) }
         // 上一次真正排版用的正文。只有它变了才值得等防抖：换缩进、换模式都是点一下就定的事。
         var laidOutSource by remember { mutableStateOf<String?>(null) }
 
@@ -110,7 +112,7 @@ internal object JsonDevTool : DevTool {
         //
         // 失败时把结果清空、改成显示错误本身：两者占的是结果框的同一块地方，留着上一次的结果
         // 也看不见，却会让「复制结果」还能拷出一份与眼前内容不符的东西。
-        LaunchedEffect(source, mode, indent) {
+        LaunchedEffect(source, mode, indent, sortKeys) {
             // 本次要排的正文先落到局部：下面要跨一次挂起，回来之后再读状态可能已经是新值了。
             val text = source
             if (text.isBlank()) {
@@ -122,8 +124,8 @@ internal object JsonDevTool : DevTool {
             if (text != laidOutSource) delay(FormatDebounceMillis)
             val result = withContext(Dispatchers.Default) {
                 when (mode) {
-                    JsonResultMode.Pretty -> JsonFormat.format(text, indent)
-                    JsonResultMode.Compact -> JsonFormat.minify(text)
+                    JsonResultMode.Pretty -> JsonFormat.format(text, indent, sortKeys)
+                    JsonResultMode.Compact -> JsonFormat.minify(text, sortKeys)
                 }
             }
             // 先记下「这次排的是哪份正文」，再落结果：记住的是已经算过的正文，不是刚拿到的那份。
@@ -184,6 +186,16 @@ internal object JsonDevTool : DevTool {
                     selected = indent,
                     optionLabel = ::indentLabel,
                     onSelect = { indent = it },
+                )
+
+                Spacer(Modifier.width(8.dp))
+
+                // 开关而不是模式：它跟「美化 / 压缩」不是一个维度——那两个互斥，这个只是叠在上面
+                // 的一层修饰，所以摆在缩进旁边、和缩进一起算「输出长什么样」的那组。
+                DevToolButton(
+                    title = "键排序",
+                    primary = sortKeys,
+                    onClick = { sortKeys = !sortKeys },
                 )
 
                 Spacer(Modifier.weight(1f))

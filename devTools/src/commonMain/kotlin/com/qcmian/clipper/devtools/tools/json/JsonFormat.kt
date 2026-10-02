@@ -5,7 +5,9 @@ package com.qcmian.clipper.devtools.tools.json
 
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 
 /**
  * 美化时用什么缩进。
@@ -76,12 +78,22 @@ internal object JsonFormat {
     fun isValid(text: String): Boolean = parseOrNull(text) != null
 
     /** 美化：失败时 [Result] 带着解析器的原始异常信息（含出错位置）。 */
-    fun format(text: String, indent: JsonIndent = DefaultIndent): Result<String> = runCatching {
-        prettyPrinter(indent).encodeToString(JsonElement.serializer(), parser.parseToJsonElement(text))
+    fun format(
+        text: String,
+        indent: JsonIndent = DefaultIndent,
+        sortKeys: Boolean = false,
+    ): Result<String> = runCatching {
+        prettyPrinter(indent).encodeToString(JsonElement.serializer(), prepare(text, sortKeys))
     }
 
-    fun minify(text: String): Result<String> = runCatching {
-        compact.encodeToString(JsonElement.serializer(), parser.parseToJsonElement(text))
+    fun minify(text: String, sortKeys: Boolean = false): Result<String> = runCatching {
+        compact.encodeToString(JsonElement.serializer(), prepare(text, sortKeys))
+    }
+
+    /** 解析，并按 [sortKeys] 决定要不要先把键排好。排版与压缩共用这一段。 */
+    private fun prepare(text: String, sortKeys: Boolean): JsonElement {
+        val parsed = parser.parseToJsonElement(text)
+        return if (sortKeys) parsed.sortedByKey() else parsed
     }
 
     /**
@@ -95,4 +107,28 @@ internal object JsonFormat {
         prettyPrint = true
         prettyPrintIndent = indent.text
     }
+}
+
+/**
+ * 递归把所有对象的键按升序重排；数组只是容器，里面的元素照样往下走。
+ *
+ * 排序必须在**解析后的树**上做，不能拿格式化好的文本按行排：键的样子会出现在字符串值里
+ * （`{"a":"{\"b\":1}"}`），而且文本的行序根本表达不了嵌套关系——按行排出的结果大部分时候看着
+ * 是对的，碰上上面那种输入就悄悄错了。
+ *
+ * 比较用 [String] 的自然序，也就是码位序：`A` < `Z` < `a` < `z`。这与 jq `--sort-keys`、
+ * Python `json.dumps(sort_keys=True)` 一致，跨工具对得上；代价是大小写混排时 `URL` 会排在
+ * `id` 前面。想换成「忽略大小写」的字典序，把下面的比较子换掉即可。
+ *
+ * kotlinx.serialization 本身没有这个开关（`JsonBuilder` 里没有排序选项），所以只能自己重建节点。
+ * [JsonObject] 与 [JsonArray] 都按传入容器的迭代顺序写出去，[associate] 建出的 `LinkedHashMap`
+ * 因此就是最终顺序，不用再跟写出端打招呼。
+ */
+private fun JsonElement.sortedByKey(): JsonElement = when (this) {
+    is JsonObject -> JsonObject(
+        entries.sortedBy { it.key }.associate { it.key to it.value.sortedByKey() }
+    )
+
+    is JsonArray -> JsonArray(map { it.sortedByKey() })
+    else -> this
 }
