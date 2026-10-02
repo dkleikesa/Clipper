@@ -13,7 +13,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -202,10 +204,14 @@ internal fun ScrollbarTrack(
     modifier: Modifier = Modifier,
 ) {
     val vertical = axis == ScrollbarAxis.Vertical
-    // 指上去时滑块加深：滚动条是自绘的一条灰，不加深就看不出它「能拖」。
+    // 指上去、或正在拖时滑块加深：滚动条是自绘的一条灰，不加深就看不出它「能拖」。
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val thumbColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (hovered) 0.55f else 0.28f)
+    // 拖动期间指针常常会跑到滚动条之外——手势本来就允许（滑出去照样跟手），但那会让 `hovered`
+    // 变假。只看 hover 的话，滑块会在拖动中途闪回常态色，也就是「拖着拖着颜色跳一下」。
+    var dragging by remember { mutableStateOf(false) }
+    val thumbColor = MaterialTheme.colorScheme.onSurface
+        .copy(alpha = if (hovered || dragging) 0.55f else 0.28f)
     val scope = rememberCoroutineScope()
     val hitPadding = with(LocalDensity.current) { ScrollbarHitPadding.toPx() }
     val drawWidth = with(LocalDensity.current) { ScrollbarThickness.toPx() }
@@ -226,33 +232,39 @@ internal fun ScrollbarTrack(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
-
-                    val trackLength = (if (vertical) size.height else size.width).toFloat()
-                    val geometry = target.thumb(trackLength)
-                    val grab = when {
-                        // 抓住滑块：记住手指相对滑块起点的位置，拖动全程保持这个关系才会跟手。
-                        // 命中区在滑块两端各多出 [ScrollbarHitPadding]，所以判定也放宽同样的量。
-                        geometry != null &&
-                            alongAxis(down.position) in
-                            (geometry.start - hitPadding)..(geometry.start + geometry.length + hitPadding) ->
-                            alongAxis(down.position) - geometry.start
-                        // 按在轨道空白处：把滑块中心对到手指。
-                        geometry != null -> geometry.length / 2f
-                        else -> 0f
-                    }
-                    target.scrollTo(scope, trackLength, alongAxis(down.position) - grab)
-
-                    var last = alongAxis(down.position)
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        change.consume()
-                        if (!change.pressed) break
-                        val now = alongAxis(change.position)
-                        if (now != last) {
-                            last = now
-                            target.scrollTo(scope, trackLength, last - grab)
+                    // 从按下到手势结束整段都算「激活」。用 `finally` 复位：手势被取消（窗口失焦、
+                    // 节点被移除）时也要把颜色放回去，否则滑块会一直停在加深态。
+                    dragging = true
+                    try {
+                        val trackLength = (if (vertical) size.height else size.width).toFloat()
+                        val geometry = target.thumb(trackLength)
+                        val grab = when {
+                            // 抓住滑块：记住手指相对滑块起点的位置，拖动全程保持这个关系才会跟手。
+                            // 命中区在滑块两端各多出 [ScrollbarHitPadding]，所以判定也放宽同样的量。
+                            geometry != null &&
+                                alongAxis(down.position) in
+                                (geometry.start - hitPadding)..(geometry.start + geometry.length + hitPadding) ->
+                                alongAxis(down.position) - geometry.start
+                            // 按在轨道空白处：把滑块中心对到手指。
+                            geometry != null -> geometry.length / 2f
+                            else -> 0f
                         }
+                        target.scrollTo(scope, trackLength, alongAxis(down.position) - grab)
+
+                        var last = alongAxis(down.position)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            change.consume()
+                            if (!change.pressed) break
+                            val now = alongAxis(change.position)
+                            if (now != last) {
+                                last = now
+                                target.scrollTo(scope, trackLength, last - grab)
+                            }
+                        }
+                    } finally {
+                        dragging = false
                     }
                 }
             },
