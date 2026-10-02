@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -42,9 +45,11 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
@@ -118,6 +123,9 @@ internal fun DevToolCodeField(
     val textMeasurer = rememberTextMeasurer()
     val scrollState = rememberScrollState()
     val interactionSource = remember { MutableInteractionSource() }
+    val focusRequester = remember { FocusRequester() }
+    // 点空白处落光标要用面板与正文各自的窗口坐标（见 FieldOrigins）。
+    val origins = remember { FieldOrigins() }
 
     // 控件自己持有选区：折叠要知道光标在哪（落进被折叠的区间就得把它展开）。
     var fieldValue by remember { mutableStateOf(TextFieldValue(value)) }
@@ -188,6 +196,21 @@ internal fun DevToolCodeField(
                 .clip(shape)
                 .background(codeColors.editorBackground)
                 .border(1.dp, colors.outline.copy(alpha = 0.6f), shape)
+                // 整块面板都算正文区：内容右侧与下方的空白也要有编辑态光标，点一下也要能落下光标。
+                // 那里没有 `BasicTextField`（它只有内容那么高），所以由面板接住点击，把面板坐标
+                // 换算成正文坐标，再问排版结果「这里对应哪个字符」。
+                .pointerHoverIcon(PointerIcon.Text)
+                .onGloballyPositioned { origins.panel = it.positionInRoot() }
+                .pointerInput(Unit) {
+                    detectTapGestures { tap ->
+                        focusRequester.requestFocus()
+                        // 取不到排版结果（还没排过版）就退到文末，至少光标落在能继续输入的地方。
+                        val caret = layout
+                            ?.let { mapping.transformedToOriginal(it.getOffsetForPosition(origins.panel + tap - origins.text)) }
+                            ?: fieldValue.text.length
+                        fieldValue = fieldValue.copy(selection = TextRange(caret))
+                    }
+                }
                 .padding(horizontal = 2.dp, vertical = 4.dp),
         ) {
             // 分界线铺满整块面板（不随内容滚动）：只按内容高度画的话，内容短于面板时那一列会中途断掉。
@@ -224,7 +247,10 @@ internal fun DevToolCodeField(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .onGloballyPositioned { fieldTopInRow = it.positionInParent().y }
+                        .onGloballyPositioned {
+                            fieldTopInRow = it.positionInParent().y
+                            origins.text = it.positionInRoot()
+                        }
                 ) {
                     // 占位提示放在**文本框内部**、用与正文同一套度量：它的原点因此与正文完全
                     // 一致。放在外面当兄弟节点（旧 DevToolEditor 的写法）会因为它自己的字号/
@@ -254,7 +280,9 @@ internal fun DevToolCodeField(
                         cursorBrush = SolidColor(colors.primary),
                         visualTransformation = transformation,
                         onTextLayout = { layout = it },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
                     )
                     // 折叠处的 `…`：叠在字形上，点它展开。
                     for (pair in folded) {
@@ -270,6 +298,19 @@ internal fun DevToolCodeField(
             }
         }
     }
+}
+
+/**
+ * 面板与正文各自在窗口里的位置。
+ *
+ * 点击空白时要把面板坐标减去正文坐标，才能问排版结果「点的是哪个字符」。两端都取窗口坐标而不是
+ * 各自的父坐标：中间隔着滚动容器与内边距，换算容易漏掉一项。
+ *
+ * 存成普通字段而不是 `mutableStateOf`：它只给点击处理读，随滚动变化时不值得触发一次重组。
+ */
+private class FieldOrigins {
+    var panel: Offset = Offset.Zero
+    var text: Offset = Offset.Zero
 }
 
 /** 一行可视文本行：它在排版结果里的位置，以及它属于第几逻辑行。 */
