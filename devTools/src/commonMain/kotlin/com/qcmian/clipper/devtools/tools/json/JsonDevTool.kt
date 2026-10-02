@@ -29,7 +29,6 @@ import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
-import com.qcmian.clipper.devtools.ui.components.DevToolMessage
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
 import kotlinx.coroutines.delay
 
@@ -80,7 +79,8 @@ internal object JsonDevTool : DevTool {
         }
 
         // 实时排版：每次输入变化都重新计时，停下来才真正跑一次（打字过程中不排版）。
-        // 失败时**保留上一次的结果**——边打边清空会让结果面板一直闪，而「哪错了」由错误提示回答。
+        // 失败时把结果清空、改成显示错误本身：两者占的是结果框的同一块地方，留着上一次的结果
+        // 也看不见，却会让「复制结果」还能拷出一份与眼前内容不符的东西。
         LaunchedEffect(source, mode) {
             if (source.isBlank()) {
                 output = ""
@@ -98,7 +98,8 @@ internal object JsonDevTool : DevTool {
                     error = null
                 },
                 onFailure = {
-                    error = it.message ?: it::class.simpleName ?: "解析失败"
+                    output = ""
+                    error = jsonErrorMessage(source, it)
                 },
             )
         }
@@ -133,8 +134,6 @@ internal object JsonDevTool : DevTool {
                 )
             }
 
-            error?.let { DevToolMessage("解析失败：$it", isError = true) }
-
             Spacer(Modifier.height(8.dp))
 
             // 输入与结果左右等分，便于逐行对照格式化前后的差异。
@@ -154,7 +153,10 @@ internal object JsonDevTool : DevTool {
 
                 DevToolCodeField(
                     label = "结果",
-                    value = output,
+                    // 失败时错误就显示在结果框里（用错误色）：它是这次解析的产出，与结果同一个位置。
+                    // 文案已经自带「第几行 第几列」，不必再前缀「解析失败」。
+                    value = error ?: output,
+                    isError = error != null,
                     readOnly = true,
                     onValueChange = {},
                     placeholder = "美化 / 压缩的结果会显示在这里",

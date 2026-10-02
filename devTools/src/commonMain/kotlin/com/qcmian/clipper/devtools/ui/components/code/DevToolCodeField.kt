@@ -86,6 +86,9 @@ private val ChevronStroke = 1.5.dp
  *  - 折叠开关：装订线里的箭头 + 被折叠处的 `…` 占位符，都是叠在控件上的小点击区。
  *
  * 因此输入法、光标、选区、无障碍仍然全部由平台控件负责——这正是从自绘编辑器换回来换到的东西。
+ *
+ * [isError] 表示 [value] 本身是一条失败说明（而不是排好版的内容），正文改用错误色：调用方因此
+ * 可以像普通结果一样把错误交给这个控件，不必在框外另开一行提示。
  */
 @Composable
 internal fun DevToolCodeField(
@@ -95,17 +98,18 @@ internal fun DevToolCodeField(
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
     placeholder: String = "",
+    isError: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     val hint = MaterialTheme.hintColor
     val shape = RoundedCornerShape(6.dp)
     val codeColors = rememberCodeColors()
-    val textStyle = remember(colors) {
+    val textStyle = remember(colors, isError) {
         TextStyle(
             fontFamily = FontFamily.Monospace,
             fontSize = 12.sp,
             lineHeight = 16.sp,
-            color = colors.onSurface,
+            color = if (isError) colors.error else colors.onSurface,
         )
     }
     val textMeasurer = rememberTextMeasurer()
