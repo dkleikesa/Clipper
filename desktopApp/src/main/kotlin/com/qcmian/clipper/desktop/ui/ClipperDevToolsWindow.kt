@@ -106,11 +106,19 @@ fun ApplicationScope.ClipperDevToolsWindow(
         // 窗口级快捷键：自绘标题栏之后就没有系统菜单了，`⌘W` 得自己接上；`Esc` 与设置窗口
         // 一致，表示「关掉这一层」。放在窗口层而不是内容根节点上——内容里有没有 Compose 焦点
         // 节点取决于用户点没点过编辑区，靠焦点链会让这两个键时灵时不灵。
+        //
+        // `⌘B` 跟着一起放在这里，理由同上：它要能随时切换侧边栏，而不必先点一下编辑区。
         onPreviewKeyEvent = { event ->
             if (event.type != KeyEventType.KeyDown) {
                 false
             } else if (event.key == Key.Escape || (event.isMetaPressed && event.key == Key.W)) {
                 viewModel.onAction(ClipboardUiAction.CloseDevTools)
+                true
+            } else if (event.isMetaPressed && event.key == Key.B) {
+                // 直接读当前设置再取下一个：切换的入口有两个（这里与标题栏按钮），状态只有一份。
+                viewModel.onAction(
+                    ClipboardUiAction.UpdateSettings { it.copy(devToolsSidebar = it.devToolsSidebar.next()) }
+                )
                 true
             } else {
                 false
@@ -231,6 +239,13 @@ fun ApplicationScope.ClipperDevToolsWindow(
                 item = state.devToolsItem,
                 onClose = { viewModel.onAction(ClipboardUiAction.CloseDevTools) },
                 onCopyToClipboard = viewModel::copyToClipboardFromDevTools,
+                // 侧边栏形态是「用户的选择」，随设置持久化（见 `AppSettings.devToolsSidebar`）。
+                sidebar = state.settings.devToolsSidebar,
+                onSidebarChange = { mode ->
+                    viewModel.onAction(
+                        ClipboardUiAction.UpdateSettings { it.copy(devToolsSidebar = mode) }
+                    )
+                },
                 // 文件那一组：只给路径，读写留在工具侧（kotlinx-io）。`window` 是 Compose 的
                 // `ComposeWindow`，本身就是 AWT 的 `Frame`，可直接当原生对话框的父窗口。
                 onPickFileToOpen = { pickFileToOpen(window) },

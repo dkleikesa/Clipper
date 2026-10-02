@@ -47,6 +47,21 @@ enum class PopupPosition(val label: String) {
     SCREEN_CENTER("屏幕中心"),
 }
 
+/**
+ * 开发者工具窗口左侧工具清单的三种形态。
+ *
+ * 中间那一档（[RAIL]）不是凑数：工具窗口右栏要横着摆两个编辑区，宽度是最紧的资源，而完全
+ * 隐藏清单之后换一个工具就只能靠重新展开——图标栏把「换工具」压到一次点击，只收 48dp。
+ */
+enum class DevToolsSidebar(val label: String) {
+    EXPANDED("展开"),
+    RAIL("图标栏"),
+    HIDDEN("隐藏");
+
+    /** 点一下切换到下一档，循环。按钮与快捷键共用同一个顺序。 */
+    fun next(): DevToolsSidebar = entries[(ordinal + 1) % entries.size]
+}
+
 /** 用户可录制的快捷键。[character] 是渲染出来的按键（`"C"`、`"⌫"`、`" "`）。 */
 @Serializable
 data class ShortcutSpec(
@@ -201,6 +216,26 @@ data class AppSettings(
      * 关着，重启、面板隐藏都不会改变它——只有用户再次切换（按钮 / 快捷键 / 页脚）才会翻转。
      */
     val previewOpen: Boolean = false,
+
+    /**
+     * 开发者工具窗口的尺寸；`null` 表示用户还没调整过，由宿主按屏幕算一个默认值。
+     *
+     * 与 [customWindowWidth] / [customWindowHeight] **分开存**：两个窗口该有多大差得远——工具窗口
+     * 要横着摆下两个编辑区，跟主面板共用一个值必然有一边别扭。
+     *
+     * 单独存还有一个更直接的理由：主面板的尺寸可以由内容推出来（自动贴合），工具窗口不行，
+     * 它只能记「上次是多少」。
+     */
+    val devToolsWindowWidth: Int? = null,
+    val devToolsWindowHeight: Int? = null,
+
+    /**
+     * 开发者工具窗口侧边栏的形态。
+     *
+     * 与 [previewOpen] 同一条口径：这是「用户的选择」，因此随设置持久化——收起之后一直收着，
+     * 重启也不会自己弹回来。
+     */
+    val devToolsSidebar: DevToolsSidebar = DevToolsSidebar.EXPANDED,
 
     // 忽略
     /** 暂停记录新的复制。 */

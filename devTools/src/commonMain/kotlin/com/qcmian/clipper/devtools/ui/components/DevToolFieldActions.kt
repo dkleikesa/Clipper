@@ -1,6 +1,14 @@
 package com.qcmian.clipper.devtools.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
+import com.qcmian.clipper.core.ui.icons.ClipperIconKind
+import com.qcmian.clipper.core.ui.icons.ClipperIcon
+import com.qcmian.clipper.core.ui.components.HoverTooltip
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -32,13 +40,21 @@ import com.qcmian.clipper.devtools.api.writeTextFile
 /**
  * 编辑区标题行上的那几个动作（打开 / 清空 / 保存 / 复制）。
  *
- * 与工具栏上那些按钮刻意不同：它们属于**某一个框**，所以做成一行小字，贴着那个框的标签右侧，
- * 而不是并排的实心按钮。理由有两层——视觉上，一行小字不会让标题行变成第二个工具栏；语义上，
- * 「打开文件」只对输入框成立、「保存文件」只对结果框成立，挂错了框就是错的。
+ * 做成**常驻的小图标按钮**，而不是原先的一串 11sp 灰字。两个理由：
+ *
+ *  - 那串字挨着框名排在同一行，读起来是「输入 打开文件 清空 结果 排版中… 保存文件 复制」一句
+ *    话，框名与动作分不开；换成图标之后，文字只剩下框名，「这行在说哪个框」一目了然。
+ *  - 文字链接的可点区域只有字那么高，而这几个动作是编辑时的高频操作。
+ *
+ * 刻意**不做成悬停才出现**：鼠标要先去「猜」哪儿有按钮，而这一行本来就空着，藏起来省的是一块
+ * 用不上的地方，代价却是每次都得先晃一下鼠标。
+ *
+ * 仍然贴着各自的框：图标跟着框走，「打开文件」只对输入框成立、「保存文件」只对结果框成立。
  */
 @Composable
 fun DevToolFieldAction(
-    title: String,
+    kind: ClipperIconKind,
+    tooltip: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
 ) {
@@ -46,26 +62,30 @@ fun DevToolFieldAction(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
 
-    Text(
-        text = title,
-        fontSize = 11.sp,
-        maxLines = 1,
-        color = when {
-            !enabled -> MaterialTheme.hintColor.copy(alpha = 0.5f)
-            hovered -> colors.primary
-            else -> MaterialTheme.hintColor
-        },
-        modifier = Modifier
-            .clip(RoundedCornerShape(4.dp))
-            .hoverable(interaction, enabled = enabled)
-            .clickable(
-                interactionSource = interaction,
-                indication = null,
-                enabled = enabled,
-                onClick = onClick,
+    HoverTooltip(text = tooltip, positioning = TooltipAnchorPosition.Above) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(
+                    if (hovered && enabled) colors.onSurface.copy(alpha = 0.08f) else Color.Transparent
+                )
+                .hoverable(interaction, enabled = enabled)
+                .clickable(
+                    interactionSource = interaction,
+                    indication = null,
+                    enabled = enabled,
+                    onClick = onClick,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            ClipperIcon(
+                kind = kind,
+                size = 13.dp,
+                tint = if (enabled) colors.onSurfaceVariant else colors.onSurfaceVariant.copy(alpha = 0.35f),
             )
-            .padding(horizontal = 5.dp, vertical = 1.dp),
-    )
+        }
+    }
 }
 
 /**
@@ -81,12 +101,14 @@ fun DevToolInputActions(
     host: DevToolHost,
 ) {
     DevToolFieldAction(
-        title = "打开文件",
+        kind = ClipperIconKind.FOLDER,
+        tooltip = "打开文件",
         onClick = { onValueChange(readPickedFile(host) ?: return@DevToolFieldAction) },
     )
-    Spacer(Modifier.width(4.dp))
+    Spacer(Modifier.width(2.dp))
     DevToolFieldAction(
-        title = "清空",
+        kind = ClipperIconKind.TRASH,
+        tooltip = "清空这一段",
         enabled = value.isNotEmpty(),
         onClick = { onValueChange("") },
     )
@@ -107,7 +129,8 @@ fun DevToolResultActions(
 ) {
     val canAct = value.isNotEmpty()
     DevToolFieldAction(
-        title = "保存文件",
+        kind = ClipperIconKind.SAVE,
+        tooltip = "保存为文件",
         enabled = canAct,
         onClick = {
             val path = host.pickFileToSave(suggestedFileName) ?: return@DevToolFieldAction
@@ -116,9 +139,10 @@ fun DevToolResultActions(
             )
         },
     )
-    Spacer(Modifier.width(4.dp))
+    Spacer(Modifier.width(2.dp))
     DevToolFieldAction(
-        title = "复制",
+        kind = ClipperIconKind.COPY,
+        tooltip = "复制结果",
         enabled = canAct,
         onClick = { host.copyToClipboard(value) },
     )

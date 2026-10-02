@@ -153,6 +153,22 @@ internal object JsonDevTool : DevTool {
         // 输入为空时不算过期：那时框里本来就该是空的，没有什么「旧结果」可言。
         val resultIsStale = source.isNotBlank() && source != laidOutSource
 
+        // 行数 / 字符数与「排版中…」报到窗口底部的状态栏，不再占编辑区上方那一行。
+        //
+        // 放在 `LaunchedEffect` 里而不是直接调：`reportStatus` 写的是面板的状态，在组合期间写
+        // 等于边读边写。键里带上 `output` 与 `error`，结果一落地就把数字换成结果那一侧的量。
+        LaunchedEffect(source, output, error, resultIsStale) {
+            host.reportStatus(
+                when {
+                    source.isBlank() -> null
+                    resultIsStale -> "排版中…"
+                    output.isNotEmpty() -> "结果 ${output.lineCountOf()} 行 · ${output.length} 字符"
+                    error != null -> "输入 ${source.lineCountOf()} 行 · ${source.length} 字符"
+                    else -> null
+                }
+            )
+        }
+
         Column(Modifier.fillMaxSize()) {
             // 操作栏固定在最上方：输入与结果并排后，按钮留在两列之间既挤窄结果框，
             // 也打断了「先动作、后对照」的阅读顺序。
@@ -198,11 +214,6 @@ internal object JsonDevTool : DevTool {
                 )
 
                 Spacer(Modifier.weight(1f))
-                Text(
-                    text = "${source.length} 字符",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.hintColor,
-                )
             }
 
             Spacer(Modifier.height(8.dp))
@@ -238,9 +249,6 @@ internal object JsonDevTool : DevTool {
                     readOnly = true,
                     onValueChange = {},
                     placeholder = "美化 / 压缩的结果会显示在这里",
-                    // 排版还没跟上输入：说明框里这份是旧的。打字时会一直亮着（正文一直在变），
-                    // 停下来 150ms 后消失——所以它读起来是「正在算」，而不是每按一键闪一下。
-                    labelHint = if (resultIsStale) "排版中…" else "",
                     modifier = Modifier.weight(1f),
                     // 「保存 / 复制」跟着结果走：产出的是这个框里的内容，动作就该在这儿。
                     // 过期时传空串，两个动作随之禁用——那时框里那份不属于眼前的输入，
@@ -269,3 +277,11 @@ private fun indentLabel(indent: JsonIndent): String = when (indent) {
     is JsonIndent.Spaces -> "${indent.count} 空格"
     JsonIndent.Tab -> "制表符"
 }
+
+/**
+ * 这段文字占几行。
+ *
+ * 用 `count { it == '\n' } + 1` 而不是 `lines().size`：后者会为一份 1MB 的文档切出一整个字符串列表，
+ * 而状态栏每敲一个键就要问一次。空串算 0 行——「0 行」比「1 行」诚实。
+ */
+private fun String.lineCountOf(): Int = if (isEmpty()) 0 else count { it == '\n' } + 1

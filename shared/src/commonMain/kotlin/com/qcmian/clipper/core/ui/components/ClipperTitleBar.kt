@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,7 +25,7 @@ import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 
 /**
- * 无边框窗口自绘的标题栏：标题 + 关闭按钮。
+ * 无边框窗口自绘的标题栏：标题 + 关闭按钮，可选在标题左边挂一个 [leading]。
  *
  * 应用的每个窗口都是无边框 + 透明的（见 `ClipperWindow` / `ClipperSettingsWindow`）：系统标题栏
  * 的底色由 AppKit 决定，既不跟主题走、也和本应用的配色对不上。于是标题、关闭按钮与可拖拽区
@@ -31,9 +34,12 @@ import com.qcmian.clipper.core.ui.icons.ClipperIconKind
  * 做成共享组件而不是各窗口各抄一份：字号、按钮尺寸、左右内边距、拖拽区范围这些细节一旦分叉，
  * 几个窗口就会长得不像一家人。
  *
+ * [leading] 是给「标题栏要顺带承载别的东西」的窗口开的（开发者工具把侧边栏开关和工具名都放在
+ * 这一条里，省掉一整行窗口内标题）。它**不参与拖动**——按钮落在拖拽区里，小幅移动就会被判成
+ * 拖动，于是点不中。
+ *
  * @param dragModifier 「按住拖动窗口」的手势，由宿主注入（共享代码里没有 `java.awt` 的窗口概念）。
- *   它只挂在标题那一段的 [Box] 上，**不覆盖关闭按钮**：按钮若落在拖拽区里，小幅移动就会被判成
- *   拖动，于是点不中。
+ *   它只挂在标题那一段的 [Box] 上，**不覆盖 [leading]，也不覆盖关闭按钮**。
  * @param closeTooltip 关闭按钮的悬停提示。各窗口含义不同（关窗 / 退出应用），因此由调用方给。
  */
 @Composable
@@ -43,6 +49,7 @@ fun ClipperTitleBar(
     closeTooltip: String,
     modifier: Modifier = Modifier,
     dragModifier: Modifier = Modifier,
+    leading: (@Composable () -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
@@ -50,9 +57,14 @@ fun ClipperTitleBar(
             .fillMaxWidth()
             .height(TitleBarHeight)
             .background(colors.surface)
-            .padding(start = 16.dp, end = 10.dp),
+            // 有 leading 时左边让给它，标题因此不会离窗口边缘太远。
+            .padding(start = if (leading == null) 16.dp else 10.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(8.dp))
+        }
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -65,6 +77,8 @@ fun ClipperTitleBar(
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
         HoverTooltip(closeTooltip) {

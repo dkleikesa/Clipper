@@ -68,6 +68,10 @@ internal val DevToolScrollbarGap = 5.dp
 /**
  * 一节等宽编辑区（输入或输出）。
  *
+ * [isError] 表示 [value] 本身是一条失败说明（而不是排好版的内容），正文改用错误色：调用方因此
+ * 可以像普通结果一样把错误交给这个控件，不必在框外另开一行提示——那一行出现 / 消失会把编辑区
+ * 顶得跳一下。与 `DevToolCodeField` 的同名参数同义。
+ *
  * [softWrap] 与 `DevToolCodeField` 的同名参数一致：默认**不折**长行，改为横向滚出去。目前写死
  * 默认值，等设置项齐了再由界面提供开关。
  */
@@ -79,6 +83,7 @@ fun DevToolEditor(
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
     placeholder: String = "",
+    isError: Boolean = false,
     softWrap: Boolean = false,
     /** 标题行右端那块地方，用来放只属于这个框的动作；与 `DevToolCodeField` 的同名参数一致。 */
     actions: @Composable () -> Unit = {},
@@ -145,7 +150,7 @@ fun DevToolEditor(
                             textStyle = TextStyle(
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 12.sp,
-                                color = colors.onSurface,
+                                color = if (isError) colors.error else colors.onSurface,
                             ),
                             cursorBrush = SolidColor(colors.primary),
                             modifier = Modifier

@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,10 +15,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
-import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.devtools.api.DataTypes
 import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
@@ -33,7 +30,6 @@ import com.qcmian.clipper.devtools.ui.components.DevToolEditor
 import com.qcmian.clipper.devtools.ui.components.DevToolInputActions
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
-import com.qcmian.clipper.devtools.ui.components.DevToolMessage
 
 /**
  * XML 格式化 / 压缩工具。
@@ -84,6 +80,22 @@ internal object XmlDevTool : DevTool {
             )
         }
 
+        // 行数 / 字符数报到窗口底部的状态栏，不再占工具栏右端那块地方；成功提示走 `showStatus`，
+        // 它会显示在同一处并自动消失——原先这两个提示各占一整行插在上下两个编辑区之间，
+        // 出现和消失都会把编辑区顶得跳一下。
+        LaunchedEffect(source, output, error) {
+            host.reportStatus(
+                when {
+                    source.isBlank() -> null
+                    output.isNotEmpty() -> "结果 ${output.lineCountOf()} 行 · ${output.length} 字符"
+                    else -> "输入 ${source.lineCountOf()} 行 · ${source.length} 字符"
+                }
+            )
+        }
+        LaunchedEffect(note) {
+            note?.let { host.showStatus(it) }
+        }
+
         Column(Modifier.fillMaxSize()) {
             DevToolEditor(
                 label = "输入",
@@ -115,30 +127,33 @@ internal object XmlDevTool : DevTool {
                     onClick = { apply(minifyXml(source), "已压缩") },
                 )
                 Spacer(Modifier.weight(1f))
-                Text(
-                    text = "${source.length} 字符",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.hintColor,
-                )
             }
-
-            error?.let { DevToolMessage("解析失败：$it", isError = true) }
-            note?.let { DevToolMessage(it) }
 
             Spacer(Modifier.height(8.dp))
 
             DevToolEditor(
                 label = "结果",
-                value = output,
+                // 失败时错误就显示在结果框里（用错误色）：它是这次解析的产出，与结果同一个位置。
+                // 与 JSON 工具同一口径，两个工具的出错观感因此一致。
+                value = error ?: output,
+                isError = error != null,
                 readOnly = true,
                 onValueChange = {},
                 placeholder = "格式化 / 压缩的结果会显示在这里",
                 modifier = Modifier.weight(1f),
                 // 与 JSON 工具同一套动作，只是预填的文件名不同。
                 actions = {
-                    DevToolResultActions(output, host, suggestedFileName = "formatted.xml")
+                    DevToolResultActions(error ?: output, host, suggestedFileName = "formatted.xml")
                 },
             )
         }
     }
 }
+
+/**
+ * 这段文字占几行。
+ *
+ * 用 `count { it == '\n' } + 1` 而不是 `lines().size`：后者会为一份大文档切出一整个字符串列表，
+ * 而状态栏每敲一个键就要问一次。空串算 0 行——「0 行」比「1 行」诚实。
+ */
+private fun String.lineCountOf(): Int = if (isEmpty()) 0 else count { it == '\n' } + 1
