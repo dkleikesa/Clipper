@@ -21,9 +21,11 @@ import com.qcmian.clipper.testing.seedText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 
 /**
@@ -125,14 +127,23 @@ class InProcessCluster(
      *
      * 「改设置 → 重启后保持」这类用例必须用它——[close] 只关连接，防抖中的那次写入会丢。
      */
+    /**
+     * 走退出路径关库：先停掉后台工作，再把待写偏好落盘（`flushNow`）并关连接。
+     *
+     * **顺序不能反**。[repository.close] 的最后一步是 `storage.close()`；若此时还有查询在跑
+     * （例如刚改过排序、触发了一次重新分页），它会在连接关闭之后抛
+     * `SQLiteException: database connection closed`。这个异常没有接收者，会被
+     * kotlinx-coroutines-test 记账，砸到**后面某一个**测试上——表现是那个测试报
+     * `UncaughtExceptionsBeforeTest`，而且每次失败的用例都不一样，从失败者身上根本看不出原因。
+     */
     suspend fun shutdown() {
+        if (ownsScope) scope.coroutineContext.job.cancelAndJoin()
         repository.close()
-        if (ownsScope) scope.cancel()
     }
 
     override fun close() {
         repository.stop()
-        if (ownsScope) scope.cancel()
+        if (ownsScope) runBlocking { scope.coroutineContext.job.cancelAndJoin() }
         storage.close()
     }
 

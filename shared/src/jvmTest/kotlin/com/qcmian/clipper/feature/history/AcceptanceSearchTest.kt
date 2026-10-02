@@ -257,11 +257,26 @@ class AcceptanceSearchTest {
         }
     }
 
+    /**
+     * 等界面状态满足 [predicate]。
+     *
+     * 超时时把当时的状态一并报出来，而不是只报「等了 10000 毫秒」：这条等待偶发在**整包**运行时
+     * 超时（单独跑本类 8 次全过），只报超时无从判断是刷新管线卡住了、还是断言写错了。附上
+     * `deepSearch` / `hits` / `query` / `results` 之后，下次一眼能看出停在哪一步。
+     */
     private suspend fun awaitState(
         viewModel: ClipboardViewModel,
         predicate: (ClipboardUiState) -> Boolean,
     ) {
-        withTimeout(AWAIT_TIMEOUT_MILLIS) { viewModel.uiState.first(predicate) }
+        runCatching { withTimeout(AWAIT_TIMEOUT_MILLIS) { viewModel.uiState.first(predicate) } }
+            .getOrElse { failure ->
+                val state = viewModel.uiState.value
+                throw AssertionError(
+                    "等待状态超时：deepSearch=${state.deepSearch} hits=${state.deepSearchHits} " +
+                        "query=${state.appliedQuery} results=${state.results.map { it.meta.id }}",
+                    failure,
+                )
+            }
     }
 
     private companion object {
