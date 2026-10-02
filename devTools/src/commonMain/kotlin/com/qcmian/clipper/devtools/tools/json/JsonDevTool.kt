@@ -35,8 +35,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-/** 输入停下来多久才重新排版。 */
-private const val FormatDebounceMillis = 250L
+/**
+ * 正文停下来多久才重新排版。
+ *
+ * 这个值只干一件事：让安静窗口比**连打时的击键间隔**长，中间那些多半非法的状态就来不及渲染出来。
+ * 排版本身已经挪到后台调度器上（见 `Content` 里的说明），所以它不再是性能参数——拿它跟人打字的
+ * 节奏比，而不是跟「算得多慢」比。
+ *
+ * 取 150ms 是往快的那头靠：本工具的正文多半是整块进来的（从剪贴板条目打开、或直接粘贴），
+ * 那种情况没有中间态要压，延迟纯粹在拖后腿，而这正是主路径。手敲是次要路径，其击键间隔一般也
+ * 在 150ms 以上，连续输入仍然连不起来。再往下调（100ms 上下）会开始落进快速连打的间隔里，
+ * 于是每停一下就闪一次报错——那恰恰是这个窗口要压掉的东西。
+ */
+private const val FormatDebounceMillis = 150L
 
 /**
  * 结果的排版方式。
