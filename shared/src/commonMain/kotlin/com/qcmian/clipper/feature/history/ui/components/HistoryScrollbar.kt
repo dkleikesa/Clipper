@@ -7,12 +7,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import com.qcmian.clipper.core.ui.components.ScrollbarAxis
 import com.qcmian.clipper.core.ui.components.ScrollbarTarget
-import com.qcmian.clipper.core.ui.components.ScrollbarThumbMinHeight
+import com.qcmian.clipper.core.ui.components.ScrollbarThumbMinLength
 import com.qcmian.clipper.core.ui.components.ScrollbarTrack
 import com.qcmian.clipper.core.ui.components.ThumbGeometry
-import com.qcmian.clipper.core.ui.components.scrollOffsetForThumbTop
-import com.qcmian.clipper.core.ui.components.thumbHeightFor
+import com.qcmian.clipper.core.ui.components.scrollOffsetForThumbStart
+import com.qcmian.clipper.core.ui.components.thumbLengthFor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -38,7 +39,7 @@ private class ListHeightModel(private val heights: FloatArray) {
     val count: Int get() = heights.size
 
     /** 全部条目的总高，不含列表的 contentPadding。 */
-    val contentHeight: Float get() = starts[starts.size - 1]
+    val contentLength: Float get() = starts[starts.size - 1]
 
     /** 第 [index] 条顶端相对内容起点的偏移；越界时收敛到首尾。 */
     fun startOf(index: Int): Float = starts[index.coerceIn(0, count)]
@@ -79,11 +80,11 @@ internal fun HistoryScrollbar(
     }
     if (!scrollable) return
 
-    val minThumbHeight = with(LocalDensity.current) { ScrollbarThumbMinHeight.toPx() }
-    val target = remember(state, heights, contentPadding, minThumbHeight) {
-        LazyListScrollbarTarget(state, ListHeightModel(heights), contentPadding, minThumbHeight)
+    val minThumbLength = with(LocalDensity.current) { ScrollbarThumbMinLength.toPx() }
+    val target = remember(state, heights, contentPadding, minThumbLength) {
+        LazyListScrollbarTarget(state, ListHeightModel(heights), contentPadding, minThumbLength)
     }
-    ScrollbarTrack(target, modifier)
+    ScrollbarTrack(target, ScrollbarAxis.Vertical, modifier)
 }
 
 /**
@@ -97,8 +98,8 @@ private class LazyListScrollbarTarget(
     private val state: LazyListState,
     private val model: ListHeightModel,
     private val contentPadding: Float,
-    /** 滑块的最小高度（像素），见 `thumbHeightFor`。 */
-    private val minThumbHeight: Float,
+    /** 滑块的最小高度（像素），见 `thumbLengthFor`。 */
+    private val minThumbLength: Float,
 ) : ScrollbarTarget {
 
     /** 列表当前的可滚动区间：`null` 表示内容放得下（或还没完成布局）。 */
@@ -110,22 +111,22 @@ private class LazyListScrollbarTarget(
         // 早先用「轨道高」当视口，长度会偏小一点点，而且与本类内部的正反换算用的是两套数。
         val info = state.layoutInfo
         val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
-        val contentHeight = model.contentHeight + contentPadding
-        if (viewport <= 0f || contentHeight <= viewport) return null
-        return ScrollRange(viewport = viewport, scrollable = contentHeight - viewport)
+        val contentLength = model.contentLength + contentPadding
+        if (viewport <= 0f || contentLength <= viewport) return null
+        return ScrollRange(viewport = viewport, scrollable = contentLength - viewport)
     }
 
-    override fun thumb(trackHeight: Float): ThumbGeometry? {
-        if (trackHeight <= 0f) return null
+    override fun thumb(trackLength: Float): ThumbGeometry? {
+        if (trackLength <= 0f) return null
         // 滑块几何与实际可滚动区间必须出自同一份换算，否则「滑块走到底」与「内容滚到底」
         // 会差出一截。
         val range = scrollRange() ?: return null
 
-        val thumbHeight = thumbHeightFor(
-            trackHeight = trackHeight,
-            viewportHeight = range.viewport,
-            contentHeight = range.viewport + range.scrollable,
-            minThumbHeight = minThumbHeight,
+        val thumbLength = thumbLengthFor(
+            trackLength = trackLength,
+            viewportLength = range.viewport,
+            contentLength = range.viewport + range.scrollable,
+            minThumbLength = minThumbLength,
         )
         val scrolled = model.startOf(state.firstVisibleItemIndex) + state.firstVisibleItemScrollOffset
 
@@ -136,16 +137,16 @@ private class LazyListScrollbarTarget(
             !state.canScrollForward -> 1f
             else -> (scrolled / range.scrollable).coerceIn(0f, 1f)
         }
-        return ThumbGeometry(top = fraction * (trackHeight - thumbHeight), height = thumbHeight)
+        return ThumbGeometry(start = fraction * (trackLength - thumbLength), length = thumbLength)
     }
 
-    override fun scrollTo(scope: CoroutineScope, trackHeight: Float, thumbTop: Float) {
-        val geometry = thumb(trackHeight) ?: return
+    override fun scrollTo(scope: CoroutineScope, trackLength: Float, thumbStart: Float) {
+        val geometry = thumb(trackLength) ?: return
         val range = scrollRange() ?: return
-        val target = scrollOffsetForThumbTop(
-            thumbTop = thumbTop,
-            thumbHeight = geometry.height,
-            trackHeight = trackHeight,
+        val target = scrollOffsetForThumbStart(
+            thumbStart = thumbStart,
+            thumbLength = geometry.length,
+            trackLength = trackLength,
             maxScroll = range.scrollable,
         ) ?: return
 

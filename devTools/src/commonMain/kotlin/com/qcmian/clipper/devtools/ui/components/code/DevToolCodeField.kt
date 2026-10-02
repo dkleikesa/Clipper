@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,7 +66,12 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.qcmian.clipper.core.ui.components.HorizontalScrollbar
+import com.qcmian.clipper.core.ui.components.HorizontalScrollbarHeight
+import com.qcmian.clipper.core.ui.components.VerticalScrollbar
+import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
 import com.qcmian.clipper.core.ui.theme.hintColor
+import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import kotlin.math.roundToInt
 
 /** 折叠箭头所在列的宽度（够放 [ChevronLong] 的箭头，两侧还留得出余量）。 */
@@ -104,6 +110,14 @@ private val ChevronStroke = 1.5.dp
  * [actions] 是标题行右端那块地方，用来放只属于**这个框**的动作（输入框的「打开文件 / 清空」、
  * 结果框的「保存文件 / 复制」）。做成插槽而不是几个布尔开关：控件不该认识「打开文件」是什么，
  * 那是调用方与宿主之间的事（见 `DevToolFieldActions`）。
+ *
+ * [softWrap] 决定长行是折到下一行还是横向滚出去。默认**不折**：这是代码，一行一条记录，
+ * 折行会把「一行」这个结构本身弄没，对照两份 JSON 时尤其误导。目前写死默认值，等设置项齐了
+ * 再由界面提供开关。
+ *
+ * 实现上没有现成的开关可拨——`softWrap` 只是 `TextDelegate` 的内部参数，公开的
+ * `BasicTextField` 没有它。所以「不折」是靠布局达成的：正文那一层挂上横向滚动，子节点因此
+ * 拿到无限宽约束，没有可折的宽度，自然按最长一行排版。
  */
 @Composable
 internal fun DevToolCodeField(
@@ -115,6 +129,7 @@ internal fun DevToolCodeField(
     placeholder: String = "",
     isError: Boolean = false,
     labelHint: String = "",
+    softWrap: Boolean = false,
     actions: @Composable () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
@@ -131,6 +146,8 @@ internal fun DevToolCodeField(
     }
     val textMeasurer = rememberTextMeasurer()
     val scrollState = rememberScrollState()
+    // 不折行时正文那一层用得上；折行时它没有可滚的内容，留着不影响。
+    val horizontalScroll = rememberScrollState()
     val interactionSource = remember { MutableInteractionSource() }
     val focusRequester = remember { FocusRequester() }
     // 点空白处落光标要用面板与正文各自的窗口坐标（见 FieldOrigins）。
@@ -229,7 +246,6 @@ internal fun DevToolCodeField(
                         fieldValue = fieldValue.copy(selection = TextRange(caret))
                     }
                 }
-                .padding(horizontal = 2.dp, vertical = 4.dp),
         ) {
             // 分界线铺满整块面板（不随内容滚动）：只按内容高度画的话，内容短于面板时那一列会中途断掉。
             Box(
@@ -242,6 +258,17 @@ internal fun DevToolCodeField(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
+                    // 四周内边距加在滚动**外面**（视口内缩，内边距本身不随内容滚），滚动条则留在
+                    // 它外面贴着面板边框——内边距若加在面板上，滚动条会被推进来，与边框之间露出
+                    // 一条底色缝。右端与下端分别留出滚动条的粗细、再加一点间隙：滑块既不压住正文，
+                    // 也不贴着文字。无论滚动条此刻在不在都留着，免得它出现 / 消失时正文重排一次。
+                    .padding(
+                        start = 2.dp,
+                        top = 4.dp,
+                        end = VerticalScrollbarWidth + DevToolScrollbarGap,
+                        bottom = if (softWrap) 4.dp
+                        else 4.dp + DevToolScrollbarGap + HorizontalScrollbarHeight,
+                    )
                     .verticalScroll(scrollState)
             ) {
                 FoldGutter(
@@ -265,54 +292,86 @@ internal fun DevToolCodeField(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .onGloballyPositioned {
-                            fieldTopInRow = it.positionInParent().y
+                        // 装订线要的是正文在 Row 里的纵向位置，横向滚动不影响它。
+                        .onGloballyPositioned { fieldTopInRow = it.positionInParent().y }
+                        // 不折行时这一层才是滚动容器：子节点拿到无限宽约束，于是按最长一行排版。
+                        // 挂在这一层而不是外面含装订线的 Row 上——挂外面，行号会跟着正文一起横向滚走。
+                        .then(if (softWrap) Modifier else Modifier.horizontalScroll(horizontalScroll))
+                ) {
+                    // 正文自己的原点。横向滚动时它会跟着移，所以点击换算必须读这里而不是外层的
+                    // 位置——否则往右滚过之后，点在同一个像素上会落到更靠后的字符。
+                    Box(
+                        modifier = Modifier.onGloballyPositioned {
                             origins.text = it.positionInRoot()
                         }
-                ) {
-                    // 占位提示放在**文本框内部**、用与正文同一套度量：它的原点因此与正文完全
-                    // 一致。放在外面当兄弟节点（旧 DevToolEditor 的写法）会因为它自己的字号/
-                    // 行高与额外的 start 内边距，比正文偏右、比行号偏上。
-                    if (value.isEmpty() && placeholder.isNotEmpty()) {
-                        Text(
-                            text = placeholder,
-                            style = textStyle.copy(
-                                color = colors.onSurfaceVariant.copy(alpha = 0.6f)
-                            ),
+                    ) {
+                        // 占位提示放在**文本框内部**、用与正文同一套度量：它的原点因此与正文完全
+                        // 一致。放在外面当兄弟节点（旧 DevToolEditor 的写法）会因为它自己的字号/
+                        // 行高与额外的 start 内边距，比正文偏右、比行号偏上。
+                        if (value.isEmpty() && placeholder.isNotEmpty()) {
+                            Text(
+                                text = placeholder,
+                                style = textStyle.copy(
+                                    color = colors.onSurfaceVariant.copy(alpha = 0.6f)
+                                ),
+                            )
+                        }
+                        BasicTextField(
+                            value = fieldValue,
+                            onValueChange = { new ->
+                                val old = fieldValue
+                                fieldValue = new
+                                if (new.text != old.text) {
+                                    remapFolds(foldedStarts, old.text, new.text)
+                                    onValueChange(new.text)
+                                } else {
+                                    unfoldAroundCaret(foldedStarts, new.selection, structure)
+                                }
+                            },
+                            readOnly = readOnly,
+                            textStyle = textStyle,
+                            cursorBrush = SolidColor(colors.primary),
+                            visualTransformation = transformation,
+                            onTextLayout = { layout = it },
+                            modifier = Modifier
+                                // 折行时才撑满：不折行时外层给的是无限宽，要求一个无限的宽度
+                                // 没有意义。不撑满则按文字自然宽度排版，横向滚动才有内容可滚。
+                                .then(if (softWrap) Modifier.fillMaxWidth() else Modifier)
+                                .focusRequester(focusRequester),
                         )
-                    }
-                    BasicTextField(
-                        value = fieldValue,
-                        onValueChange = { new ->
-                            val old = fieldValue
-                            fieldValue = new
-                            if (new.text != old.text) {
-                                remapFolds(foldedStarts, old.text, new.text)
-                                onValueChange(new.text)
-                            } else {
-                                unfoldAroundCaret(foldedStarts, new.selection, structure)
-                            }
-                        },
-                        readOnly = readOnly,
-                        textStyle = textStyle,
-                        cursorBrush = SolidColor(colors.primary),
-                        visualTransformation = transformation,
-                        onTextLayout = { layout = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequester),
-                    )
-                    // 折叠处的 `…`：叠在字形上，点它展开。
-                    for (pair in folded) {
-                        FoldChip(
-                            layout = layout,
-                            offset = mapping.originalToTransformed(pair.foldStart),
-                            colors = codeColors,
-                            interactionSource = interactionSource,
-                            onClick = { toggleFold(pair) },
-                        )
+                        // 折叠处的 `…`：叠在字形上，点它展开。
+                        for (pair in folded) {
+                            FoldChip(
+                                layout = layout,
+                                offset = mapping.originalToTransformed(pair.foldStart),
+                                colors = codeColors,
+                                interactionSource = interactionSource,
+                                onClick = { toggleFold(pair) },
+                            )
+                        }
                     }
                 }
+            }
+            // 两条滚动条都画在正文之上（overlay），并且都贴着面板边框：正文那层内边距已经把
+            // 它们的粗细让了出来，所以叠上去既不压住字、也不与边框之间留缝。
+            VerticalScrollbar(
+                scrollState = scrollState,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    // 止于横向滚动条之上，免得两条撞在右下角。
+                    .padding(bottom = if (softWrap) 0.dp else HorizontalScrollbarHeight),
+            )
+            // 横向滚动条排在正文之下（只有不折行时才存在）。装订线那一段不归它管：滚动的是正文，
+            // 滚动条也只该横跨正文，左端与正文对齐。
+            if (!softWrap) {
+                HorizontalScrollbar(
+                    scrollState = horizontalScroll,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(start = 2.dp + gutterWidth + GutterTextGap),
+                )
             }
         }
     }

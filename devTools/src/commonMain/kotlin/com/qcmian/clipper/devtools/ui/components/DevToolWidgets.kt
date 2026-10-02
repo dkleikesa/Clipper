@@ -3,6 +3,7 @@ package com.qcmian.clipper.devtools.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -11,6 +12,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -41,6 +44,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
+import com.qcmian.clipper.core.ui.components.HorizontalScrollbar
+import com.qcmian.clipper.core.ui.components.HorizontalScrollbarHeight
+import com.qcmian.clipper.core.ui.components.VerticalScrollbar
+import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
 import com.qcmian.clipper.core.ui.theme.hintColor
 
 /**
@@ -50,7 +57,20 @@ import com.qcmian.clipper.core.ui.theme.hintColor
  * JSON 工具与 XML 工具会长得不像同一套软件里的东西。
  */
 
-/** 一节等宽编辑区（输入或输出）。 */
+/**
+ * 正文与滚动条之间留的空隙。
+ *
+ * 只让出滚动条本身的宽度时，文字右缘（或下缘）会紧贴着滑块，看着像压在一起。两个编辑控件、
+ * 横竖两个方向都读这一个值，免得四处的间距各走各的。
+ */
+internal val DevToolScrollbarGap = 5.dp
+
+/**
+ * 一节等宽编辑区（输入或输出）。
+ *
+ * [softWrap] 与 `DevToolCodeField` 的同名参数一致：默认**不折**长行，改为横向滚出去。目前写死
+ * 默认值，等设置项齐了再由界面提供开关。
+ */
 @Composable
 fun DevToolEditor(
     label: String,
@@ -59,11 +79,14 @@ fun DevToolEditor(
     modifier: Modifier = Modifier,
     readOnly: Boolean = false,
     placeholder: String = "",
+    softWrap: Boolean = false,
     /** 标题行右端那块地方，用来放只属于这个框的动作；与 `DevToolCodeField` 的同名参数一致。 */
     actions: @Composable () -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(6.dp)
+    val verticalScroll = rememberScrollState()
+    val horizontalScroll = rememberScrollState()
 
     Column(modifier.fillMaxWidth()) {
         // 标签在左、动作在右：动作属于这个框，就该跟它的名字同处一行。
@@ -80,30 +103,69 @@ fun DevToolEditor(
                 .weight(1f)
                 .clip(shape)
                 .background(colors.onSurface.copy(alpha = 0.05f))
-                .border(1.dp, colors.outline.copy(alpha = 0.6f), shape)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .border(1.dp, colors.outline.copy(alpha = 0.6f), shape),
         ) {
-            if (value.isEmpty() && placeholder.isNotEmpty()) {
-                Text(
-                    text = placeholder,
-                    fontSize = 12.sp,
-                    color = colors.onSurfaceVariant.copy(alpha = 0.6f),
-                )
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            // 内边距加在正文这一层、滚动条留在它外面，滚动条因此贴住面板边框；
+                            // 加在面板上的话滚动条会被推进来，与边框之间留一条露出底色的缝。
+                            // 右端与下端各留出一条滚动条的粗细再加上一点间隙，无论它此刻在不在
+                            // 都留着，免得出现 / 消失时正文跟着重排一次。
+                            .padding(
+                                start = 8.dp,
+                                end = 8.dp + VerticalScrollbarWidth + DevToolScrollbarGap,
+                                top = 6.dp,
+                                bottom = if (softWrap) 6.dp
+                                else 6.dp + DevToolScrollbarGap + HorizontalScrollbarHeight,
+                            )
+                            // 滚动挂在内容这一层（边框与内边距之内），因此滚的是内容、框本身不动；
+                            // 占位提示也是它的子节点，跟着一起滚，不会再「滚走了提示还停在原地」。
+                            .verticalScroll(verticalScroll)
+                            // 不折行时这一层才是横向滚动容器：子节点拿到无限宽约束，于是按最长
+                            // 一行排版，没有可折的宽度。
+                            .then(
+                                if (softWrap) Modifier
+                                else Modifier.horizontalScroll(horizontalScroll)
+                            ),
+                    ) {
+                        if (value.isEmpty() && placeholder.isNotEmpty()) {
+                            Text(
+                                text = placeholder,
+                                fontSize = 12.sp,
+                                color = colors.onSurfaceVariant.copy(alpha = 0.6f),
+                            )
+                        }
+                        BasicTextField(
+                            value = value,
+                            onValueChange = onValueChange,
+                            readOnly = readOnly,
+                            textStyle = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                color = colors.onSurface,
+                            ),
+                            cursorBrush = SolidColor(colors.primary),
+                            modifier = Modifier
+                                // 折行时才撑满：不折行时外层给的是无限宽，要求一个无限的宽度没有意义。
+                                .then(if (softWrap) Modifier.fillMaxWidth() else Modifier),
+                        )
+                    }
+                    VerticalScrollbar(
+                        scrollState = verticalScroll,
+                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                    )
+                }
+                // 横向滚动条排在正文之下、占一行固定高度（只有不折行时才存在）。
+                if (!softWrap) {
+                    HorizontalScrollbar(
+                        scrollState = horizontalScroll,
+                        modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
+                    )
+                }
             }
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                readOnly = readOnly,
-                textStyle = TextStyle(
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    color = colors.onSurface,
-                ),
-                cursorBrush = SolidColor(colors.primary),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-            )
         }
     }
 }
