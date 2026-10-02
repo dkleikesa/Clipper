@@ -73,8 +73,8 @@ private val GutterNumbersGap = 10.dp
 private val GutterEndPadding = 6.dp
 
 /** 折叠箭头尺寸：圆头 chevron。 */
-private val ChevronLong = 9.dp
-private val ChevronShort = 5.dp
+private val ChevronLong = 8.dp
+private val ChevronShort = 4.dp
 private val ChevronStroke = 1.5.dp
 
 /**
