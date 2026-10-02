@@ -57,7 +57,6 @@ internal object JsonDevTool : DevTool {
         description = "实时美化或压缩 JSON，非法输入会报出出错位置。",
         group = DevToolGroup.FORMATTER,
         icon = ClipperIconKind.BRACES,
-        keywords = listOf("json", "格式化", "美化", "压缩", "format", "pretty", "minify"),
     )
 
     override val acceptedDataTypes: Set<String> = setOf(DataTypes.JSON)

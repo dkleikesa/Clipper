@@ -46,7 +46,6 @@ internal object XmlDevTool : DevTool {
         description = "美化或压缩 XML，非良构的输入会报错。",
         group = DevToolGroup.FORMATTER,
         icon = ClipperIconKind.TAG,
-        keywords = listOf("xml", "格式化", "美化", "压缩", "format", "pretty", "minify"),
     )
 
     override val acceptedDataTypes: Set<String> = setOf(DataTypes.XML)

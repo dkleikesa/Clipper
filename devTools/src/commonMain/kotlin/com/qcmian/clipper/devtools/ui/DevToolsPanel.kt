@@ -18,10 +18,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
@@ -35,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,7 +87,6 @@ fun DevToolsPanel(
     // 否则一个 .json 文件只会因为路径被判成纯文本、推不出 JSON 工具（见 `devToolText`）。
     val detected = remember(item) { registry.detectTypes(item?.devToolText().orEmpty()) }
 
-    var query by remember { mutableStateOf("") }
     var selectedId by remember { mutableStateOf<String?>(null) }
 
     val recommended = remember(registry, detected) {
@@ -106,7 +102,7 @@ fun DevToolsPanel(
 
     val tools = registry.tools
     val effectiveSelectedId = selectedId ?: recommendedId ?: tools.firstOrNull()?.metadata?.id
-    val groups = remember(tools, query) { groupTools(tools, query) }
+    val groups = remember(tools) { groupTools(tools) }
     val selectedTool = effectiveSelectedId?.let(registry::tool)
 
     val status = remember { mutableStateOf<String?>(null) }
@@ -158,8 +154,6 @@ fun DevToolsPanel(
                 groups = groups,
                 selectedId = effectiveSelectedId,
                 recommendedId = recommendedId,
-                query = query,
-                onQueryChange = { query = it },
                 onSelect = { selectedId = it },
                 modifier = Modifier.width(SidebarWidth).fillMaxHeight(),
             )
@@ -186,36 +180,16 @@ fun DevToolsPanel(
     }
 }
 
-/** 侧边栏：搜索框 + 按分组排列的工具清单。 */
+/** 侧边栏：按分组排列的工具清单。 */
 @Composable
 private fun ToolSidebar(
     groups: List<Pair<DevToolGroup, List<DevToolMetadata>>>,
     selectedId: String?,
     recommendedId: String?,
-    query: String,
-    onQueryChange: (String) -> Unit,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier) {
-        ToolSearchField(
-            query = query,
-            onQueryChange = onQueryChange,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
-        )
-
-        if (groups.isEmpty()) {
-            Text(
-                text = "没有匹配的工具",
-                fontSize = 12.sp,
-                color = MaterialTheme.hintColor,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            )
-            return@Column
-        }
-
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             groups.forEach { (group, tools) ->
                 Text(
@@ -411,87 +385,11 @@ private fun EmptyTools() {
     }
 }
 
-/** 与剪贴板面板的搜索框同一种观感，但更紧凑。 */
-@Composable
-private fun ToolSearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MaterialTheme.colorScheme
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(colors.onSurface.copy(alpha = 0.08f)),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ClipperIcon(
-                kind = ClipperIconKind.SEARCH,
-                size = 11.dp,
-                tint = colors.onSurface.copy(alpha = 0.8f),
-                modifier = Modifier.padding(start = 7.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Box(Modifier.weight(1f)) {
-                if (query.isEmpty()) {
-                    Text(
-                        text = "搜索工具…",
-                        fontSize = 12.sp,
-                        color = colors.onSurface.copy(alpha = 0.5f),
-                        maxLines = 1,
-                    )
-                }
-                BasicTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
-                    singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(fontSize = 12.sp, color = colors.onSurface),
-                    cursorBrush = SolidColor(colors.primary),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                )
-            }
-            if (query.isNotEmpty()) {
-                Spacer(Modifier.width(4.dp))
-                Box(
-                    modifier = Modifier
-                        .size(18.dp)
-                        .clickable { onQueryChange("") },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    ClipperIcon(
-                        kind = ClipperIconKind.CLEAR,
-                        size = 10.dp,
-                        tint = colors.onSurface.copy(alpha = 0.8f),
-                    )
-                }
-            } else {
-                Spacer(Modifier.width(7.dp))
-            }
-        }
-    }
-}
-
-private fun groupTools(
-    tools: List<DevTool>,
-    query: String,
-): List<Pair<DevToolGroup, List<DevToolMetadata>>> {
-    val needle = query.trim()
-    val filtered = tools.map { it.metadata }.filter { metadata ->
-        needle.isEmpty() || metadata.matches(needle)
-    }
-    return DevToolGroup.entries.mapNotNull { group ->
-        val inGroup = filtered.filter { it.group == group }
+private fun groupTools(tools: List<DevTool>): List<Pair<DevToolGroup, List<DevToolMetadata>>> =
+    DevToolGroup.entries.mapNotNull { group ->
+        val inGroup = tools.map { it.metadata }.filter { it.group == group }
         if (inGroup.isEmpty()) null else group to inGroup
     }
-}
-
-private fun DevToolMetadata.matches(needle: String): Boolean {
-    val lowered = needle.lowercase()
-    return name.lowercase().contains(lowered) ||
-        description.lowercase().contains(lowered) ||
-        keywords.any { it.lowercase().contains(lowered) }
-}
 
 private fun typeLabel(name: String): String = when (name) {
     DataTypes.JSON -> "JSON"

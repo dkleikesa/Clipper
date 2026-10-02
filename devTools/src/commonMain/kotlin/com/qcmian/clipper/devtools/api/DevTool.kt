@@ -29,7 +29,7 @@ enum class DevToolGroup(val label: String) {
     OTHER("其它"),
 }
 
-/** 工具的元信息：侧边栏、搜索与内容区标题都读它。 */
+/** 工具的元信息：侧边栏与内容区标题都读它。 */
 @Immutable
 data class DevToolMetadata(
     /** 稳定标识，用于记住「选中的是哪一个工具」。 */
@@ -39,8 +39,6 @@ data class DevToolMetadata(
     val description: String,
     val group: DevToolGroup,
     val icon: ClipperIconKind = ClipperIconKind.BRACES,
-    /** 搜索关键字（中英文都放进来，便于拼音 / 英文输入命中）。 */
-    val keywords: List<String> = emptyList(),
 )
 
 /**
@@ -61,7 +59,7 @@ interface DevToolHost {
  * 一个开发者工具插件。
  *
  * 实现方只需要回答三件事：自己叫什么（[metadata]）、能直接吃哪种数据（[acceptedDataTypes]）、
- * 界面长什么样（[Content]）。它不用管自己怎么被列出、怎么被搜索、怎么被选中，也不用管输入从
+ * 界面长什么样（[Content]）。它不用管自己怎么被列出、怎么被选中，也不用管输入从
  * 哪里来——那些都是主面板（`DevToolsPanel`）的职责。
  *
  * 新增一个插件只有两步：实现本接口，然后到 `DevToolsRegistry.builtIn()` 里登记一行。
