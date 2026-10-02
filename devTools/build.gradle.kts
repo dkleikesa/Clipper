@@ -37,5 +37,11 @@ kotlin {
             // 取代原先 JVM-only 的 `javax.xml` 实现（见 `XmlFormat`）。
             implementation(libs.xmlutil.serialization)
         }
+
+        // 代码显示层里能脱离组合环境的部分（JSON 扫描器、显示变换与偏移映射）直接单测：
+        // 折叠与高亮的正确性全在这几个纯函数上，靠眼看界面是测不出来的。
+        jvmTest.dependencies {
+            implementation(kotlin("test"))
+        }
     }
 }

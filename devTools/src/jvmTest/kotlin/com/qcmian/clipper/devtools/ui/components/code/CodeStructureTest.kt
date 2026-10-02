@@ -1,0 +1,126 @@
+package com.qcmian.clipper.devtools.ui.components.code
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * JSON 扫描器：高亮片段、括号配对与行号的判定。
+ *
+ * 这些结论靠界面看不出来（错一个偏移就是「颜色串位」或「折错范围」），所以钉在单测上。
+ */
+class CodeStructureTest {
+
+    /** 把 token 还原成「原始片段 → 类别」，比断言偏移更好读。 */
+    private fun tokens(text: String): List<Pair<String, CodeKind>> =
+        scanJson(text).tokens.map { text.substring(it.start, it.end) to it.kind }
+
+    @Test
+    fun `keys and string values are told apart`() {
+        val text = """{"a": "b", "c": 1}"""
+        assertEquals(
+            listOf(
+                "{" to CodeKind.Punctuation,
+                "\"a\"" to CodeKind.Key,
+                ":" to CodeKind.Punctuation,
+                "\"b\"" to CodeKind.StringLiteral,
+                "," to CodeKind.Punctuation,
+                "\"c\"" to CodeKind.Key,
+                ":" to CodeKind.Punctuation,
+                "1" to CodeKind.Number,
+                "}" to CodeKind.Punctuation,
+            ),
+            tokens(text)
+        )
+    }
+
+    @Test
+    fun `key detection skips the whitespace before the colon`() {
+        val text = "{\n  \"a\"   : 1\n}"
+        assertEquals("\"a\"" to CodeKind.Key, tokens(text)[1])
+    }
+
+    @Test
+    fun `literals and numbers are recognised`() {
+        assertEquals(
+            listOf(
+                "true" to CodeKind.Constant,
+                "false" to CodeKind.Constant,
+                "null" to CodeKind.Constant,
+                "-1.5e+3" to CodeKind.Number,
+            ),
+            tokens("true false null -1.5e+3")
+        )
+    }
+
+    @Test
+    fun `a word that merely contains a literal is not a literal`() {
+        // `xtrue` 不是字面量：少了「前一个字符不能是标识符」这个判断就会把它吃掉。
+        assertEquals(emptyList(), tokens("xtrue"))
+    }
+
+    @Test
+    fun `escaped quotes do not end the string`() {
+        val text = """{"a": "x\", y"}"""
+        assertEquals("\"x\\\", y\"" to CodeKind.StringLiteral, tokens(text)[3])
+    }
+
+    @Test
+    fun `brackets pair up in closing order and empty braces are not foldable`() {
+        val text = """{"a": [1], "b": {}}"""
+        val pairs = scanJson(text).brackets
+        assertEquals(
+            listOf(
+                6 to 8, // [1]  ← 先闭合的在内层
+                16 to 17, // {}  ← 空的，不值得折
+                0 to 18, // 最外层
+            ),
+            pairs.map { it.open to it.close }
+        )
+        assertTrue(pairs[0].isFoldable)
+        assertFalse(pairs[1].isFoldable)
+        assertTrue(pairs[2].isFoldable)
+    }
+
+    @Test
+    fun `fold range starts after the opening bracket and ends before the closing one`() {
+        val text = "{\n  \"a\": 1\n}"
+        val pair = scanJson(text).brackets.single()
+        assertEquals(1, pair.foldStart)
+        assertEquals(text.length - 1, pair.foldEnd)
+    }
+
+    @Test
+    fun `lines are numbered and searched`() {
+        val text = "{\n  \"a\": 1\n}"
+        val structure = scanJson(text)
+        assertEquals(3, structure.lineCount)
+        assertEquals(1, structure.lineNumberAt(0))
+        assertEquals(2, structure.lineNumberAt(3))
+        assertEquals(3, structure.lineNumberAt(text.length))
+        assertEquals(2, structure.lineStart(2))
+    }
+
+    @Test
+    fun `foldable pairs are found by the line their opening bracket sits on`() {
+        val text = "{\n  \"a\": {\n    \"b\": 1\n  }\n}"
+        val structure = scanJson(text)
+        val outer = structure.brackets.last()
+        assertEquals(outer, structure.foldableOnLine(text, 1))
+        // 第 3 行是纯值，没有开括号。
+        assertNull(structure.foldableOnLine(text, 3))
+    }
+
+    @Test
+    fun `unclosed brackets colour but cannot be folded`() {
+        // 边打边写的中间态：闭括号还没出现，就没有可折叠的区间（也就不会折出一个「越长越大」
+        // 的范围）；高亮照常工作——这是显示路径，不是校验路径（校验归 `JsonFormat`）。
+        val text = "{\"a\": [1, "
+        val structure = scanJson(text)
+        assertEquals(emptyList(), structure.brackets)
+        assertEquals("\"a\"" to CodeKind.Key, tokens(text)[1])
+        assertEquals(1, structure.lineCount)
+    }
+}
