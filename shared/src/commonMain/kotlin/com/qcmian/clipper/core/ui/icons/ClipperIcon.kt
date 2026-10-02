@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.unit.Dp
@@ -145,13 +146,23 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
         ClipperIconKind.TEXT_VIEWFINDER -> drawTextViewfinder(color, s, strokeWidth)
 
         ClipperIconKind.COPY -> {
-            drawRoundRect(
-                color = color,
-                topLeft = Offset(s * 0.13f, s * 0.13f),
-                size = Size(s * 0.50f, s * 0.50f),
-                cornerRadius = CornerRadius(s * 0.12f),
-                style = stroke,
-            )
+            // 后面那张纸只画**露在前面那张之外**的部分，否则它的描边会横穿前面那张纸，在
+            // 14dp 下糊成一团。露出来的是一个「L」：上半条 + 左半条。
+            //
+            // 分两次裁剪、把整张后纸各画一遍，而不是手算圆角处的切线：两块的并集正好是那个 L，
+            // 重叠区画两遍对不透明色没有影响。手算的话，两个内圆角的起止点都得跟着描边宽度走，
+            // 改一次线宽就要重算一次。
+            val backSheet = {
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(s * 0.13f, s * 0.13f),
+                    size = Size(s * 0.50f, s * 0.50f),
+                    cornerRadius = CornerRadius(s * 0.12f),
+                    style = stroke,
+                )
+            }
+            clipRect(0f, 0f, s * 0.37f, s) { backSheet() }
+            clipRect(0f, 0f, s, s * 0.37f) { backSheet() }
             drawRoundRect(
                 color = color,
                 topLeft = Offset(s * 0.37f, s * 0.37f),
@@ -331,24 +342,38 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
         ClipperIconKind.RESET -> drawResetArrow(color, s, stroke)
 
         // ---------------------------------------------------------------- 开发者工具
+        //
+        // 这一组按同一个 0..1 网格画，线宽也统一取 `strokeWidth`（边长的 10%）：工具图标会并排
+        // 出现在侧边栏与图标栏里，线重差一点就会显得有的重、有的轻。
         ClipperIconKind.BRACES -> {
-            val braceStroke = Stroke(width = strokeWidth * 0.9f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-            // 左花括号
+            // 花括号：上钩 → 直腰 → 中间向外的凹口 → 直腰 → 下钩。
+            //
+            // 凹口那一笔是关键。原先用一条从顶到底的 `cubicTo` 凑，中点是**尖角**（两条曲线在那里
+            // 相切方向不连续），14dp 下整个字形读起来像一对圆括号，和旁边那个 `<>` 也分不开。
+            // 花括号之所以是花括号，靠的正是中间那个朝外的折。
+            val braceStroke = Stroke(
+                width = strokeWidth * 0.9f,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+            )
             drawPath(
                 path = Path().apply {
-                    moveTo(s * 0.40f, s * 0.16f)
-                    cubicTo(s * 0.26f, s * 0.16f, s * 0.33f, s * 0.42f, s * 0.20f, s * 0.50f)
-                    cubicTo(s * 0.33f, s * 0.58f, s * 0.26f, s * 0.84f, s * 0.40f, s * 0.84f)
+                    moveTo(s * 0.4417f, s * 0.1667f)
+                    cubicTo(s * 0.3625f, s * 0.1667f, s * 0.3708f, s * 0.2625f, s * 0.3708f, s * 0.3500f)
+                    cubicTo(s * 0.3708f, s * 0.4375f, s * 0.3250f, s * 0.4708f, s * 0.2625f, s * 0.5000f)
+                    cubicTo(s * 0.3250f, s * 0.5292f, s * 0.3708f, s * 0.5625f, s * 0.3708f, s * 0.6500f)
+                    cubicTo(s * 0.3708f, s * 0.7375f, s * 0.3625f, s * 0.8333f, s * 0.4417f, s * 0.8333f)
                 },
                 color = color,
                 style = braceStroke,
             )
-            // 右花括号
             drawPath(
                 path = Path().apply {
-                    moveTo(s * 0.60f, s * 0.16f)
-                    cubicTo(s * 0.74f, s * 0.16f, s * 0.67f, s * 0.42f, s * 0.80f, s * 0.50f)
-                    cubicTo(s * 0.67f, s * 0.58f, s * 0.74f, s * 0.84f, s * 0.60f, s * 0.84f)
+                    moveTo(s * 0.5583f, s * 0.1667f)
+                    cubicTo(s * 0.6375f, s * 0.1667f, s * 0.6292f, s * 0.2625f, s * 0.6292f, s * 0.3500f)
+                    cubicTo(s * 0.6292f, s * 0.4375f, s * 0.6750f, s * 0.4708f, s * 0.7375f, s * 0.5000f)
+                    cubicTo(s * 0.6750f, s * 0.5292f, s * 0.6292f, s * 0.5625f, s * 0.6292f, s * 0.6500f)
+                    cubicTo(s * 0.6292f, s * 0.7375f, s * 0.6375f, s * 0.8333f, s * 0.5583f, s * 0.8333f)
                 },
                 color = color,
                 style = braceStroke,
@@ -495,108 +520,54 @@ private fun DrawScope.drawResetArrow(color: Color, s: Float, stroke: Stroke) {
 }
 
 /**
- * 预览工具栏「置顶」按钮的图钉图形。
+ * 预览工具栏「置顶」按钮的图钉图形：顶帽 + 圆盘 + 针，按 0..1 的比例画。
  *
- * 数据来自设计稿 SVG（`viewBox 0 0 1024 1024`）的 `path`：它是一个自相交的闭合轮廓，填充后
- * 得到的正是设计稿里的线稿图钉（描边由轮廓本身构成）。轮廓本身的线宽很细（缩放后约为图标
- * 边长的 3%），与工具栏里同样尺寸、描边宽度为 10% 的删除图标相比明显偏轻，所以填充之外
- * 再补一圈描边，把线宽提到相近的量级。
+ * 这里**曾经**是从设计稿 SVG 抄来的一段 `path`（`viewBox 0 0 1024 1024`）。那段数据是坏的：
+ * 它描述的轮廓填充出来是一个四角星，不是图钉，而且换 `EvenOdd` 填充规则、改成只描边都还是同一
+ * 个星形——错的不是画法，是数据本身。它还很隐蔽：整整 2767 个字符的坐标，抄错任何一处都只会
+ * 让形状「稍微怪一点」，直到有人把它放大才看得出整枚图标根本不是图钉。
  *
- * 颜色不写死在路径里：绘制时用调用方传入的 tint（工具栏传 `colorScheme.onSurface`），
- * 因此深色 / 浅色模式自动跟随主题。
- */
-private const val PushpinPathData =
-    "M51.195797 1024c-13.021885 " +
-    "0-26.01777-5.090955-36.020681-15.093866-18.11384-18.164839-20.262821-46.049592-5.091955-66.337413l213.058113-288.323446L56.158753 " +
-    "487.263754c-16.295856-16.296856-19.519827-41.77763-7.853931-61.989451 7.981929-12.611888 " +
-    "76.699321-112.821001 229.481968-75.009335 2.532978 0.306997 5.269953 0.536995 8.211927 " +
-    "0.792993 6.267944 0.536995 13.277882 1.17699 20.875815 2.404978 32.337714 5.244954 " +
-    "89.516207-20.722816 139.147767-63.037441 47.559579-40.497641 78.284307-87.750223 " +
-    "78.284307-120.342934 " +
-    "0-7.572933-0.178998-15.631862-0.357997-23.536792-1.278989-30.623729-3.222971-77.696312 " +
-    "31.979717-112.874 41.649631-41.699631 107.552047-45.051601 153.268642-7.853931a28.467748 " +
-    "28.467748 0 0 1 2.583977 2.379979h-0.024999c24.584782 24.047787 276.60555 275.812557 " +
-    "279.240526 278.473534 21.694808 21.694808 33.642702 50.526552 33.693702 81.175281 0.025 " +
-    "30.674728-11.896895 59.455473-33.539703 81.099281-35.02369 35.04969-82.352271 " +
-    "33.053707-113.563994 " +
-    "31.722719-7.393935-0.152999-15.477863-0.331997-23.024796-0.331997-30.828727 0-67.6934 " +
-    "21.591809-103.715082 60.759462-50.80855 55.259511-82.096273 126.637878-79.410296 " +
-    "158.616595 1.12599 10.259909 3.222971 28.371749 3.606968 30.929726 36.891673 " +
-    "149.611675-63.113441 217.84207-74.626339 225.108006-20.696817 12.483889-46.356589 " +
-    "9.388917-63.011442-7.239936L359.01407 " +
-    "790.117072c-10.003911-10.002911-10.003911-26.171768 0-36.17468s26.170768-10.002911 " +
-    "36.17468 0l178.39142 178.39142c7.85393-5.089955 80.101291-54.645516 " +
-    "51.319545-171.765479-0.510995-2.353979-3.043973-23.561791-4.373961-35.969681-4.297962-51.115547 " +
-    "35.585685-136.026795 92.688179-198.117245 32.439713-35.253688 83.273262-77.287315 " +
-    "141.347748-77.287316 7.90493 0 16.398855 0.179998 24.661781 0.358997 32.413713 1.354988 " +
-    "58.048486 0.971991 75.777329-16.782851 11.972894-11.972894 18.547836-27.885753 " +
-    "18.547836-44.847603-0.025-17.012849-6.676941-33.002708-18.700834-45.052601-2.634977-2.634977-271.0036-270.619603-278.90853-278.217536-24.279785-19.724825-60.709462-17.882842-83.785258 " +
-    "5.219954-17.908841 17.907841-18.317838 43.490615-17.012849 75.086335 0.203998 8.799922 " +
-    "0.383997 17.242847 0.383996 25.147777 0 48.378571-35.995681 107.936044-96.270147 " +
-    "159.281589-49.478562 42.135627-122.978911 83.810258-180.490401 " +
-    "74.60034-6.292944-1.022991-12.049893-1.509987-17.191848-1.943983-3.325971-0.280998-6.420943-0.562995-9.311918-0.920992-2.455978-0.076999-4.859957-0.536995-7.188936-1.304988-117.758957-29.036743-167.595516 " +
-    "43.440615-172.891468 51.806541l182.741381 182.024387c8.953921 8.953921 10.027911 " +
-    "23.101795 2.480978 33.309705L51.169797 " +
-    "973.114451l238.615886-174.528454c11.434899-8.365926 27.424757-5.806949 35.739684 " +
-    "5.60295s5.806949 27.399757-5.602951 35.713684L81.102532 1014.022088C72.149611 " +
-    "1020.700029 61.684704 1024 51.195797 1024z"
-
-/** 解析一次即可：路径是常量，绘制时只做一次画布变换。 */
-private val PushpinPath: Path by lazy { PathParser().parsePathString(PushpinPathData).toPath() }
-
-/** [PushpinPath] 的包围盒：用来把斜向的图钉等比缩放并居中到图标画布。 */
-private val PushpinBounds: Rect by lazy { PushpinPath.getBounds() }
-
-/** 图钉在图标画布中占的比例（设计稿是斜向图形，留一点内边距才与其它图标等重）。 */
-private const val PushpinExtentRatio = 0.86f
-
-/**
- * 图钉线稿的补描边宽度（相对图标边长，最终线宽 ≈ 轮廓自带的 3% + 这里的值）。
+ * 因此改回与其它图标同一套做法：用比例坐标现画。好处不只是修好这一个图标——它落在同一个
+ * 0..1 网格上，线宽与 `drawClipperIcon` 的 `strokeWidth`（边长的 10%）一致，和并排的删除、
+ * 识别文字图标视觉重量相同；改尺寸时也不必再维护那张路径表。
  *
- * 取值参考工具栏其它图标的描边宽度（[DrawScope.drawClipperIcon] 里是 10%）：补完之后图钉
- * 的线宽与删除图标基本齐平，视觉重量一致，又不会重到把图钉头部的镂空糊掉。
- */
-private const val PushpinStrokeRatio = 0.055f
-
-/**
- * 预览工具栏使用的 `pin` / `pin.slash` 图形。
- *
- * [slashed] 为 `true` 时在整枚图钉上叠一条斜线，表示「已钉住，点击取消钉住」。
+ * [slashed] 为 `true` 时叠一条斜线，表示「已钉住，点击取消钉住」。
  */
 private fun DrawScope.drawPin(color: Color, s: Float, strokeWidth: Float, slashed: Boolean) {
-    val bounds = PushpinBounds
-    val extent = maxOf(bounds.width, bounds.height)
-    if (extent > 0f) {
-        val scale = s * PushpinExtentRatio / extent
-        withTransform({
-            // 画布变换按书写顺序左乘：先绕原点等比缩放，再平移到画布中心。
-            translate(
-                left = s / 2f - bounds.center.x * scale,
-                top = s / 2f - bounds.center.y * scale,
-            )
-            scale(scaleX = scale, scaleY = scale, pivot = Offset.Zero)
-        }) {
-            drawPath(PushpinPath, color, style = Fill)
-            // 补一圈描边把线稿加粗。描边宽度在路径坐标系里指定，会被上面的 `scale` 一起放大，
-            // 所以先按画布尺寸算好再换算回去。
-            drawPath(
-                path = PushpinPath,
-                color = color,
-                style = Stroke(
-                    width = s * PushpinStrokeRatio / scale,
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round,
-                ),
-            )
-        }
-    }
+    val stroke = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+
+    // 顶帽：略窄的圆角矩形。
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(s * 0.33f, s * 0.08f),
+        size = Size(s * 0.34f, s * 0.19f),
+        cornerRadius = CornerRadius(s * 0.07f),
+        style = stroke,
+    )
+    // 圆盘：图钉压在纸面上的那一圈，比顶帽宽。
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(s * 0.18f, s * 0.27f),
+        size = Size(s * 0.64f, s * 0.18f),
+        cornerRadius = CornerRadius(s * 0.06f),
+        style = stroke,
+    )
+    // 针：从圆盘底下扎出去。
+    drawLine(
+        color = color,
+        start = Offset(s * 0.5f, s * 0.45f),
+        end = Offset(s * 0.5f, s * 0.90f),
+        strokeWidth = strokeWidth,
+        cap = StrokeCap.Round,
+    )
+
     if (slashed) {
         drawLine(
             color = color,
-            start = Offset(s * 0.12f, s * 0.12f),
-            end = Offset(s * 0.88f, s * 0.88f),
-            // 比常规描边细一点：图钉本身是线稿，斜线压过重会盖掉图形。
-            strokeWidth = strokeWidth * 0.7f,
+            start = Offset(s * 0.14f, s * 0.14f),
+            end = Offset(s * 0.86f, s * 0.86f),
+            // 与 `drawClipperIcon` 里那条清除图标的斜线同宽：两条斜线并排时不至于一粗一细。
+            strokeWidth = strokeWidth,
             cap = StrokeCap.Round,
         )
     }
