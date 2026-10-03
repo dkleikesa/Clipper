@@ -48,15 +48,15 @@ enum class PopupPosition(val label: String) {
 }
 
 /**
- * 开发者工具窗口左侧工具清单的三种形态。
+ * 开发者工具窗口左侧工具清单的两种形态。
  *
- * 中间那一档（[RAIL]）不是凑数：工具窗口右栏要横着摆两个编辑区，宽度是最紧的资源，而完全
- * 隐藏清单之后换一个工具就只能靠重新展开——图标栏把「换工具」压到一次点击，只收 48dp。
+ * 收起一档（[COLLAPSED]）保留图标栏，而不是把整条清单藏掉：工具窗口右栏要横着摆两个编辑区，
+ * 宽度是最紧的资源，但换个工具若还得先展开、点一下、再收起就太绕——只收 48dp 的图标栏把
+ * 「换工具」压到一次点击，图标也一直看得见。
  */
 enum class DevToolsSidebar(val label: String) {
     EXPANDED("展开"),
-    RAIL("图标栏"),
-    HIDDEN("隐藏");
+    COLLAPSED("收起");
 
     /** 点一下切换到下一档，循环。按钮与快捷键共用同一个顺序。 */
     fun next(): DevToolsSidebar = entries[(ordinal + 1) % entries.size]

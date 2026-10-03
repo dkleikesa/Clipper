@@ -85,7 +85,7 @@ private const val STATUS_DURATION_MILLIS = 1_600L
  * @param item 打开时带过来的那条剪贴板记录；`null` 表示这次没有输入（用户从侧边栏点进来，或历史
  *   为空）。工具拿到的是整条记录，按需取正文 / 图片 / 附加表示。
  * @param onClose 关闭窗口（由宿主决定窗口存亡，见 `ClipperDevToolsWindow`）。
- * @param sidebar 左侧工具清单的形态（展开 / 图标栏 / 隐藏）。由宿主持有并持久化。
+ * @param sidebar 左侧工具清单的形态（展开 / 收起）。由宿主持有并持久化。
  * @param onSidebarChange 用户切换了侧边栏形态。
  * @param onPickFileToOpen 弹「打开」对话框并返回路径；`null` 表示取消。工具那边用
  *   `readTextFileOrNull` 读内容——面板不碰文件内容。
@@ -227,7 +227,7 @@ fun DevToolsPanel(
                     VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                 }
 
-                DevToolsSidebar.RAIL -> {
+                DevToolsSidebar.COLLAPSED -> {
                     ToolRail(
                         tools = tools,
                         selectedId = effectiveSelectedId,
@@ -237,8 +237,6 @@ fun DevToolsPanel(
                     )
                     VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                 }
-
-                DevToolsSidebar.HIDDEN -> Unit
             }
 
             Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -260,14 +258,14 @@ fun DevToolsPanel(
     }
 }
 
-/** 标题栏左侧的侧边栏开关：三档循环，图标跟着当前形态走。 */
+/** 标题栏左侧的侧边栏开关：两档循环，图标跟着当前形态走。 */
 @Composable
 private fun SidebarToggle(sidebar: DevToolsSidebar, onChange: (DevToolsSidebar) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
 
-    // 提示写在按钮上而不是藏在别处：三档循环只看图标猜不出「再点一下会怎样」。
+    // 提示写在按钮上而不是藏在别处：只看图标未必猜得出「再点一下会怎样」。
     HoverTooltip(
         text = "侧边栏：${sidebar.label}（点击切换）",
         positioning = TooltipAnchorPosition.Below,
@@ -284,9 +282,8 @@ private fun SidebarToggle(sidebar: DevToolsSidebar, onChange: (DevToolsSidebar) 
             contentAlignment = Alignment.Center,
         ) {
             ClipperIcon(
-                // 已经藏起来时用「向右展开」的图形，其余两档都是「向左收起」——一个图标说不出
-                // 三档，但至少能说出「点下去是收还是放」。
-                kind = if (sidebar == DevToolsSidebar.HIDDEN) {
+                // 收起时用「向右展开」的图形，展开时用「向左收起」——图标说的是「点下去会怎样」。
+                kind = if (sidebar == DevToolsSidebar.COLLAPSED) {
                     ClipperIconKind.SIDEBAR_RIGHT
                 } else {
                     ClipperIconKind.SIDEBAR_LEFT
@@ -391,9 +388,9 @@ private fun ToolSidebarItem(
 }
 
 /**
- * 图标栏：侧边栏收起后的中间档。
+ * 图标栏：侧边栏收起后的形态。
  *
- * 存在的理由是「换工具」这个动作——完全隐藏之后，换一个工具要先展开侧边栏、点一下、再收起来。
+ * 存在的理由是「换工具」这个动作——收起时若把清单整条藏掉，换个工具就得先展开、点一下、再收起。
  * 图标栏只占 48dp，把这件事压回一次点击。
  */
 @Composable
