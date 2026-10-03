@@ -13,9 +13,8 @@ import kotlinx.datetime.toLocalDateTime
  *
  * 自动识别覆盖的是「常见写法」，遇到偏门格式（`2028/11/22 10-12-34`、`11/22/2028`）就无能为力；
  * 这里让用户直接把模板写出来。**模板风格**默认按 Java / Android `DateTimeFormatter` 的写法
- * （`yyyy-MM-dd`），也接受 **Python strftime**（`%Y-%m-%d`）与 **Go 参考时间**（`2006-01-02`）
- * 两种风格——入口先按风格归一成 Java 写法（见 `normalizePattern`），因此后面只有一套分词 /
- * 格式化逻辑。支持的符号：
+ * （`yyyy-MM-dd`），也接受 **Python strftime**（`%Y-%m-%d`）——入口先把它归一成 Java 写法
+ * （见 `normalizePattern`），因此后面只有一套分词 / 格式化逻辑。支持的符号：
  *
  * | 符号 | 含义 | 输出示例 |
  * |---|---|---|
@@ -35,9 +34,9 @@ import kotlinx.datetime.toLocalDateTime
  * 其它字符按**字面量**原样出现（`yyyy年MM月dd日` 里的「年 / 月 / 日」就是字面量）；要写字面字母
  * 用单引号括起来（`yyyy-MM-dd'T'HH:mm:ss`），连续两个单引号表示一个单引号本身。
  *
- * **毫秒还认 Go 的写法**：秒之后紧跟的 `.` 加一串 `0` / `9`（`.000`、`.000000`、`.999`，一到九位）
- * 一律当毫秒，**三种风格通用**。别的字段在三种风格里各有各的写法，只有毫秒不是——用户从别处抄
- * 格式时，`SSS` 与 `000` 两种都常见；不认它就落进字面量，原样打出 `000`，看着像毫秒恒为 0。
+ * **毫秒还认 `.000` 这种写法**：秒之后紧跟的 `.` 加一串 `0`（`.000`、`.000000`，一到九位）也当
+ * 毫秒，两种风格通用。`SSS` 是规范写法，但 `.000` 从别处抄格式时太常见——不认它就会落进字面量
+ * 被原样打出，看着像毫秒恒为 0（末尾一串 `9` 的 `.999` 不认：那只是 Go 参考时间风格的写法）。
  *
  * 解析时 `Z` / `z` 不参与（偏移有多种写法、识别它反而更易出错），其余符号都支持；模板里没有的
  * 字段用默认值补齐（年 1970、月 1、日 1、时分秒 0）。小数秒按**位数**换算：`.5` 是 500 毫秒、
@@ -204,8 +203,8 @@ internal object TimestampPattern {
      * 把模板切成字面量与字段两类记号。
      *
      * 连续相同的字段字符合成一个字段（`MM` 是一个「两位月」而不是两个「一位月」）；单引号对内部
-     * 的内容一律按字面量处理，`''` 表示一个单引号。秒字段之后紧跟的 `.` 加一串 `0` / `9` 另认作
-     * 毫秒（见 [fractionRunLength]）。
+     * 的内容一律按字面量处理，`''` 表示一个单引号。秒字段之后紧跟的 `.` 加一串 `0` 另认作毫秒
+     * （见 [fractionRunLength]）。
      */
     private fun tokenize(pattern: String): List<PatternToken> {
         val tokens = mutableListOf<PatternToken>()
@@ -248,8 +247,8 @@ internal object TimestampPattern {
                 continue
             }
 
-            // Go 那种小数秒写法（`.000` / `.999`）：`.` 照旧是字面量，后面那串数字记成毫秒。
-            // 只在**秒之后**成立——别处的 `000` 仍是普通字面量（`v1.000` 这种版本号不该变成毫秒）。
+            // `.000` 那种小数秒写法：`.` 照旧是字面量，后面那串 0 记成毫秒。只在**秒之后**成立
+            // ——别处的 `000` 仍是普通字面量（`v1.000` 这种版本号不该变成毫秒）。
             if (ch == '.') {
                 val run = fractionRunLength(pattern, i + 1)
                 val before = previous
@@ -280,17 +279,15 @@ internal object TimestampPattern {
     }
 
     /**
-     * 从 [start] 起那串 `0` 或 `9` 的长度（1~9）；不是这种写法返回 0。
+     * 从 [start] 起那串 `0` 的长度（1~9）；不是这种写法返回 0。
      *
-     * 两种数字都要认：Go 的参考时间用 `.000` 表示小数秒、`.999` 表示「末尾的零去掉」。这里只关心
-     * 「这是一段小数秒」，具体几位各自截到毫秒。
+     * 位数只决定读几位，输出一律三位（见 `formatField` 里对毫秒的处理），所以超出的部分截掉即可。
      */
     private fun fractionRunLength(pattern: String, start: Int): Int {
         if (start >= pattern.length) return 0
-        val mark = pattern[start]
-        if (mark != '0' && mark != '9') return 0
+        if (pattern[start] != '0') return 0
         var end = start
-        while (end < pattern.length && pattern[end] == mark) end++
+        while (end < pattern.length && pattern[end] == '0') end++
         return (end - start).coerceAtMost(MAX_FRACTION_DIGITS)
     }
 
@@ -313,30 +310,16 @@ internal object TimestampPattern {
     // ------------------------------------------------------------------ 模板风格归一化
 
     /**
-     * 把模板归一成 Java 写法再分词：三种风格只是「同一件事的三种记法」，转一次就够了，不必让
-     * 分词器认识三套语法。
+     * 把模板归一成 Java 写法再分词：两种风格只是「同一件事的两种记法」，转一次就够了，不必让
+     * 分词器认识两套语法。
      *
-     * 归一化时把**字面量**用单引号括起来（`-`、`:`、`年`…），免得 Go / Python 模板里的普通字符
-     * 恰好是 Java 的字段字母（例如字面量 `T`）被误当成字段。
+     * 归一化时把**字面量**用单引号括起来（`-`、`:`、`年`…），免得 Python 模板里的普通字符恰好是
+     * Java 的字段字母（例如字面量 `T`）被误当成字段。
      */
-    private fun normalizePattern(pattern: String): String = when (detectStyle(pattern)) {
-        TemplateStyle.JAVA -> pattern
-        TemplateStyle.PYTHON -> pythonToJava(pattern)
-        TemplateStyle.GO -> goToJava(pattern)
-    }
-
-    private enum class TemplateStyle { JAVA, PYTHON, GO }
-
-    /** Python 模板带 `%X`；Go 模板以参考年 `2006` 为标志；都不是就按 Java。 */
-    private fun detectStyle(pattern: String): TemplateStyle = when {
-        pythonFieldSpec.containsMatchIn(pattern) -> TemplateStyle.PYTHON
-        pattern.contains(GO_REFERENCE_YEAR) -> TemplateStyle.GO
-        else -> TemplateStyle.JAVA
-    }
+    private fun normalizePattern(pattern: String): String =
+        if (pythonFieldSpec.containsMatchIn(pattern)) pythonToJava(pattern) else pattern
 
     private val pythonFieldSpec = Regex("%[A-Za-z]")
-
-    private const val GO_REFERENCE_YEAR = "2006"
 
     /** `%Y-%m-%d` → `yyyy'-'MM'-'dd`。不认识的 `%X` 原样当字面量。 */
     private fun pythonToJava(pattern: String): String {
@@ -367,8 +350,8 @@ internal object TimestampPattern {
                 }
                 continue
             }
-            // 小数秒（Go 的 `.000`）：照原样写出去、**不进字面量**，否则会被引号包起来，
-            // 分词器就认不出它是毫秒了。
+            // 小数秒（`.000`）：照原样写出去、**不进字面量**，否则会被引号包起来，分词器就认不出
+            // 它是毫秒了。
             if (char == '.' && appendFraction(pattern, i, literal, out)) {
                 i += 1 + fractionRunLength(pattern, i + 1)
                 continue
@@ -381,7 +364,7 @@ internal object TimestampPattern {
     }
 
     /**
-     * [index] 处若是「`.` + 一串 `0` / `9`」，把已攒下的字面量、这个 `.` 与那串数字依次写进 [out]
+     * [index] 处若是「`.` + 一串 `0`」，把已攒下的字面量、这个 `.` 与那串数字依次写进 [out]
      * （后两者不加引号），返回 `true`；否则什么都不动。
      *
      * 不加引号是刻意的：认不认这串数字得看**它前面是不是「秒」**，只有分词器知道，所以这里只把
@@ -419,68 +402,6 @@ internal object TimestampPattern {
         else -> null
     }
 
-    /** `2006-01-02 15:04:05` → `yyyy'-'MM'-'dd' 'HH':'mm':'ss`。 */
-    private fun goToJava(pattern: String): String {
-        val out = StringBuilder()
-        val literal = StringBuilder()
-        var i = 0
-        while (i < pattern.length) {
-            val token = goTokens.firstOrNull { pattern.startsWith(it.first, i) }
-            if (token == null) {
-                // 小数秒（`.000` / `.999`）照原样放行，交给分词器认（见 [appendFraction]）。
-                if (pattern[i] == '.' && appendFraction(pattern, i, literal, out)) {
-                    i += 1 + fractionRunLength(pattern, i + 1)
-                    continue
-                }
-                literal.append(pattern[i])
-                i++
-                continue
-            }
-            out.appendLiteral(literal)
-            out.append(token.second)
-            i += token.first.length
-        }
-        out.appendLiteral(literal)
-        return out.toString()
-    }
-
-    /**
-     * Go 参考时间片段 → Java 符号，**长的排在前面**：`2006` 要先于 `20` / `06` 匹配到，
-     * `-07:00` 要先于 `-0700`。
-     *
-     * 小数秒（`.000` / `.999`）不在表里：它有 1~9 位多种写法，穷举既长又漏，改成任何一个
-     * 位数都认（见两个转换器里对 [fractionRunLength] 的处理）。
-     *
-     * Go 的英文月份（`Jan`）与英文星期全名不在表里——本工具不产英文月份，遇到就原样当字面量，
-     * 而不是硬凑一个错误的映射。
-     */
-    private val goTokens: List<Pair<String, String>> = listOf(
-        "-07:00" to "ZZ",
-        "Z07:00" to "ZZ",
-        "-0700" to "Z",
-        // Go 里没有 `S`（它的小数秒写成 `.000`），所以 `S` 只可能是用户按 Java 的写法写的；
-        // 认下来，免得 Go 模板里混一句 `SSS` 就被当字面量原样打出。
-        "SSS" to "SSS",
-        "SS" to "SSS",
-        "S" to "SSS",
-        GO_REFERENCE_YEAR to "yyyy",
-        "MST" to "z",
-        "PM" to "a",
-        "pm" to "a",
-        "15" to "HH",
-        "01" to "MM",
-        "02" to "dd",
-        "03" to "hh",
-        "04" to "mm",
-        "05" to "ss",
-        "06" to "yy",
-        "1" to "M",
-        "2" to "d",
-        "3" to "h",
-        "4" to "m",
-        "5" to "s",
-    )
-
     /** 把累积的字面量以单引号写入 [this]（内部的单引号写成两个），并清空累积器。 */
     private fun StringBuilder.appendLiteral(literal: StringBuilder) {
         if (literal.isEmpty()) return
@@ -493,7 +414,7 @@ internal object TimestampPattern {
     /** 月份 / 日这些不给 `yy` 的两位年留位置，四位足够覆盖到 9999 年。 */
     private const val YEAR_DIGITS = 4
 
-    /** 小数秒最多读 / 认这么多位（Go 的纳秒写法正好九位）；超过的截到毫秒。 */
+    /** 小数秒最多读 / 认这么多位（纳秒正好九位）；超过的截到毫秒。 */
     private const val MAX_FRACTION_DIGITS = 9
 }
 

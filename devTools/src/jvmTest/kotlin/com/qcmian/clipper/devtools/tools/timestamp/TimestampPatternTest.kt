@@ -88,30 +88,19 @@ class TimestampPatternTest {
     }
 
     @Test
-    fun `go style templates are accepted`() {
-        val instant = Instant.parse("2028-11-22T10:12:34Z")
-        val text = TimestampPattern.format(instant, utc, "2006-01-02 15:04:05")
-        assertEquals("2028-11-22 10:12:34", text)
-        assertEquals(instant, TimestampPattern.parse(text, utc, "2006-01-02 15:04:05").getOrThrow())
-
-        val millis = Instant.parse("2028-11-22T10:12:34.123Z")
-        assertEquals("2028-11-22 10:12:34.123", TimestampPattern.format(millis, utc, "2006-01-02 15:04:05.000"))
-    }
-
-    @Test
-    fun `milliseconds are recognised in any style`() {
+    fun `milliseconds also accept the dot zero notation`() {
         val instant = Instant.parse("2028-11-22T10:12:34.123Z")
         val expected = "2028-11-22 10:12:34.123"
-        // Go 模板里混写 Java 的 `SSS`：毫秒的写法在三种风格里泾渭分明，用户抄来抄去是常事。
-        assertEquals(expected, TimestampPattern.format(instant, utc, "2006-01-02 15:04:05.SSS"))
-        // 反过来，Java / Python 模板里写 Go 的 `.000`。
+        // Java 风格与 Python 风格的模板里写 `.000`，都得当毫秒——以前的实现会把它原样打出，
+        // 看着像毫秒恒为 0。
         assertEquals(expected, TimestampPattern.format(instant, utc, "yyyy-MM-dd HH:mm:ss.000"))
         assertEquals(expected, TimestampPattern.format(instant, utc, "%Y-%m-%d %H:%M:%S.000"))
         // 微秒 / 纳秒写法只留到毫秒，末尾不该多出一串 0。
-        assertEquals(expected, TimestampPattern.format(instant, utc, "2006-01-02 15:04:05.000000"))
         assertEquals(expected, TimestampPattern.format(instant, utc, "yyyy-MM-dd HH:mm:ss.000000000"))
         // 认不出来的写法曾被原样打出，看着像毫秒恒为 0。
         assertEquals("2028-11-22 1.000", TimestampPattern.format(instant, utc, "yyyy-MM-dd 1.000"))
+        // 一串 9 不认：那只属于已删掉的 Go 参考时间风格。
+        assertEquals("2028-11-22 10:12:34.999", TimestampPattern.format(instant, utc, "yyyy-MM-dd HH:mm:ss.999"))
     }
 
     @Test

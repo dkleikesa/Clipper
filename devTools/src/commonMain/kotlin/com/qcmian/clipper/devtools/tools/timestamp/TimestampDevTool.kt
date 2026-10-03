@@ -81,7 +81,7 @@ private val FieldLabelGap = 8.dp
 private val LabelWidth = 92.dp
 
 /**
- * 三个预设模板：同一件事（年月日时分秒 + 毫秒）在三种语言里的写法。
+ * 两个预设模板：同一件事（年月日时分秒 + 毫秒）在两种风格里的写法。
  *
  * 只列模板本身、不带语言名——填进格式框的是模板，菜单里显示别的反而要多看一眼才能对上。点一下
  * 填进去，用户接着改即可。
@@ -89,7 +89,6 @@ private val LabelWidth = 92.dp
 private val PatternPresets = listOf(
     "yyyy-MM-dd HH:mm:ss.SSS",
     "%Y-%m-%d %H:%M:%S.%f",
-    "2006-01-02 15:04:05.000",
 )
 
 /**
@@ -354,7 +353,7 @@ private fun FieldLabel(text: String) {
     )
 }
 
-/** 「预设」下拉：把三种语言风格的默认模板填进格式框，用户接着改。 */
+/** 「预设」下拉：把几个预设模板填进格式框，用户接着改。 */
 @Composable
 private fun PresetMenu(selected: String, onSelect: (String) -> Unit) {
     DevToolMenuButton(
