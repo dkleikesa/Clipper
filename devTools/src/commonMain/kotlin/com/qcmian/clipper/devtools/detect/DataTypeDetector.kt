@@ -2,6 +2,7 @@ package com.qcmian.clipper.devtools.detect
 
 import com.qcmian.clipper.devtools.api.DataTypes
 import com.qcmian.clipper.devtools.tools.json.JsonFormat
+import com.qcmian.clipper.devtools.tools.timestamp.TimestampConvert
 import com.qcmian.clipper.devtools.tools.xml.isWellFormedXml
 
 /**
@@ -67,6 +68,19 @@ internal object UrlDataTypeDetector : DataTypeDetector {
     override fun matches(text: String): Boolean = pattern.matches(text.trim())
 }
 
+/**
+ * Unix 时间戳：一串长度像时间戳的纯数字。
+ *
+ * 判据由 [TimestampConvert.isEpochNumber] 提供——探测与工具必须用同一把尺，否则会出现「按时间戳
+ * 匹配了工具、工具却不认这串数字」的错位（与 JSON 探测器复用 `JsonFormat.isValid` 同一个道理）。
+ */
+internal object TimestampDataTypeDetector : DataTypeDetector {
+    override val typeName: String = DataTypes.TIMESTAMP
+    override val specificity: Int = 45
+
+    override fun matches(text: String): Boolean = TimestampConvert.isEpochNumber(text)
+}
+
 /** 兜底：任何有内容的文本。始终排在最后（[specificity] 为 0）。 */
 internal object TextDataTypeDetector : DataTypeDetector {
     override val typeName: String = DataTypes.TEXT
@@ -81,6 +95,7 @@ internal object TextDataTypeDetector : DataTypeDetector {
 val BuiltInDataTypeDetectors: List<DataTypeDetector> = listOf(
     JsonDataTypeDetector,
     XmlDataTypeDetector,
+    TimestampDataTypeDetector,
     UrlDataTypeDetector,
     TextDataTypeDetector,
 )

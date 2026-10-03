@@ -18,6 +18,9 @@ object DataTypes {
     const val JSON = "json"
     const val XML = "xml"
     const val URL = "url"
+
+    /** Unix 时间戳：一串纯数字（秒或毫秒）。时间戳转换工具与探测器在这一组常量上对齐。 */
+    const val TIMESTAMP = "timestamp"
 }
 
 /** 工具在侧边栏里的分组。枚举顺序就是分组在侧边栏里的先后。 */
@@ -71,6 +74,17 @@ interface DevToolHost {
      * 组合期间写状态。
      */
     fun reportStatus(text: String?)
+
+    /**
+     * 向状态栏报告「眼前这段内容从哪来」，覆盖面板自己的判断；`null` 表示交回面板判断。
+     *
+     * 工具比面板更清楚这件事：面板只知道打开时带了哪条剪贴板记录、用户挑过哪些文件，却不知道用户
+     * 随后点了「当前时间」还是自己敲了字——那都发生在工具内部。默认空实现，不报告的工具，状态栏
+     * 照旧按面板的判断显示。
+     *
+     * 与 [reportStatus] 分工：那个是右段「内容有多大」，这个是左段「内容从哪来」。
+     */
+    fun reportSource(text: String?) {}
 
     /** 弹出「打开」对话框，返回用户挑中的路径；取消时返回 `null`。 */
     fun pickFileToOpen(): String?

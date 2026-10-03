@@ -36,6 +36,9 @@ kotlin {
             // XML 工具的解析 / 排版：供 `XML.v1.recommended()/compact()` 的缩进配置与底层的流式读写。
             // 取代原先 JVM-only 的 `javax.xml` 实现（见 `XmlFormat`）。
             implementation(libs.xmlutil.serialization)
+            // 时间戳工具的时区换算与本地日期时间（`TimeZone` / `LocalDateTime` / `toLocalDateTime`）；
+            // 绝对时刻用标准库的 `kotlin.time.Instant`，跨平台且不必为它开 expect/actual。
+            implementation(libs.kotlinx.datetime)
         }
 
         // 代码显示层里能脱离组合环境的部分（JSON 扫描器、显示变换与偏移映射）直接单测：

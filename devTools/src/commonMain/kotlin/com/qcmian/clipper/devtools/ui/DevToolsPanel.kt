@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -142,12 +143,23 @@ fun DevToolsPanel(
     // 这几个状态的写入口闭包了进去。这里若跟着 item 换一个新实例，host 手里仍是旧的那一个——
     // 工具往后报告的一切都写进了没人再读的副本，状态栏看上去「不刷新」。重置改由下面那个
     // `LaunchedEffect(item)` 显式完成。
-    var toolStatus by remember { mutableStateOf<String?>(null) }
+    // 工具报告的两项——「内容是什么状态」（右段）与「内容从哪来」（左段）——都连**是哪件工具报的**
+    // 一起记下。
+    //
+    // 记 owner 是为了换工具时旧值自动失效：`owner != 当前工具` 即不采信。原先写的是「切工具时清空」，
+    // 但那与工具的报告存在时序竞争——清空可能落在报告**之后**，把新工具刚报的值抹掉（时间戳工具的
+    // 「当前时间」就是这么一直显示不出来的）。归属校验没有这个竞争：值谁报的，谁才算数。
+    val reportedStatus = remember { mutableStateOf<Pair<String?, String?>?>(null) }
+    val reportedSource = remember { mutableStateOf<Pair<String?, String?>?>(null) }
+    // 给 host 读「当前是哪件工具」，免得把 effectiveSelectedId 直接闭包进那个 `remember` 出来的对象
+    // （那样它只会拿到构造时的那个工具 id）。
+    val currentToolId = rememberUpdatedState(effectiveSelectedId)
     // 用户在面板里「打开文件」或把文件拖进来之后，眼前这段内容就不再来自那条剪贴板记录了。
     // 记下这些路径，状态栏据此把来源改口成「来自文件」；换一条剪贴板记录时一并作废。
     val openedFiles = remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(item) {
-        toolStatus = null
+        reportedStatus.value = null
+        reportedSource.value = null
         openedFiles.value = emptyList()
     }
 
@@ -170,7 +182,11 @@ fun DevToolsPanel(
             }
 
             override fun reportStatus(text: String?) {
-                toolStatus = text
+                reportedStatus.value = currentToolId.value to text
+            }
+
+            override fun reportSource(text: String?) {
+                reportedSource.value = currentToolId.value to text
             }
 
             override fun pickFileToOpen(): String? =
@@ -247,9 +263,12 @@ fun DevToolsPanel(
                         ToolContent(tool = selectedTool, item = item, host = host)
                     }
                 }
+                // 只采信**当前工具**报的值：别的工具留下的（即便还在）不关这一件的事。
+                val toolStatus = reportedStatus.value?.takeIf { it.first == effectiveSelectedId }?.second
+                val toolSource = reportedSource.value?.takeIf { it.first == effectiveSelectedId }?.second
                 ToolStatusBar(
                     type = detected.firstOrNull(),
-                    source = sourceLabel(item, openedFiles.value),
+                    source = sourceLabel(item, openedFiles.value, toolSource),
                     message = status.value,
                     toolStatus = toolStatus,
                 )
@@ -544,13 +563,19 @@ private fun ToolStatusBar(
  * 信息，所以照原样显示。多个文件只铺第一个、余下用「等 N 个文件」交代——状态栏只有一行，再多
  * 的路径也读不完（`ClipItem.files` 非空即文件类，与 `clipType` 判 `FILE` 同一条件）。
  *
- * 没有输入时也写一句，免得状态栏左半边空着像是坏了。
+ * **优先次序**：文件来源 ＞ 工具报告（[reported]）＞ 兜底的「来自剪贴板」。文件最权威，因为它是
+ * 用户在面板里明确的动作（打开 / 拖入），工具报告反而可能落后于它。
+ *
+ * 没有文件时才轮到 [reported]：那是工具说的「内容从哪来」（当前时间 / 文本输入…）——面板自己
+ * 判断不了这些，因为都发生在工具内部（见 `DevToolHost.reportSource` 与 `DevToolReportSource`）。
  */
-private fun sourceLabel(item: ClipItem?, openedFiles: List<String>): String {
+private fun sourceLabel(item: ClipItem?, openedFiles: List<String>, reported: String?): String {
     val files = openedFiles.ifEmpty { item?.files.orEmpty() }
-    if (files.isEmpty()) return if (item == null) "未带入剪贴板内容" else "来自剪贴板"
-    val first = files.first()
-    return if (files.size == 1) "来自文件 · $first" else "来自文件 · $first 等 ${files.size} 个文件"
+    if (files.isNotEmpty()) {
+        val first = files.first()
+        return if (files.size == 1) "来自文件 · $first" else "来自文件 · $first 等 ${files.size} 个文件"
+    }
+    return reported ?: "来自剪贴板"
 }
 
 @Composable

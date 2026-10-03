@@ -146,6 +146,13 @@ internal fun DevToolCodeField(
      * 只影响显示层（配色与折叠），与「合不合法 / 排成什么样」无关——那是各工具自己的解析器。
      */
     scan: (String) -> CodeStructure = ::scanJson,
+    /**
+     * 是否画自带的那行标题（左侧框名 + 右侧 [actions]）。
+     *
+     * 为 `false` 时整条标题行——连同 [actions]——都不出现：调用方把框名放到别处（例如左侧一列
+     * 统一的标签），并自行安排原本挂在标题行上的动作。默认 `true`，原有调用不受影响。
+     */
+    showLabel: Boolean = true,
 ) {
     val colors = MaterialTheme.colorScheme
     val hint = MaterialTheme.hintColor
@@ -261,14 +268,16 @@ internal fun DevToolCodeField(
     }
 
     Column(modifier.fillMaxWidth()) {
-        // 标签在左、动作在右：动作属于这个框，就该跟它的名字同处一行。
-        // 字号跟着编辑区标题行整体提一档（11 → 13sp）：这一行是每个框的入口，原先小得像脚注。
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, fontSize = 13.sp, color = hint)
-            Spacer(Modifier.weight(1f))
-            actions()
+        if (showLabel) {
+            // 标签在左、动作在右：动作属于这个框，就该跟它的名字同处一行。
+            // 字号跟着编辑区标题行整体提一档（11 → 13sp）：这一行是每个框的入口，原先小得像脚注。
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, fontSize = 13.sp, color = hint)
+                Spacer(Modifier.weight(1f))
+                actions()
+            }
+            Spacer(Modifier.height(6.dp))
         }
-        Spacer(Modifier.height(6.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -807,9 +816,14 @@ private val AppDarkCodeColors = CodeColors(
     bracketBackground = Color(0x400A84FF),
 )
 
-/** 当前主题该用哪套语法配色。 */
+/**
+ * 当前主题该用哪套语法配色。
+ *
+ * 模块内可见：其它工具想跟编辑框用同一块底色（例如单行输入框）时，取它的 `editorBackground`
+ * 即可，不必自己再挑一个「差不多的灰」。
+ */
 @Composable
-private fun rememberCodeColors(): CodeColors =
+internal fun rememberCodeColors(): CodeColors =
     if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
         AppDarkCodeColors
     } else {

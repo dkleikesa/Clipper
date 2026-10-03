@@ -6,6 +6,7 @@ import com.qcmian.clipper.devtools.detect.DataTypeDetector
 import com.qcmian.clipper.devtools.detect.detectTypes
 import com.qcmian.clipper.devtools.tools.json.JsonDevTool
 import com.qcmian.clipper.devtools.tools.math.MathDevTool
+import com.qcmian.clipper.devtools.tools.timestamp.TimestampDevTool
 import com.qcmian.clipper.devtools.tools.xml.XmlDevTool
 
 /**
@@ -44,9 +45,6 @@ class DevToolsRegistry(
         }
     }
 
-    /** 打开面板时要默认选中的工具：匹配上的第一个；一个都没匹配上时退回列表第一个。 */
-    fun preferredTool(detectedTypes: List<String>): DevTool? = rankedTools(detectedTypes).firstOrNull()
-
     companion object {
         /** 匹配不上任何探测类型时的排序键，稳定排在所有命中项之后。 */
         private const val UNMATCHED = Int.MAX_VALUE
@@ -62,6 +60,7 @@ class DevToolsRegistry(
                 JsonDevTool,
                 XmlDevTool,
                 MathDevTool,
+                TimestampDevTool,
             ),
         )
     }
