@@ -38,21 +38,19 @@ import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 
-/** 「含义」列的宽度：最长的一条（`时区偏移（带冒号）`）也放得下，各行因此左缘对齐。 */
-private val MeaningWidth = 140.dp
+/** 「含义」列的宽度：最长的一条（`偏移（带冒号）`）也放得下，各行因此左缘对齐。 */
+private val MeaningWidth = 130.dp
 
-/** 两种风格的列宽：放得下列名（`Python`）与最长的写法（`yyyy` / `%Y`）。 */
-private val JavaWidth = 62.dp
-private val PythonWidth = 68.dp
+/** 写法列的宽度：最长的写法（`yyyy` / `ZZZZZ`）与它右边的示例之间留出间距。 */
+private val SpellingWidth = 78.dp
 
 /**
- * 「占位符速查」：模板支持的全部写法，**两种风格并排**，点一下接进格式框。
+ * 「占位符速查」：模板支持的全部写法，点一下接进格式框。
  *
  * 内容来自 [TimestampSyntax]，这里只管画。顶部那行提示固定在卡片里不随内容滚：它说的是「点了会
  * 落到哪儿」，滚走之后用户就只能猜了。
  *
- * 表头不能省：`MM` 与 `%m` 两列都是等宽的符号，光看字形分不出哪边是 Java、哪边是 Python，
- * 而这两列恰恰是最容易写混的地方。
+ * 表头不能省：这一列全是等宽的符号，不写清楚它是「写法」，第一次看的人会当成示例的一种。
  *
  * @param target 点中的写法接进哪个框——只用在提示语里，界面上要写清楚，否则点了半天不知道落到哪。
  * @param onPick 点中一个写法。
@@ -108,13 +106,12 @@ internal fun TimestampSyntaxPanel(
     }
 }
 
-/** 表头：四列各是什么（含义 / Java 写法 / Python 写法 / 示例），只在最上面写一次。 */
+/** 表头：三列各是什么（含义 / 写法 / 示例），只在最上面写一次。 */
 @Composable
 private fun FieldHeaderRow() {
     Row(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp)) {
         HeaderCell("含义", Modifier.width(MeaningWidth))
-        HeaderCell("Java", Modifier.width(JavaWidth))
-        HeaderCell("Python", Modifier.width(PythonWidth))
+        HeaderCell("写法", Modifier.width(SpellingWidth))
         HeaderCell("示例", Modifier.weight(1f))
     }
 }
@@ -135,7 +132,7 @@ private fun GroupTitle(title: String) {
     )
 }
 
-/** 一行字段：含义 / Java 写法 / Python 写法 / 示例；中间两格可点。 */
+/** 一行字段：含义 / 写法 / 示例；写法那一格可点。 */
 @Composable
 private fun FieldRow(field: TimestampSyntaxField, onPick: (String) -> Unit) {
     val colors = MaterialTheme.colorScheme
@@ -149,19 +146,7 @@ private fun FieldRow(field: TimestampSyntaxField, onPick: (String) -> Unit) {
             color = colors.onSurface,
             modifier = Modifier.width(MeaningWidth),
         )
-        SpellingCell(field.java, JavaWidth, colors.onSurface, onPick)
-        // 没有对应写法时那道「—」压暗一档、也不可点：它是个空位，不是一条能填的写法。
-        if (field.python != null) {
-            SpellingCell(field.python, PythonWidth, colors.onSurface, onPick)
-        } else {
-            Text(
-                text = "—",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                color = MaterialTheme.hintColor,
-                modifier = Modifier.width(PythonWidth),
-            )
-        }
+        SpellingCell(field.spelling, SpellingWidth, colors.onSurface, onPick)
         Text(
             text = field.example,
             fontFamily = FontFamily.Monospace,

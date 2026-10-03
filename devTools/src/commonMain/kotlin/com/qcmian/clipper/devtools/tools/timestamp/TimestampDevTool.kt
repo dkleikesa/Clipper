@@ -81,14 +81,23 @@ private val FieldLabelGap = 8.dp
 private val LabelWidth = 92.dp
 
 /**
- * 两个预设模板：同一件事（年月日时分秒 + 毫秒）在两种风格里的写法。
+ * 速查卡片的宽度：三列（含义 130 + 写法 78 + 示例，见 `TimestampSyntaxPanel`）加上左右内边距与
+ * 滚动条，正好放得下那张表。
  *
- * 只列模板本身、不带语言名——填进格式框的是模板，菜单里显示别的反而要多看一眼才能对上。点一下
- * 填进去，用户接着改即可。
+ * 给固定值而不是按比例分：表的列宽本来就是定死的，窗口变宽时该长的是结果那一栏。
+ */
+private val SyntaxPanelWidth = 320.dp
+
+/**
+ * 几个预设模板，点一下填进格式框，用户接着改即可。
+ *
+ * 只列模板本身、不带名字——填进格式框的就是这串字符，菜单里显示别的反而要多看一眼才能对上。
+ * 三个都是**同一套写法**，差别只在年月日之间用什么隔、要不要带偏移。
  */
 private val PatternPresets = listOf(
     "yyyy-MM-dd HH:mm:ss.SSS",
-    "%Y-%m-%d %H:%M:%S.%f",
+    "yyyy/MM/dd HH:mm:ss",
+    "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
 )
 
 /**
@@ -127,11 +136,13 @@ private enum class FormatField(val label: String) {
  *
  * 有**输入格式**与**输出格式**两个模板，都可以留空：
  *  - 输入格式留空 → 交给 [TimestampConvert] 自动识别（Unix 秒 / 毫秒时间戳、ISO 8601、本地日期
- *    时间等）；非空 → 交给 [TimestampPattern] 按模板解析（符号表见其注释）；
+ *    时间等）；非空 → 交给 [TimestampPattern] 按模板解析（写法与 kotlinx-datetime 一致，
+ *    支持哪些符号见 [TimestampSyntax]）；
  *  - 输出格式留空 → 结果就是内置那组写法；非空 → 在它**之上多一行**「自定义格式」，内置那些照旧。
  *
- * 时区分**输入时区**与**输出时区**（默认都本机）：前者解释不带时区的输入，后者渲染结果。两者
- * 不同时就是一次时区换算——例如按上海时间读入 `2026-10-03 14:30:00`、输出成纽约时间。
+ * 时区分**输入时区**与**输出时区**（默认都本机）：前者解释**不带时区**的输入（输入格式里写了
+ * 偏移或时区 ID 时，以文本里那个为准），后者渲染结果。两者不同时就是一次时区换算——例如按上海
+ * 时间读入 `2026-10-03 14:30:00`、输出成纽约时间。
  *
  * [acceptedDataTypes] 声明 `timestamp`：复制一个时间戳打开工具时会被推荐到最前；而普通文本
  * （凑巧是纯数字的除外）不会把用户引到这里。
@@ -178,6 +189,14 @@ internal object TimestampDevTool : DevTool {
         val outputZone = remember(outputZoneId) { TimestampZones.of(outputZoneId) }
         // 输出用的模板：没单独指定输出格式就跟随输入格式——只填一个框时，进出一致。
         val output = outputPattern.ifBlank { inputPattern }
+        // 输入格式里带了时区的话，解析只认文本里那个，下面的「输入时区」就用不上了（见 `TimestampPattern`）。
+        val inputCarriesZone = remember(inputPattern) { TimestampPattern.carriesZone(inputPattern) }
+        // 模板本身写错了（不认识的字母、位数不对）就先说模板：这类错误看着像「输入不对」，不说清
+        // 楚会把用户引到输入上去找。先问输入格式，因为输出格式留空时会跟随它。
+        val patternProblem = remember(inputPattern, output) {
+            TimestampPattern.problemOf(inputPattern)?.let { "输入格式：$it" }
+                ?: TimestampPattern.problemOf(output)?.let { "输出格式：$it" }
+        }
 
         // 从剪贴板条目打开时灌入正文——复制一个时间戳再按快捷键，是这里最顺手的用法。
         LaunchedEffect(input) {
@@ -204,13 +223,14 @@ internal object TimestampDevTool : DevTool {
             }
         }
 
-        val fields = remember(parseResult, output, outputZone) {
+        val fields = remember(parseResult, output, outputZone, patternProblem) {
             val instant = parseResult?.getOrNull() ?: return@remember emptyList()
             // 内置那组写法一直都在（秒级 / 毫秒级时间戳、本地与 UTC 时间、ISO 8601、星期、相对现在）；
             // 指定了输出格式时，只在它**上面加一行**按模板格式化的结果，而不是把整组换掉——换掉会让
             // 人以为「一加格式，原先那些就没了」。
             val builtIn = TimestampConvert.fields(instant, outputZone)
-            if (output.isBlank()) {
+            // 模板写错时不排「自定义格式」那一行：错误由结果区那行红字说，不混进结果列表里。
+            if (output.isBlank() || patternProblem != null) {
                 builtIn
             } else {
                 listOf(
@@ -282,10 +302,17 @@ internal object TimestampDevTool : DevTool {
                     onClick = {
                         val now = TimestampConvert.now()
                         // 填的是「输入侧」的内容：输入格式留空就填毫秒时间戳（精度到毫秒），有格式
-                        // 就按它出一份样例——与解析同一条规则，点一下就能验证模板对不对。
-                        source = if (inputPattern.isBlank()) now.toEpochMilliseconds().toString()
-                        else TimestampPattern.format(now, inputZone, inputPattern)
-                        origin = SourceOrigin.Now
+                        // 就按它出一份样例——与解析同一条规则，点一下就能验证模板对不对。模板写错
+                        // 了就不填（错误已经显示在结果区），免得填一串半成品出来反倒看不出错在哪。
+                        val sample = if (inputPattern.isBlank()) {
+                            now.toEpochMilliseconds().toString()
+                        } else {
+                            runCatching { TimestampPattern.format(now, inputZone, inputPattern) }.getOrNull()
+                        }
+                        if (sample != null) {
+                            source = sample
+                            origin = SourceOrigin.Now
+                        }
                     },
                 )
             }
@@ -312,6 +339,19 @@ internal object TimestampDevTool : DevTool {
                     selectedId = outputZoneId,
                     onSelect = { outputZoneId = it },
                 )
+
+                // 输入格式自带时区时，左边那个下拉其实用不上了——不说明的话，改了它毫无变化，看着
+                // 就像工具坏了。提示跟着输入格式走：模板里没了时区，它自己就消失。
+                if (inputCarriesZone) {
+                    Text(
+                        text = "输入格式里带了时区，以文本为准",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.hintColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(start = 10.dp).weight(1f),
+                    )
+                }
             }
 
             Spacer(Modifier.height(18.dp))
@@ -360,20 +400,21 @@ internal object TimestampDevTool : DevTool {
 
             Spacer(Modifier.height(10.dp))
 
-            val target = syntaxTarget
-            Box(Modifier.weight(1f)) {
-                // 速查页与结果占同一块地方（与数学工具的「语法帮助 ⇄ 历史」同一取舍）：两者并排会把
-                // 结果那一列挤成一条缝，而速查是看几眼就收起来的东西。格式框留在上方看得见，一边点
-                // 一边就能看着它变长。
-                if (target != null) {
-                    TimestampSyntaxPanel(
-                        target = target.label,
-                        onPick = { pick(target, it) },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
+            // 结果在左、速查在右，并排——速查不再把结果盖住。
+            //
+            // 速查放右边：这块面板的行标签一路靠左成一条竖线（见类注释），结果留在左边才与上面的
+            // 格式行对齐；速查自己是一张列宽定死的三列表，占住右边正合适。
+            Row(Modifier.weight(1f)) {
+                Box(Modifier.weight(1f).fillMaxHeight()) {
                     when {
                         source.isBlank() -> Placeholder(hintFor(output.isBlank()))
+                        // 模板写错时先报模板：输入可能压根没错，先把人引到输入上会白找一轮。
+                        patternProblem != null -> Text(
+                            text = patternProblem,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+
                         parseResult?.isFailure == true -> Text(
                             text = parseResult.exceptionOrNull()?.message ?: "无法识别输入",
                             fontSize = 13.sp,
@@ -382,6 +423,16 @@ internal object TimestampDevTool : DevTool {
 
                         else -> ResultList(fields, host, Modifier.fillMaxSize())
                     }
+                }
+
+                val target = syntaxTarget
+                if (target != null) {
+                    Spacer(Modifier.width(12.dp))
+                    TimestampSyntaxPanel(
+                        target = target.label,
+                        onPick = { pick(target, it) },
+                        modifier = Modifier.width(SyntaxPanelWidth).fillMaxHeight(),
+                    )
                 }
             }
         }

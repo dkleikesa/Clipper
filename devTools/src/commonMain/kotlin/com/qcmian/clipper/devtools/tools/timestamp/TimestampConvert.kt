@@ -55,27 +55,17 @@ internal object TimestampConvert {
     /**
      * 星期一为 0，与 [weekdayIndex] 的输出对应。
      *
-     * 内部可见：自定义模板（`TimestampPattern` 的 `E` 符号）要按同一套名字输出星期、解析时还得
-     * 照着它反查——两边共用一份，改一种写法不会漏掉另一处。
+     * 结果里「星期」那一行按它取名。写法统一到 kotlinx-datetime 那套之后，自定义模板里已经没有
+     * 星期符号（`E` 依赖语言环境，模板侧不支持），这份名字只服务那一行。
      */
     val WeekdayNames =
         listOf("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
 
-    /**
-     * 星期几的短写法，与 [WeekdayNames] 一一对应（`周一`…`周日`）。
-     *
-     * 从长写法推出来而不是另列一份：两边必须逐位对上，手写第二份迟早会错位。
-     */
-    val WeekdayShortNames: List<String> = WeekdayNames.map { "周" + it.removePrefix("星期") }
-
     /** 当前时刻。「当前时间」按钮与「相对现在」都用它，从而只有一处读系统时钟。 */
     fun now(): Instant = Clock.System.now()
 
-    /** 这个时刻是星期几，如「星期四」。固定结果行与自定义模板共用它。 */
+    /** 这个时刻是星期几，如「星期四」。 */
     fun weekdayName(instant: Instant): String = WeekdayNames[weekdayIndex(instant)]
-
-    /** 这个时刻的星期短写法，如「周四」。 */
-    fun weekdayShortName(instant: Instant): String = WeekdayShortNames[weekdayIndex(instant)]
 
     /**
      * 这段文本像不像一个 Unix 时间戳。
