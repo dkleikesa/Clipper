@@ -391,6 +391,45 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
             drawLine(color, Offset(s * 0.84f, s * 0.50f), Offset(s * 0.60f, s * 0.76f), strokeWidth, StrokeCap.Round)
         }
 
+        ClipperIconKind.FOLDER -> {
+            drawPath(
+                path = Path().apply {
+                    moveTo(s * 0.12f, s * 0.80f)
+                    lineTo(s * 0.12f, s * 0.22f)
+                    lineTo(s * 0.40f, s * 0.22f)
+                    lineTo(s * 0.50f, s * 0.36f)
+                    lineTo(s * 0.88f, s * 0.36f)
+                    lineTo(s * 0.88f, s * 0.80f)
+                    close()
+                },
+                color = color,
+                style = stroke,
+            )
+        }
+
+        ClipperIconKind.SAVE -> {
+            drawLine(color, Offset(s * 0.5f, s * 0.14f), Offset(s * 0.5f, s * 0.60f), strokeWidth, StrokeCap.Round)
+            drawPath(
+                path = Path().apply {
+                    moveTo(s * 0.30f, s * 0.42f)
+                    lineTo(s * 0.50f, s * 0.62f)
+                    lineTo(s * 0.70f, s * 0.42f)
+                },
+                color = color,
+                style = stroke,
+            )
+            drawPath(
+                path = Path().apply {
+                    moveTo(s * 0.18f, s * 0.66f)
+                    lineTo(s * 0.18f, s * 0.86f)
+                    lineTo(s * 0.82f, s * 0.86f)
+                    lineTo(s * 0.82f, s * 0.66f)
+                },
+                color = color,
+                style = stroke,
+            )
+        }
+
         // ---------------------------------------------------------------- 条目类型
         ClipperIconKind.TYPE_TEXT -> {
             // 一个**带衬线**的 "T"。衬线只保留三处：顶横杠两端向下的小竖、竖笔底部的短横——
