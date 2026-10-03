@@ -59,6 +59,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
+import com.qcmian.clipper.devtools.ui.components.DevToolToggle
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
 import com.qcmian.clipper.devtools.ui.components.code.rememberCodeColors
 import com.qcmian.clipper.devtools.ui.components.code.scanPlain
@@ -144,6 +145,8 @@ internal object TimestampDevTool : DevTool {
         var origin by remember { mutableStateOf(SourceOrigin.Clipboard) }
         var inputPattern by remember { mutableStateOf("") }
         var outputPattern by remember { mutableStateOf("") }
+        // 下面那一块现在显示什么：结果，还是占位符速查页。两者互斥（见底部那段说明）。
+        var showSyntax by remember { mutableStateOf(false) }
         // 输入时区解释「不带时区的输入」，输出时区渲染结果；默认都为本机，两者不同时即为一次换算。
         var inputZoneId by remember { mutableStateOf(TimestampZones.systemId()) }
         var outputZoneId by remember { mutableStateOf(TimestampZones.systemId()) }
@@ -316,6 +319,14 @@ internal object TimestampDevTool : DevTool {
                 )
                 Spacer(Modifier.width(8.dp))
                 PresetMenu(selected = outputPattern, onSelect = { outputPattern = it })
+                Spacer(Modifier.width(8.dp))
+                // 两个格式框吃的是同一套占位符，入口放一个就够；挂在最后一行，读起来是整个格式块的
+                // 尾巴。它管的是**下面那一块显示什么**（速查还是结果），与结果区互斥。
+                DevToolToggle(
+                    title = "占位符速查",
+                    checked = showSyntax,
+                    onCheckedChange = { showSyntax = it },
+                )
             }
 
             Spacer(Modifier.height(18.dp))
@@ -327,15 +338,22 @@ internal object TimestampDevTool : DevTool {
             Spacer(Modifier.height(10.dp))
 
             Box(Modifier.weight(1f)) {
-                when {
-                    source.isBlank() -> Placeholder(hintFor(output.isBlank()))
-                    parseResult?.isFailure == true -> Text(
-                        text = parseResult.exceptionOrNull()?.message ?: "无法识别输入",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                // 速查页与结果占同一块地方（与数学工具的「语法帮助 ⇄ 历史」同一取舍）：两者并排会把
+                // 结果那一列挤成一条缝，而速查是看几眼就收起来的东西。格式框留在上方看得见，改完
+                // 收起来就能对着结果核。
+                if (showSyntax) {
+                    TimestampSyntaxPanel(Modifier.fillMaxSize())
+                } else {
+                    when {
+                        source.isBlank() -> Placeholder(hintFor(output.isBlank()))
+                        parseResult?.isFailure == true -> Text(
+                            text = parseResult.exceptionOrNull()?.message ?: "无法识别输入",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.error,
+                        )
 
-                    else -> ResultList(fields, host, Modifier.fillMaxSize())
+                        else -> ResultList(fields, host, Modifier.fillMaxSize())
+                    }
                 }
             }
         }
