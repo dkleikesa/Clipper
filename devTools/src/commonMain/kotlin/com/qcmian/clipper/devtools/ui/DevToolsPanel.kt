@@ -479,7 +479,8 @@ private fun ToolContent(
     host: DevToolHost,
 ) {
     // 有界高度：工具里的编辑区用 `weight` 分配空间，父级必须先给一个确定的高度。
-    Box(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
+    // 内边距比原先各多 2dp：操作栏放大之后，内容贴着窗口边缘会显得更挤。
+    Box(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 12.dp)) {
         tool.Content(input = item, host = host)
     }
 }

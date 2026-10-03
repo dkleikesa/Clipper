@@ -111,7 +111,7 @@ internal object XmlDevTool : DevTool {
                 actions = { DevToolInputActions(source, { source = it }, host) },
             )
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DevToolButton(
@@ -129,7 +129,7 @@ internal object XmlDevTool : DevTool {
                 Spacer(Modifier.weight(1f))
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
 
             DevToolEditor(
                 label = "结果",

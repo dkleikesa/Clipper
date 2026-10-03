@@ -65,8 +65,8 @@ fun DevToolFieldAction(
     HoverTooltip(text = tooltip, positioning = TooltipAnchorPosition.Above) {
         Box(
             modifier = Modifier
-                .size(20.dp)
-                .clip(RoundedCornerShape(4.dp))
+                .size(24.dp)
+                .clip(RoundedCornerShape(5.dp))
                 .background(
                     if (hovered && enabled) colors.onSurface.copy(alpha = 0.08f) else Color.Transparent
                 )
@@ -81,7 +81,7 @@ fun DevToolFieldAction(
         ) {
             ClipperIcon(
                 kind = kind,
-                size = 13.dp,
+                size = 15.dp,
                 tint = if (enabled) colors.onSurfaceVariant else colors.onSurfaceVariant.copy(alpha = 0.35f),
             )
         }
@@ -105,7 +105,7 @@ fun DevToolInputActions(
         tooltip = "打开文件",
         onClick = { onValueChange(readPickedFile(host) ?: return@DevToolFieldAction) },
     )
-    Spacer(Modifier.width(2.dp))
+    Spacer(Modifier.width(4.dp))
     DevToolFieldAction(
         kind = ClipperIconKind.TRASH,
         tooltip = "清空这一段",
@@ -139,7 +139,7 @@ fun DevToolResultActions(
             )
         },
     )
-    Spacer(Modifier.width(2.dp))
+    Spacer(Modifier.width(4.dp))
     DevToolFieldAction(
         kind = ClipperIconKind.COPY,
         tooltip = "复制结果",

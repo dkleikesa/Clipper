@@ -95,12 +95,13 @@ fun DevToolEditor(
 
     Column(modifier.fillMaxWidth()) {
         // 标签在左、动作在右：动作属于这个框，就该跟它的名字同处一行。
+        // 与 `DevToolCodeField` 的标题行同一档字号，两个编辑控件看起来才是同一套东西。
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, fontSize = 11.sp, color = MaterialTheme.hintColor)
+            Text(label, fontSize = 13.sp, color = MaterialTheme.hintColor)
             Spacer(Modifier.weight(1f))
             actions()
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(6.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -191,7 +192,7 @@ fun DevToolButton(
         onClick = onClick,
         modifier = modifier,
     ) { contentColor ->
-        Text(title, fontSize = 12.sp, color = contentColor, maxLines = 1)
+        Text(title, fontSize = 13.sp, color = contentColor, maxLines = 1)
         trailing?.invoke(contentColor)
     }
 }
@@ -229,7 +230,7 @@ private fun DevToolButtonSurface(
 
     Row(
         modifier = modifier
-            .height(26.dp)
+            .height(30.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(background)
             .hoverable(interaction, enabled = enabled)
@@ -239,7 +240,7 @@ private fun DevToolButtonSurface(
                 enabled = enabled,
                 onClick = onClick,
             )
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
@@ -290,7 +291,7 @@ fun <T> DevToolMenuButton(
                 // 与剪贴板筛选栏的下拉（`FilterChip`）取同一档尺寸与间距：两处都是「点开一列选项」
                 // 的按钮，箭头大小不一样会显得是两套控件。图标用按钮的前景色，好跟着 primary 走。
                 Spacer(Modifier.width(3.dp))
-                ClipperIcon(ClipperIconKind.CHEVRON_DOWN, size = 14.dp, tint = contentColor)
+                ClipperIcon(ClipperIconKind.CHEVRON_DOWN, size = 15.dp, tint = contentColor)
             },
         )
         DropdownMenu(
@@ -308,7 +309,7 @@ fun <T> DevToolMenuButton(
                             expanded = false
                             onSelect(option)
                         }
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // 固定尺寸的勾选列：选中与未选中的行因此一样高，切换时菜单不会抖。
@@ -320,7 +321,7 @@ fun <T> DevToolMenuButton(
                     Spacer(Modifier.width(4.dp))
                     Text(
                         text = optionLabel(option),
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         color = if (isSelected) colors.primary else colors.onSurface,
                         maxLines = 1,
                     )
@@ -333,7 +334,7 @@ fun <T> DevToolMenuButton(
 /** 与 [DevToolButton] 的圆角一起构成操作栏的统一观感。 */
 @Composable
 fun DevToolActionSpacer() {
-    Spacer(Modifier.width(8.dp))
+    Spacer(Modifier.width(10.dp))
 }
 
 /** 工具内的一条提示（成功 / 失败）。 */

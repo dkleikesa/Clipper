@@ -188,12 +188,12 @@ internal object JsonDevTool : DevTool {
                 // 「复制结果」搬去了结果框的标题行：产出的是那个框里的内容，按钮留在工具栏上
                 // 会让人先找按钮、再对框（见 `DevToolResultActions`）。这里因此只剩一个更宽的
                 // 间隔，把「选模式」和右边那组「决定输出长什么样」的控件分开。
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(14.dp))
 
                 // 缩进只影响「美化」（压缩根本没有换行），但这里**不**按模式禁用：缩进是用户的口味
                 // 设置，想先设好再切回美化，没道理拦着；菜单按钮上一直显示着当前取值，点了也不会
                 // 「没反应」。原先按模式整组变灰，反而逼着用户先切模式、再调缩进、再切回来。
-                Text("缩进", fontSize = 11.sp, color = MaterialTheme.hintColor)
+                Text("缩进", fontSize = 12.sp, color = MaterialTheme.hintColor)
                 DevToolActionSpacer()
                 DevToolMenuButton(
                     label = indentLabel(indent),
@@ -203,7 +203,7 @@ internal object JsonDevTool : DevTool {
                     onSelect = { indent = it },
                 )
 
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(10.dp))
 
                 // 开关而不是模式：它跟「美化 / 压缩」不是一个维度——那两个互斥，这个只是叠在上面
                 // 的一层修饰，所以摆在缩进旁边、和缩进一起算「输出长什么样」的那组。
@@ -216,7 +216,7 @@ internal object JsonDevTool : DevTool {
                 Spacer(Modifier.weight(1f))
             }
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
 
             // 输入与结果左右等分，便于逐行对照格式化前后的差异。
             // 两侧都用 [DevToolCodeField]：**原生 `BasicTextField`** + 叠在它上面的行号、高亮与
