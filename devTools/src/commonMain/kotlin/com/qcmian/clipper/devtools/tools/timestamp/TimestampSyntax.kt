@@ -1,17 +1,24 @@
 package com.qcmian.clipper.devtools.tools.timestamp
 
-/** 「占位符速查」里的一行：怎么写、什么含义、长什么样。 */
-internal data class TimestampSyntaxRow(
-    val symbol: String,
+/**
+ * 速查表里的一行：一个字段在**两种风格**里各怎么写。
+ *
+ * 两种写法并排放，而不是分成两张表：它们对的是同一个字段，摆在一起才看得出「`%m` 是月、`%M` 是
+ * 分」这种最容易记混的地方——分成两节，用户反而要来回对。
+ */
+internal data class TimestampSyntaxField(
     val meaning: String,
+    val java: String,
+    /** Python 那边没有对应写法时留 `null`，界面上显示成一道「—」。 */
+    val python: String?,
     val example: String,
 )
 
-/** 「占位符速查」里的一节。 */
-internal data class TimestampSyntaxSection(
-    val title: String,
-    val rows: List<TimestampSyntaxRow>,
-)
+/** 速查表里的一条要点：不成「字段」的规矩（字面量、引号、只用于输出…）。 */
+internal data class TimestampSyntaxNote(val syntax: String, val note: String)
+
+/** 速查表里的一组字段。 */
+internal data class TimestampSyntaxGroup(val title: String, val fields: List<TimestampSyntaxField>)
 
 /**
  * 自定义模板支持的全部写法——界面上那页「占位符速查」的内容。
@@ -19,71 +26,47 @@ internal data class TimestampSyntaxSection(
  * 放在这里而不是写在界面的布局代码里，是为了让**写法与实现只隔一个文件**：`TimestampPattern`
  * 的说明直接指向这里，改一个符号时两处不会各改各的。用户照着速查试写法，写错了多半不会再回来
  * 查第二遍，所以那页错一处的代价比别处高。
- *
- * 分组只按用户的心智来（日期 / 时间 / 其它 / 写法要点），不按 [TimestampPattern] 里的字段枚举——
- * 枚举是实现的分类，这里要的是「我想找的那个字段在哪一行」。
  */
 internal object TimestampSyntax {
 
-    val sections: List<TimestampSyntaxSection> = listOf(
-        TimestampSyntaxSection(
+    val groups: List<TimestampSyntaxGroup> = listOf(
+        TimestampSyntaxGroup(
             title = "日期",
-            rows = listOf(
-                TimestampSyntaxRow("yyyy", "四位年", "2028"),
-                TimestampSyntaxRow("yy", "两位年", "28"),
-                TimestampSyntaxRow("MM", "月", "11"),
-                TimestampSyntaxRow("dd", "日", "22"),
+            fields = listOf(
+                TimestampSyntaxField("四位年", "yyyy", "%Y", "2028"),
+                TimestampSyntaxField("两位年", "yy", "%y", "28"),
+                TimestampSyntaxField("月", "MM", "%m", "11"),
+                TimestampSyntaxField("日", "dd", "%d", "22"),
             ),
         ),
-        TimestampSyntaxSection(
+        TimestampSyntaxGroup(
             title = "时间",
-            rows = listOf(
-                TimestampSyntaxRow("HH", "24 时制小时", "10"),
-                TimestampSyntaxRow("hh", "12 时制小时，配 a 用", "10"),
-                TimestampSyntaxRow("mm", "分", "12"),
-                TimestampSyntaxRow("ss", "秒", "34"),
-                TimestampSyntaxRow("S", "毫秒，输出固定三位", "123"),
-                TimestampSyntaxRow("a", "上午 / 下午", "上午"),
+            fields = listOf(
+                TimestampSyntaxField("24 时制小时", "HH", "%H", "10"),
+                TimestampSyntaxField("12 时制小时", "hh", "%I", "10"),
+                TimestampSyntaxField("分", "mm", "%M", "12"),
+                TimestampSyntaxField("秒", "ss", "%S", "34"),
+                TimestampSyntaxField("毫秒", "S", "%f", "123"),
+                TimestampSyntaxField("上午 / 下午", "a", "%p", "上午"),
             ),
         ),
-        TimestampSyntaxSection(
+        TimestampSyntaxGroup(
             title = "其它",
-            rows = listOf(
-                TimestampSyntaxRow("E", "星期", "星期三"),
-                TimestampSyntaxRow("Z", "时区偏移，无冒号", "+0800"),
-                TimestampSyntaxRow("ZZ", "时区偏移", "+08:00"),
-                TimestampSyntaxRow("z", "时区名", "Asia/Shanghai"),
+            fields = listOf(
+                TimestampSyntaxField("星期", "E", "%A", "星期三"),
+                TimestampSyntaxField("时区偏移", "Z", "%z", "+0800"),
+                // Python 的 `%z` 只能写成 `+0800` 那种，带冒号的没有对应写法。
+                TimestampSyntaxField("时区偏移（带冒号）", "ZZ", null, "+08:00"),
+                TimestampSyntaxField("时区名", "z", "%Z", "Asia/Shanghai"),
             ),
         ),
-        TimestampSyntaxSection(
-            title = "写法要点",
-            rows = listOf(
-                TimestampSyntaxRow(
-                    "yyyy年MM月dd日",
-                    "别的字符按字面量原样出现",
-                    "2028年11月22日",
-                ),
-                TimestampSyntaxRow(
-                    "'T'",
-                    "要写字面字母就用单引号括起来",
-                    "2028-11-22T10:12:34",
-                ),
-                TimestampSyntaxRow(
-                    ".000",
-                    "秒之后的点加一串 0 也当毫秒",
-                    "10:12:34.123",
-                ),
-                TimestampSyntaxRow(
-                    "%Y-%m-%d %H:%M:%S",
-                    "也接受 Python strftime 的写法",
-                    "2028-11-22 10:12:34",
-                ),
-                TimestampSyntaxRow(
-                    "Z / z",
-                    "只用于输出，不能拿来解析输入",
-                    "+08:00",
-                ),
-            ),
-        ),
+    )
+
+    val notes: List<TimestampSyntaxNote> = listOf(
+        TimestampSyntaxNote("yyyy年MM月dd日", "不是字段的字符都按字面量原样出现"),
+        TimestampSyntaxNote("'T'", "字面字母要用单引号括起来，两个单引号表示一个"),
+        TimestampSyntaxNote(".000", "秒之后的点加一串 0 也是毫秒，如 10:12:34.123"),
+        TimestampSyntaxNote("Z / z", "只能用来输出，不能拿来解析输入"),
+        TimestampSyntaxNote("认不出的 %X", "例如 %j，原样当字面量"),
     )
 }
