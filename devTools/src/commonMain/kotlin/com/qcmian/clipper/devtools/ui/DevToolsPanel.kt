@@ -137,12 +137,26 @@ fun DevToolsPanel(
     // 「刚刚发生了什么」——一次性的，到点自己消失。
     val status = remember { mutableStateOf<String?>(null) }
     // 「眼前这份内容是什么状态」——工具报告的，一直留着；换了一条剪贴板记录就作废。
-    var toolStatus by remember(item) { mutableStateOf<String?>(null) }
+    //
+    // 用 `remember {}` 而不是 `remember(item) {}`：下面那个 host 对象跨重组记忆，构造时把
+    // 这几个状态的写入口闭包了进去。这里若跟着 item 换一个新实例，host 手里仍是旧的那一个——
+    // 工具往后报告的一切都写进了没人再读的副本，状态栏看上去「不刷新」。重置改由下面那个
+    // `LaunchedEffect(item)` 显式完成。
+    var toolStatus by remember { mutableStateOf<String?>(null) }
+    // 用户在面板里「打开文件」或把文件拖进来之后，眼前这段内容就不再来自那条剪贴板记录了。
+    // 记下这些路径，状态栏据此把来源改口成「来自文件」；换一条剪贴板记录时一并作废。
+    val openedFiles = remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(item) {
+        toolStatus = null
+        openedFiles.value = emptyList()
+    }
+
     // 宿主能力：按这几个回调一起记忆——它们一变（宿主换了实现）就重建，其余时候保持稳定，
     // 免得工具界面因为「host 引用变了」而整块重组。
     //
     // 文件那一组只把「弹对话框 / 解析拖放」转给宿主：读写文件由工具侧用 kotlinx-io 自己做
-    // （见 `readTextFileOrNull`），这里因此不碰文件内容。
+    // （见 `readTextFileOrNull`），这里因此不碰文件内容。顺势记下这一次拿到的路径——它比
+    // 「这条剪贴板记录是什么」更贴近眼下编辑区里的内容（见 `sourceLabel`）。
     val host = remember(onCopyToClipboard, onPickFileToOpen, onPickFileToSave, onDroppedFilePaths) {
         object : DevToolHost {
             override fun copyToClipboard(text: String) {
@@ -159,13 +173,14 @@ fun DevToolsPanel(
                 toolStatus = text
             }
 
-            override fun pickFileToOpen(): String? = onPickFileToOpen()
+            override fun pickFileToOpen(): String? =
+                onPickFileToOpen()?.also { openedFiles.value = listOf(it) }
 
             override fun pickFileToSave(suggestedName: String): String? =
                 onPickFileToSave(suggestedName)
 
             override fun droppedFilePaths(event: DragAndDropEvent): List<String> =
-                onDroppedFilePaths(event)
+                onDroppedFilePaths(event).also { if (it.isNotEmpty()) openedFiles.value = it }
         }
     }
     LaunchedEffect(status.value) {
@@ -236,7 +251,7 @@ fun DevToolsPanel(
                 }
                 ToolStatusBar(
                     type = detected.firstOrNull(),
-                    item = item,
+                    source = sourceLabel(item, openedFiles.value),
                     message = status.value,
                     toolStatus = toolStatus,
                 )
@@ -481,7 +496,8 @@ private fun ToolContent(
 private fun ToolStatusBar(
     /** 最具体的探测结果；没有输入或没匹配上时为 `null`。 */
     type: String?,
-    item: ClipItem?,
+    /** 左段那句「这段内容从哪来」；已由调用方算好，状态栏不关心它从何而来。 */
+    source: String,
     message: String?,
     toolStatus: String?,
 ) {
@@ -500,7 +516,7 @@ private fun ToolStatusBar(
                 Spacer(Modifier.width(12.dp))
             }
             Text(
-                text = message ?: sourceLabel(item),
+                text = message ?: source,
                 fontSize = 10.sp,
                 // 提示用主色，与左边那枚类型圆点一起成为「刚发生的事」；常驻的来源说明是灰的。
                 color = if (message != null) colors.primary else MaterialTheme.hintColor,
@@ -516,11 +532,27 @@ private fun ToolStatusBar(
     }
 }
 
-/** 没有输入时也写一句，免得状态栏左半边空着像是坏了。 */
-private fun sourceLabel(item: ClipItem?): String {
-    if (item == null) return "未带入剪贴板内容"
-    val title = item.title.replace('\n', ' ').trim()
-    return if (title.isBlank()) "来自剪贴板" else "来自剪贴板 · $title"
+/**
+ * 状态栏左段那句「这段内容从哪来」。
+ *
+ * 两条来源，[openedFiles] 优先：用户在面板里「打开文件」/ 拖文件进来之后，眼前这段内容就不再是
+ * 那条剪贴板记录了，工具侧读过什么就说什么才诚实。都没有时退回那条剪贴板记录。
+ *
+ * **文本类条目不列标题。** 标题对文本 / 图片（识别原文）条目就是正文本身——复制到一段奇怪内容
+ * （多行、特殊符号、超长）时，它会把状态栏糊成半行乱码，反而看不出这段是从哪来的；而用户此刻
+ * 正盯着输入框里的同一份内容，再说一遍也是废话。
+ *
+ * **文件则要把路径带出来**：路径不是「正文的重复」，而是用户唯一能确认「打开的是哪个文件」的
+ * 信息，所以照原样显示。多个文件只铺第一个、余下用「等 N 个文件」交代——状态栏只有一行，再多
+ * 的路径也读不完（`ClipItem.files` 非空即文件类，与 `clipType` 判 `FILE` 同一条件）。
+ *
+ * 没有输入时也写一句，免得状态栏左半边空着像是坏了。
+ */
+private fun sourceLabel(item: ClipItem?, openedFiles: List<String>): String {
+    val files = openedFiles.ifEmpty { item?.files.orEmpty() }
+    if (files.isEmpty()) return if (item == null) "未带入剪贴板内容" else "来自剪贴板"
+    val first = files.first()
+    return if (files.size == 1) "来自文件 · $first" else "来自文件 · $first 等 ${files.size} 个文件"
 }
 
 @Composable
