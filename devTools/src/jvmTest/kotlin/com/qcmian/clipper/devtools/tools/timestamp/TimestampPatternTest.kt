@@ -99,6 +99,41 @@ class TimestampPatternTest {
     }
 
     @Test
+    fun `milliseconds are recognised in any style`() {
+        val instant = Instant.parse("2028-11-22T10:12:34.123Z")
+        val expected = "2028-11-22 10:12:34.123"
+        // Go 模板里混写 Java 的 `SSS`：毫秒的写法在三种风格里泾渭分明，用户抄来抄去是常事。
+        assertEquals(expected, TimestampPattern.format(instant, utc, "2006-01-02 15:04:05.SSS"))
+        // 反过来，Java / Python 模板里写 Go 的 `.000`。
+        assertEquals(expected, TimestampPattern.format(instant, utc, "yyyy-MM-dd HH:mm:ss.000"))
+        assertEquals(expected, TimestampPattern.format(instant, utc, "%Y-%m-%d %H:%M:%S.000"))
+        // 微秒 / 纳秒写法只留到毫秒，末尾不该多出一串 0。
+        assertEquals(expected, TimestampPattern.format(instant, utc, "2006-01-02 15:04:05.000000"))
+        assertEquals(expected, TimestampPattern.format(instant, utc, "yyyy-MM-dd HH:mm:ss.000000000"))
+        // 认不出来的写法曾被原样打出，看着像毫秒恒为 0。
+        assertEquals("2028-11-22 1.000", TimestampPattern.format(instant, utc, "yyyy-MM-dd 1.000"))
+    }
+
+    @Test
+    fun `fractions shorter than three digits are scaled`() {
+        assertEquals(
+            "2028-11-22T10:12:34.500Z",
+            TimestampPattern.parse("2028-11-22 10:12:34.5", utc, "yyyy-MM-dd HH:mm:ss.SSS").getOrThrow().toString(),
+        )
+        assertEquals(
+            "2028-11-22T10:12:34.120Z",
+            TimestampPattern.parse("2028-11-22 10:12:34.12", utc, "yyyy-MM-dd HH:mm:ss.SSS").getOrThrow().toString(),
+        )
+        // 超过三位只留到毫秒，不四舍五入。
+        assertEquals(
+            "2028-11-22T10:12:34.123Z",
+            TimestampPattern.parse(
+                "2028-11-22 10:12:34.123456", utc, "yyyy-MM-dd HH:mm:ss.SSS",
+            ).getOrThrow().toString(),
+        )
+    }
+
+    @Test
     fun `a mismatching literal is a failure`() {
         assertTrue(TimestampPattern.parse("2028/11/22", utc, "yyyy-MM-dd").isFailure)
     }
