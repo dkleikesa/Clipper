@@ -68,5 +68,8 @@ internal object TimestampSyntax {
         TimestampSyntaxNote(".000", "秒之后的点加一串 0 也是毫秒，如 10:12:34.123"),
         TimestampSyntaxNote("Z / z", "只能用来输出，不能拿来解析输入"),
         TimestampSyntaxNote("认不出的 %X", "例如 %j，原样当字面量"),
+        // `%f` 是 Python 里唯一能取到秒以下精度的写法，但它只在 `datetime` 上认（C 的
+        // `time.strftime` 没有这条），而且那边是六位微秒、本工具只到毫秒——两处都容易踩。
+        TimestampSyntaxNote("%f", "Python 那边是六位微秒，且只有 datetime 认它；这里只到毫秒"),
     )
 }

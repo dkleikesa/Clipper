@@ -370,7 +370,12 @@ internal object TimestampPattern {
         return true
     }
 
-    /** Python `%X` → Java 符号；不认识返回 `null`。 */
+    /**
+     * Python `%X` → Java 符号；不认识返回 `null`。
+     *
+     * `%f` 在 Python 那边是**六位微秒**、且只有 `datetime.strftime` 认它（C 的 `time.strftime`
+     * 没有这条），这里按本工具的精度只映射到三位毫秒（见 [TimestampSyntax] 里那条要点）。
+     */
     private fun pythonField(spec: Char): String? = when (spec) {
         'Y' -> "yyyy"
         'y' -> "yy"
