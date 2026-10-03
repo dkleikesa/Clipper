@@ -23,6 +23,7 @@ object DataTypes {
 /** 工具在侧边栏里的分组。枚举顺序就是分组在侧边栏里的先后。 */
 enum class DevToolGroup(val label: String) {
     FORMATTER("格式化"),
+    CALCULATION("计算"),
     ENCODER("编解码"),
     TEXT("文本"),
     CONVERTER("转换"),

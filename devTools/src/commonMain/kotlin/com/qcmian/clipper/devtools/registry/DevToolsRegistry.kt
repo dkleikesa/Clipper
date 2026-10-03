@@ -5,6 +5,7 @@ import com.qcmian.clipper.devtools.detect.BuiltInDataTypeDetectors
 import com.qcmian.clipper.devtools.detect.DataTypeDetector
 import com.qcmian.clipper.devtools.detect.detectTypes
 import com.qcmian.clipper.devtools.tools.json.JsonDevTool
+import com.qcmian.clipper.devtools.tools.math.MathDevTool
 import com.qcmian.clipper.devtools.tools.xml.XmlDevTool
 
 /**
@@ -60,6 +61,7 @@ class DevToolsRegistry(
             tools = listOf(
                 JsonDevTool,
                 XmlDevTool,
+                MathDevTool,
             ),
         )
     }

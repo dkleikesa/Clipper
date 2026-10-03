@@ -72,6 +72,19 @@ internal class CodeStructure(
 }
 
 /**
+ * 不做任何着色与折叠的扫描结果，只算出每一行的起点。
+ *
+ * 给「不是代码的输入」用（数学表达式）：它既没有需要着色的语法单元，也没有块可折，但共用的代码框
+ * 仍要靠行起点支撑「当前行底纹」等按行的工作。
+ */
+internal fun scanPlain(text: String): CodeStructure {
+    val lineStarts = ArrayList<Int>()
+    lineStarts.add(0)
+    text.forEachIndexed { index, c -> if (c == '\n') lineStarts.add(index + 1) }
+    return CodeStructure(tokens = emptyList(), brackets = emptyList(), lineStarts = lineStarts.toIntArray())
+}
+
+/**
  * 扫描 JSON，得到着色片段、括号配对与行起点。
  *
  * 刻意**不是**解析器：JSON 工具已经有 `JsonFormat`（kotlinx）负责「合不合法 / 格式化成什么」，

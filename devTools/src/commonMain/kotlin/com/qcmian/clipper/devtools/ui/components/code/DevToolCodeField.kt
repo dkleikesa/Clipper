@@ -117,6 +117,10 @@ private val ChevronStroke = 1.5.dp
  * 折行会把「一行」这个结构本身弄没，对照两份 JSON 时尤其误导。目前写死默认值，等设置项齐了
  * 再由界面提供开关。
  *
+ * [lineNumbers] 与 [folding] 是给「不是代码的输入」留的关断开关：数学表达式那种一行一个式子的
+ * 输入既没有行号可数、也没有块可折，两个都关掉后装订线整列消失，正文紧贴左边框——但点击落光标、
+ * 当前行底纹、滚动条这些**交互**仍与代码框完全一致，这才是「统一的输入框」该有的样子。
+ *
  * 实现上没有现成的开关可拨——`softWrap` 只是 `TextDelegate` 的内部参数，公开的
  * `BasicTextField` 没有它。所以「不折」是靠布局达成的：正文那一层挂上横向滚动，子节点因此
  * 拿到无限宽约束，没有可折的宽度，自然按最长一行排版。
@@ -132,8 +136,13 @@ internal fun DevToolCodeField(
     isError: Boolean = false,
     softWrap: Boolean = false,
     actions: @Composable () -> Unit = {},
+    /** 显示左侧行号。关掉后不占那一列；与 [folding] 同时为假时装订线整列消失。 */
+    lineNumbers: Boolean = true,
+    /** 允许括号折叠（折叠箭头与 `…` 占位符）。关掉后不折叠，高亮与括号配对照旧。 */
+    folding: Boolean = true,
     /**
-     * 扫描器：把正文拆成着色片段、可折叠区间与行起点。默认按 JSON 扫，XML 工具传 `::scanXml`。
+     * 扫描器：把正文拆成着色片段、可折叠区间与行起点。默认按 JSON 扫，XML 工具传 `::scanXml`，
+     * 纯文本（数学表达式）传 `::scanPlain`。
      * 只影响显示层（配色与折叠），与「合不合法 / 排成什么样」无关——那是各工具自己的解析器。
      */
     scan: (String) -> CodeStructure = ::scanJson,
@@ -176,13 +185,16 @@ internal fun DevToolCodeField(
     val foldedStarts = remember { mutableStateListOf<Int>() }
     val text = fieldValue.text
     val structure = remember(text) { scan(text) }
-    val folded = remember(structure, foldedStarts.toList()) {
-        structure.brackets.filter { it.isFoldable && it.foldStart in foldedStarts }
+    // 关掉折叠时列表恒空：下游（显示变换、`…` 占位符）因此不必各自再判一次开关。
+    val folded = remember(structure, foldedStarts.toList(), folding) {
+        if (!folding) emptyList()
+        else structure.brackets.filter { it.isFoldable && it.foldStart in foldedStarts }
     }
     val transformation = remember(structure, folded, codeColors) {
         CodeVisualTransformation(structure.tokens, folded, codeColors)
     }
-    LaunchedEffect(structure) {
+    LaunchedEffect(structure, folding) {
+        if (!folding) return@LaunchedEffect
         val valid = structure.brackets.filter { it.isFoldable }.map { it.foldStart }.toSet()
         foldedStarts.retainAll { it in valid }
     }
@@ -222,12 +234,17 @@ internal fun DevToolCodeField(
         textMeasurer.measure("0", textStyle).size.width.toFloat()
     }
     val digits = structure.lineCount.toString().length.coerceAtLeast(2)
+    val showGutter = lineNumbers || folding
+    // 两个开关各自决定自己那一段占不占宽：都为假时整列宽度为 0，正文因此紧贴左边框。
     val gutterWidth = with(density) {
-        (
-            ChevronColumnWidth.toPx() + digitWidthPx * digits +
-                GutterNumbersGap.toPx() + GutterEndPadding.toPx()
-            ).toDp()
+        var width = 0f
+        if (folding) width += ChevronColumnWidth.toPx()
+        if (lineNumbers) width += digitWidthPx * digits + GutterNumbersGap.toPx()
+        if (showGutter) width += GutterEndPadding.toPx()
+        width.toDp()
     }
+    // 正文左缘相对面板内缩多少：装订线那一列，加上它与正文之间的间隙。
+    val textStartInset = if (showGutter) gutterWidth + GutterTextGap else 0.dp
     // 装订线不单独上色：与正文同一块底色，只靠一条竖分隔线分界（见两套配色里的 gutterDivider）。
 
     fun toggleFold(pair: BracketPair) {
@@ -275,14 +292,16 @@ internal fun DevToolCodeField(
                     }
                 }
         ) {
-            // 分界线铺满整块面板（不随内容滚动）：只按内容高度画的话，内容短于面板时那一列会中途断掉。
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .fillMaxHeight()
-                    .offset(x = gutterWidth)
-                    .background(codeColors.gutterDivider)
-            )
+            if (showGutter) {
+                // 分界线铺满整块面板（不随内容滚动）：只按内容高度画的话，内容短于面板时那一列会中途断掉。
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .fillMaxHeight()
+                        .offset(x = gutterWidth)
+                        .background(codeColors.gutterDivider)
+                )
+            }
             Row(
                 modifier = Modifier
                     .fillMaxSize()
@@ -291,7 +310,8 @@ internal fun DevToolCodeField(
                     // 一条底色缝。右端与下端分别留出滚动条的粗细、再加一点间隙：滑块既不压住正文，
                     // 也不贴着文字。无论滚动条此刻在不在都留着，免得它出现 / 消失时正文重排一次。
                     .padding(
-                        start = 2.dp,
+                        // 有装订线时它自己占着左缘，正文从它右边开始；没有装订线时直接给正文留出边距。
+                        start = if (showGutter) 2.dp else 8.dp,
                         top = 4.dp,
                         end = VerticalScrollbarWidth + DevToolScrollbarGap,
                         bottom = if (softWrap) 4.dp
@@ -299,24 +319,28 @@ internal fun DevToolCodeField(
                     )
                     .verticalScroll(scrollState)
             ) {
-                FoldGutter(
-                    structure = structure,
-                    text = text,
-                    lines = lines,
-                    fieldTopInRow = fieldTopInRow,
-                    scroll = scrollState.value.toFloat(),
-                    viewport = scrollState.viewportSize,
-                    width = gutterWidth,
-                    foldedStarts = foldedStarts,
-                    textMeasurer = textMeasurer,
-                    textStyle = textStyle,
-                    lineNumberColor = hint,
-                    chevronColor = hint,
-                    interactionSource = interactionSource,
-                    onToggle = ::toggleFold,
-                )
-                // 分隔线画在装订线的右缘（`x = gutterWidth`），正文从它右边再让出一点才开始。
-                Spacer(Modifier.width(GutterTextGap))
+                if (showGutter) {
+                    FoldGutter(
+                        structure = structure,
+                        text = text,
+                        lines = lines,
+                        fieldTopInRow = fieldTopInRow,
+                        scroll = scrollState.value.toFloat(),
+                        viewport = scrollState.viewportSize,
+                        width = gutterWidth,
+                        showNumbers = lineNumbers,
+                        showChevrons = folding,
+                        foldedStarts = foldedStarts,
+                        textMeasurer = textMeasurer,
+                        textStyle = textStyle,
+                        lineNumberColor = hint,
+                        chevronColor = hint,
+                        interactionSource = interactionSource,
+                        onToggle = ::toggleFold,
+                    )
+                    // 分隔线画在装订线的右缘（`x = gutterWidth`），正文从它右边再让出一点才开始。
+                    Spacer(Modifier.width(GutterTextGap))
+                }
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -352,7 +376,7 @@ internal fun DevToolCodeField(
                             }
                     ) {
                         // 占位提示放在**文本框内部**、用与正文同一套度量：它的原点因此与正文完全
-                        // 一致。放在外面当兄弟节点（旧 DevToolEditor 的写法）会因为它自己的字号/
+                        // 一致。放在外面当兄弟节点（更早的实现就是这么写的）会因为它自己的字号/
                         // 行高与额外的 start 内边距，比正文偏右、比行号偏上。
                         if (value.isEmpty() && placeholder.isNotEmpty()) {
                             Text(
@@ -417,7 +441,7 @@ internal fun DevToolCodeField(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .fillMaxWidth()
-                        .padding(start = 2.dp + gutterWidth + GutterTextGap),
+                        .padding(start = 2.dp + textStartInset),
                 )
             }
         }
@@ -486,6 +510,8 @@ private fun FoldGutter(
     scroll: Float,
     viewport: Int,
     width: Dp,
+    showNumbers: Boolean,
+    showChevrons: Boolean,
     foldedStarts: List<Int>,
     textMeasurer: TextMeasurer,
     textStyle: TextStyle,
@@ -504,39 +530,43 @@ private fun FoldGutter(
     }
 
     Box(modifier = Modifier.width(width).height(height)) {
-        Canvas(Modifier.fillMaxSize()) {
-            // 行号靠左、箭头靠右（紧挨着正文），中间留出间距。
-            val numbersRight = size.width - GutterEndPadding.toPx() -
-                ChevronColumnWidth.toPx() - GutterNumbersGap.toPx()
-            for (line in heads) {
-                val measured = textMeasurer.measure(line.docLine.toString(), textStyle)
-                drawText(
-                    textLayoutResult = measured,
-                    color = lineNumberColor,
-                    topLeft = Offset(
-                        x = numbersRight - measured.size.width,
-                        y = fieldTopInRow + line.top
+        if (showNumbers) {
+            Canvas(Modifier.fillMaxSize()) {
+                // 行号靠右（紧挨着折叠列）；不显示折叠列时那一列与间距都不必让出来。
+                val numbersRight = size.width - GutterEndPadding.toPx() -
+                    (if (showChevrons) ChevronColumnWidth.toPx() + GutterNumbersGap.toPx() else 0f)
+                for (line in heads) {
+                    val measured = textMeasurer.measure(line.docLine.toString(), textStyle)
+                    drawText(
+                        textLayoutResult = measured,
+                        color = lineNumberColor,
+                        topLeft = Offset(
+                            x = numbersRight - measured.size.width,
+                            y = fieldTopInRow + line.top
+                        )
                     )
-                )
+                }
             }
         }
-        for (line in heads) {
-            val pair = structure.foldableOnLine(text, line.docLine) ?: continue
-            Box(
-                modifier = Modifier
-                    .atColumnLine(
-                        top = fieldTopInRow + line.top,
-                        height = line.bottom - line.top,
-                        width = ChevronColumnWidth,
-                        left = width - GutterEndPadding - ChevronColumnWidth
-                    )
-                    .pointerHoverIcon(PointerIcon.Hand)
-                    .clickable(interactionSource = interactionSource, indication = null) {
-                        onToggle(pair)
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                FoldChevron(folded = pair.foldStart in foldedStarts, color = chevronColor)
+        if (showChevrons) {
+            for (line in heads) {
+                val pair = structure.foldableOnLine(text, line.docLine) ?: continue
+                Box(
+                    modifier = Modifier
+                        .atColumnLine(
+                            top = fieldTopInRow + line.top,
+                            height = line.bottom - line.top,
+                            width = ChevronColumnWidth,
+                            left = width - GutterEndPadding - ChevronColumnWidth
+                        )
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable(interactionSource = interactionSource, indication = null) {
+                            onToggle(pair)
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    FoldChevron(folded = pair.foldStart in foldedStarts, color = chevronColor)
+                }
             }
         }
     }

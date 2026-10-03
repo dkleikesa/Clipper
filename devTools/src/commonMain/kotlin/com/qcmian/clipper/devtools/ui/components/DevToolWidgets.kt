@@ -3,26 +3,20 @@ package com.qcmian.clipper.devtools.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,20 +29,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
-import com.qcmian.clipper.core.ui.components.HorizontalScrollbar
-import com.qcmian.clipper.core.ui.components.HorizontalScrollbarHeight
-import com.qcmian.clipper.core.ui.components.VerticalScrollbar
-import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
 import com.qcmian.clipper.core.ui.theme.hintColor
 
 /**
@@ -72,8 +59,8 @@ import com.qcmian.clipper.core.ui.theme.hintColor
 /**
  * 正文与滚动条之间留的空隙。
  *
- * 只让出滚动条本身的宽度时，文字右缘（或下缘）会紧贴着滑块，看着像压在一起。两个编辑控件、
- * 横竖两个方向都读这一个值，免得四处的间距各走各的。
+ * 只让出滚动条本身的宽度时，文字右缘（或下缘）会紧贴着滑块，看着像压在一起。代码框里横竖两个
+ * 方向、以及历史列表的竖向滚动条都读这一个值，免得四处的间距各走各的。
  */
 internal val DevToolScrollbarGap = 5.dp
 
@@ -84,117 +71,6 @@ internal val DevToolScrollbarGap = 5.dp
  * 将来调也只调这一处。
  */
 private val DevToolControlHeight = 30.dp
-
-/**
- * 一节等宽编辑区（输入或输出）。
- *
- * [isError] 表示 [value] 本身是一条失败说明（而不是排好版的内容），正文改用错误色：调用方因此
- * 可以像普通结果一样把错误交给这个控件，不必在框外另开一行提示——那一行出现 / 消失会把编辑区
- * 顶得跳一下。与 `DevToolCodeField` 的同名参数同义。
- *
- * [softWrap] 与 `DevToolCodeField` 的同名参数一致：默认**不折**长行，改为横向滚出去。目前写死
- * 默认值，等设置项齐了再由界面提供开关。
- */
-@Composable
-fun DevToolEditor(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    readOnly: Boolean = false,
-    placeholder: String = "",
-    isError: Boolean = false,
-    softWrap: Boolean = false,
-    /** 标题行右端那块地方，用来放只属于这个框的动作；与 `DevToolCodeField` 的同名参数一致。 */
-    actions: @Composable () -> Unit = {},
-) {
-    val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(6.dp)
-    val verticalScroll = rememberScrollState()
-    val horizontalScroll = rememberScrollState()
-
-    Column(modifier.fillMaxWidth()) {
-        // 标签在左、动作在右：动作属于这个框，就该跟它的名字同处一行。
-        // 与 `DevToolCodeField` 的标题行同一档字号，两个编辑控件看起来才是同一套东西。
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, fontSize = 13.sp, color = MaterialTheme.hintColor)
-            Spacer(Modifier.weight(1f))
-            actions()
-        }
-        Spacer(Modifier.height(6.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                // 高度由调用方在自己的 Column 里用 `weight` 分配，这里只吃掉分到的那一份。
-                .weight(1f)
-                .clip(shape)
-                .background(colors.onSurface.copy(alpha = 0.05f))
-                .border(1.dp, colors.outline.copy(alpha = 0.6f), shape),
-        ) {
-            Column(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxWidth().weight(1f)) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            // 内边距加在正文这一层、滚动条留在它外面，滚动条因此贴住面板边框；
-                            // 加在面板上的话滚动条会被推进来，与边框之间留一条露出底色的缝。
-                            // 右端与下端各留出一条滚动条的粗细再加上一点间隙，无论它此刻在不在
-                            // 都留着，免得出现 / 消失时正文跟着重排一次。
-                            .padding(
-                                start = 8.dp,
-                                end = 8.dp + VerticalScrollbarWidth + DevToolScrollbarGap,
-                                top = 6.dp,
-                                bottom = if (softWrap) 6.dp
-                                else 6.dp + DevToolScrollbarGap + HorizontalScrollbarHeight,
-                            )
-                            // 滚动挂在内容这一层（边框与内边距之内），因此滚的是内容、框本身不动；
-                            // 占位提示也是它的子节点，跟着一起滚，不会再「滚走了提示还停在原地」。
-                            .verticalScroll(verticalScroll)
-                            // 不折行时这一层才是横向滚动容器：子节点拿到无限宽约束，于是按最长
-                            // 一行排版，没有可折的宽度。
-                            .then(
-                                if (softWrap) Modifier
-                                else Modifier.horizontalScroll(horizontalScroll)
-                            ),
-                    ) {
-                        if (value.isEmpty() && placeholder.isNotEmpty()) {
-                            Text(
-                                text = placeholder,
-                                fontSize = 12.sp,
-                                color = colors.onSurfaceVariant.copy(alpha = 0.6f),
-                            )
-                        }
-                        BasicTextField(
-                            value = value,
-                            onValueChange = onValueChange,
-                            readOnly = readOnly,
-                            textStyle = TextStyle(
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp,
-                                color = if (isError) colors.error else colors.onSurface,
-                            ),
-                            cursorBrush = SolidColor(colors.primary),
-                            modifier = Modifier
-                                // 折行时才撑满：不折行时外层给的是无限宽，要求一个无限的宽度没有意义。
-                                .then(if (softWrap) Modifier.fillMaxWidth() else Modifier),
-                        )
-                    }
-                    VerticalScrollbar(
-                        scrollState = verticalScroll,
-                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
-                    )
-                }
-                // 横向滚动条排在正文之下、占一行固定高度（只有不折行时才存在）。
-                if (!softWrap) {
-                    HorizontalScrollbar(
-                        scrollState = horizontalScroll,
-                        modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
-                    )
-                }
-            }
-        }
-    }
-}
 
 @Composable
 fun DevToolButton(
@@ -389,6 +265,23 @@ fun DevToolGroupDivider() {
             .padding(horizontal = 4.dp)
             .width(1.dp)
             .height(16.dp)
+            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+    )
+}
+
+/**
+ * 内容区里上下两块的间隔：一条横贯的细分隔线。
+ *
+ * 与 [DevToolGroupDivider] 相对——那条是竖的，切开操作栏里并排的几组控件；这条是横的，切开上下
+ * 两块内容（例如「输入 / 结果 / 动作」与下面的「历史」）。整条铺满宽度而不是留出首尾缩进：它划的
+ * 是两块区域，不是某个按钮。
+ */
+@Composable
+fun DevToolSectionDivider(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(1.dp)
             .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
     )
 }

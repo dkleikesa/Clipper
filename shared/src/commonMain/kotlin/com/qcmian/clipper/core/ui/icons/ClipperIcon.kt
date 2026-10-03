@@ -105,6 +105,8 @@ enum class ClipperIconKind {
     HASH,
     /** 证件卡片，UUID 生成用。 */
     ID_CARD,
+    /** 计算器：机身里一块显示屏加两排按键，数学计算器用。 */
+    CALCULATOR,
 
     // ---------------------------------------------------------------- 条目类型
     /** 纯文本：一个带衬线的 "T"。 */
@@ -528,6 +530,17 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
             drawCircle(color, 2.1f * g, p(8.5f, 11f), style = st)
             line(13f, 9.5f, 18f, 9.5f); line(13f, 13f, 18f, 13f)
             drawArc(color, 200f, 140f, false, topLeft = p(5.6f, 11.5f), size = Size(5.8f * g, 5.8f * g), style = Stroke(toolStrokeWidth * 0.85f, cap = StrokeCap.Round))
+            
+        }
+        ClipperIconKind.CALCULATOR -> {
+            drawRoundRect(color, p(5f, 3.5f), Size(14f * g, 17f * g), CornerRadius(2.2f * g), style = st)
+            // 一块显示屏 + 两排按键。
+            line(8f, 7.6f, 16f, 7.6f)
+            listOf(11.2f, 15.2f).forEach { y ->
+            listOf(8.5f, 12f, 15.5f).forEach { x ->
+            drawCircle(color, 1f * g, p(x, y))
+            }
+            }
             
         }
         ClipperIconKind.FOLDER -> {
