@@ -59,7 +59,6 @@ import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
-import com.qcmian.clipper.devtools.ui.components.DevToolToggle
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
 import com.qcmian.clipper.devtools.ui.components.code.rememberCodeColors
 import com.qcmian.clipper.devtools.ui.components.code.scanPlain
@@ -110,6 +109,17 @@ private enum class SourceOrigin(val label: String?) {
 }
 
 /**
+ * 速查页替的是哪个格式框——点中的写法接进它。
+ *
+ * 两个格式框各有一个「速查」按钮，而不是共用一个：模板只有一份，但填进去的那串是每一框自己的，
+ * 共用一个的话点完还得猜「落到哪去了」。标签用在速查页顶部那句提示里。
+ */
+private enum class FormatField(val label: String) {
+    Input("输入格式"),
+    Output("输出格式"),
+}
+
+/**
  * 时间戳转换工具。
  *
  * 界面自上而下每行的结构都一样——**左边一列标签、右边是内容**（输入框 / 时区 / 两个格式框），
@@ -145,11 +155,24 @@ internal object TimestampDevTool : DevTool {
         var origin by remember { mutableStateOf(SourceOrigin.Clipboard) }
         var inputPattern by remember { mutableStateOf("") }
         var outputPattern by remember { mutableStateOf("") }
-        // 下面那一块现在显示什么：结果，还是占位符速查页。两者互斥（见底部那段说明）。
-        var showSyntax by remember { mutableStateOf(false) }
+        // 速查页正开着的话，是替哪个格式框开的（点中的写法接进它）；`null` 就是没开。
+        var syntaxTarget by remember { mutableStateOf<FormatField?>(null) }
         // 输入时区解释「不带时区的输入」，输出时区渲染结果；默认都为本机，两者不同时即为一次换算。
         var inputZoneId by remember { mutableStateOf(TimestampZones.systemId()) }
         var outputZoneId by remember { mutableStateOf(TimestampZones.systemId()) }
+
+        // 点中的写法接进对应格式框的末尾：让用户按「先年月日、再时分秒」的顺序一路点下来，
+        // 中间的分隔符自己敲（各有独立按键，比记符号快）。
+        fun pick(target: FormatField, spelling: String) {
+            when (target) {
+                FormatField.Input -> inputPattern += spelling
+                FormatField.Output -> outputPattern += spelling
+            }
+        }
+
+        fun toggleSyntax(target: FormatField) {
+            syntaxTarget = if (syntaxTarget == target) null else target
+        }
 
         val inputZone = remember(inputZoneId) { TimestampZones.of(inputZoneId) }
         val outputZone = remember(outputZoneId) { TimestampZones.of(outputZoneId) }
@@ -304,6 +327,10 @@ internal object TimestampDevTool : DevTool {
                 )
                 Spacer(Modifier.width(8.dp))
                 PresetMenu(selected = inputPattern, onSelect = { inputPattern = it })
+                Spacer(Modifier.width(8.dp))
+                SyntaxButton(opened = syntaxTarget == FormatField.Input) {
+                    toggleSyntax(FormatField.Input)
+                }
             }
 
             Spacer(Modifier.height(18.dp))
@@ -320,13 +347,9 @@ internal object TimestampDevTool : DevTool {
                 Spacer(Modifier.width(8.dp))
                 PresetMenu(selected = outputPattern, onSelect = { outputPattern = it })
                 Spacer(Modifier.width(8.dp))
-                // 两个格式框吃的是同一套占位符，入口放一个就够；挂在最后一行，读起来是整个格式块的
-                // 尾巴。它管的是**下面那一块显示什么**（速查还是结果），与结果区互斥。
-                DevToolToggle(
-                    title = "占位符速查",
-                    checked = showSyntax,
-                    onCheckedChange = { showSyntax = it },
-                )
+                SyntaxButton(opened = syntaxTarget == FormatField.Output) {
+                    toggleSyntax(FormatField.Output)
+                }
             }
 
             Spacer(Modifier.height(18.dp))
@@ -337,12 +360,17 @@ internal object TimestampDevTool : DevTool {
 
             Spacer(Modifier.height(10.dp))
 
+            val target = syntaxTarget
             Box(Modifier.weight(1f)) {
                 // 速查页与结果占同一块地方（与数学工具的「语法帮助 ⇄ 历史」同一取舍）：两者并排会把
-                // 结果那一列挤成一条缝，而速查是看几眼就收起来的东西。格式框留在上方看得见，改完
-                // 收起来就能对着结果核。
-                if (showSyntax) {
-                    TimestampSyntaxPanel(Modifier.fillMaxSize())
+                // 结果那一列挤成一条缝，而速查是看几眼就收起来的东西。格式框留在上方看得见，一边点
+                // 一边就能看着它变长。
+                if (target != null) {
+                    TimestampSyntaxPanel(
+                        target = target.label,
+                        onPick = { pick(target, it) },
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 } else {
                     when {
                         source.isBlank() -> Placeholder(hintFor(output.isBlank()))
@@ -382,6 +410,17 @@ private fun PresetMenu(selected: String, onSelect: (String) -> Unit) {
         optionLabel = { it },
         onSelect = onSelect,
     )
+}
+
+/**
+ * 格式行尾的「速查」按钮：点开把下面那块换成速查表，再点收起。
+ *
+ * 文案跟着状态翻，说的是「按下去会怎样」（与标题栏那个侧边栏开关同一口径）——两个格式框各有一个
+ * 按钮，不翻的话点开之后分不清开的是哪一个。
+ */
+@Composable
+private fun SyntaxButton(opened: Boolean, onClick: () -> Unit) {
+    DevToolButton(title = if (opened) "收起" else "速查", onClick = onClick)
 }
 
 /**

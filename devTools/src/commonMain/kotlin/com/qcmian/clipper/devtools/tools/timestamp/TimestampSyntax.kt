@@ -14,9 +14,6 @@ internal data class TimestampSyntaxField(
     val example: String,
 )
 
-/** 速查表里的一条要点：不成「字段」的规矩（字面量、引号、只用于输出…）。 */
-internal data class TimestampSyntaxNote(val syntax: String, val note: String)
-
 /** 速查表里的一组字段。 */
 internal data class TimestampSyntaxGroup(val title: String, val fields: List<TimestampSyntaxField>)
 
@@ -60,16 +57,5 @@ internal object TimestampSyntax {
                 TimestampSyntaxField("时区名", "z", "%Z", "Asia/Shanghai"),
             ),
         ),
-    )
-
-    val notes: List<TimestampSyntaxNote> = listOf(
-        TimestampSyntaxNote("yyyy年MM月dd日", "不是字段的字符都按字面量原样出现"),
-        TimestampSyntaxNote("'T'", "字面字母要用单引号括起来，两个单引号表示一个"),
-        TimestampSyntaxNote(".000", "秒之后的点加一串 0 也是毫秒，如 10:12:34.123"),
-        TimestampSyntaxNote("Z / z", "只能用来输出，不能拿来解析输入"),
-        TimestampSyntaxNote("认不出的 %X", "例如 %j，原样当字面量"),
-        // `%f` 是 Python 里唯一能取到秒以下精度的写法，但它只在 `datetime` 上认（C 的
-        // `time.strftime` 没有这条），而且那边是六位微秒、本工具只到毫秒——两处都容易踩。
-        TimestampSyntaxNote("%f", "Python 那边是六位微秒，且只有 datetime 认它；这里只到毫秒"),
     )
 }

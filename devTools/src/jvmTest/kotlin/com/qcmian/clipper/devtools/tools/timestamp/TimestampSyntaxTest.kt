@@ -49,11 +49,5 @@ class TimestampSyntaxTest {
                 "有一行缺列：$field",
             )
         }
-        TimestampSyntax.notes.forEach { note ->
-            assertTrue(
-                note.syntax.isNotBlank() && note.note.isNotBlank(),
-                "有一条要点缺列：$note",
-            )
-        }
     }
 }
