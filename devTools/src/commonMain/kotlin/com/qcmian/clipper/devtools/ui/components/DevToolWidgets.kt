@@ -36,7 +36,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
-import com.qcmian.clipper.core.ui.theme.hintColor
 
 /**
  * 工具界面共用的一小组控件。
@@ -402,16 +401,4 @@ fun DevToolToggle(
             maxLines = 1,
         )
     }
-}
-
-/** 工具内的一条提示（成功 / 失败）。 */
-@Composable
-fun DevToolMessage(message: String, isError: Boolean = false) {
-    val colors = MaterialTheme.colorScheme
-    Text(
-        text = message,
-        fontSize = 11.sp,
-        color = if (isError) colors.error else colors.onSurfaceVariant,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-    )
 }

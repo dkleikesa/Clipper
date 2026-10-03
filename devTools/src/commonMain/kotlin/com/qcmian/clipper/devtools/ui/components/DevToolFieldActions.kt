@@ -12,14 +12,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -31,8 +27,6 @@ import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.readTextFileOrNull
 import com.qcmian.clipper.devtools.api.writeTextFile
@@ -187,23 +181,4 @@ fun Modifier.devToolFileDrop(host: DevToolHost, onFiles: (List<String>) -> Unit)
         shouldStartDragAndDrop = { true },
         target = target,
     )
-}
-
-/**
- * 一行动作的整体排布：右对齐，与左边的标签同一基线。
- *
- * 单独抽出来是让「哪些框有哪些动作」在调用处一眼可见，而不必每处都写一遍 `Spacer(weight)`。
- */
-@Composable
-fun DevToolFieldActionRow(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.End,
-    ) {
-        content()
-    }
 }
