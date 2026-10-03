@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,10 +15,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
-import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.devtools.api.DataTypes
 import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
@@ -28,42 +24,16 @@ import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.api.readTextFileOrNull
-import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
-import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
+import com.qcmian.clipper.devtools.ui.components.DevToolFormatBar
 import com.qcmian.clipper.devtools.ui.components.DevToolInputActions
-import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
+import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
-import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
+import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
+import com.qcmian.clipper.devtools.ui.components.FormatMode
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
+import com.qcmian.clipper.devtools.ui.components.rememberFormattedText
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-
-/**
- * 正文停下来多久才重新排版。
- *
- * 这个值只干一件事：让安静窗口比**连打时的击键间隔**长，中间那些多半非法的状态就来不及渲染出来。
- * 排版本身已经挪到后台调度器上（见 `Content` 里的说明），所以它不再是性能参数——拿它跟人打字的
- * 节奏比，而不是跟「算得多慢」比。
- *
- * 取 150ms 是往快的那头靠：本工具的正文多半是整块进来的（从剪贴板条目打开、或直接粘贴），
- * 那种情况没有中间态要压，延迟纯粹在拖后腿，而这正是主路径。手敲是次要路径，其击键间隔一般也
- * 在 150ms 以上，连续输入仍然连不起来。再往下调（100ms 上下）会开始落进快速连打的间隔里，
- * 于是每停一下就闪一次报错——那恰恰是这个窗口要压掉的东西。
- */
-private const val FormatDebounceMillis = 150L
-
-/**
- * 结果的排版方式。
- *
- * 它只是一个状态：排版本身是**实时**的（输入停下就重算），按钮用于切换结果面板按哪种方式排。
- */
-private enum class JsonResultMode(val title: String) {
-    Pretty("美化"),
-    Compact("压缩"),
-}
 
 /**
  * JSON 格式化 / 压缩工具，也是插件接口的参考实现。
@@ -84,135 +54,63 @@ internal object JsonDevTool : DevTool {
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
         var source by remember { mutableStateOf("") }
-        var output by remember { mutableStateOf("") }
-        var error by remember { mutableStateOf<String?>(null) }
-        var mode by remember { mutableStateOf(JsonResultMode.Pretty) }
+        var mode by remember { mutableStateOf(FormatMode.Pretty) }
         // 缩进是**一个**取值：几个空格与制表符是同一件事的两面。原先拆成「空格数 + 是否制表符」
         // 两个状态，于是能拼出「用着制表符、同时还记着 4 空格」这种自相矛盾的状态，界面也只好
         // 在切到制表符时把空格数那一串藏起来——藏起来的那一份恰恰是用户刚挑过的。
         var indent by remember { mutableStateOf(JsonFormat.DefaultIndent) }
         // 排序与缩进、模式都正交：它既不决定合不合法，也不决定空白，只决定键的先后。
         var sortKeys by remember { mutableStateOf(false) }
-        // 上一次真正排版用的正文。只有它变了才值得等防抖：换缩进、换模式都是点一下就定的事。
-        var laidOutSource by remember { mutableStateOf<String?>(null) }
+        // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
+        var typed by remember { mutableStateOf(false) }
+
+        // 实时排版交给共用管线（防抖、后台计算、过期判断、状态栏上报，见 `rememberFormattedText`）。
+        // 这里只说「怎么排」与「错了怎么说人话」，两个工具的调度口径因此一字不差。
+        val formatted = rememberFormattedText(
+            source = source,
+            options = listOf(mode, indent, sortKeys),
+            host = host,
+            transform = { text ->
+                when (mode) {
+                    FormatMode.Pretty -> JsonFormat.format(text, indent, sortKeys)
+                    FormatMode.Compact -> JsonFormat.minify(text, sortKeys)
+                }
+            },
+            errorMessage = ::jsonErrorMessage,
+        )
+
+        // 来源报告给底部状态栏：改过编辑框就说「文本输入」，否则交回面板判断（剪贴板 / 文件）。
+        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
 
         // 每次主面板交进来一份新的剪贴板内容就整块替换：结果与提示都属于「上一份内容」，
-        // 留着会让用户以为结果是对新内容算出来的。
+        // 留着会让用户以为结果是对新内容算出来的。先灌正文再 `reset()`——它会按新正文重排一遍。
         LaunchedEffect(input) {
             val text = input?.devToolText() ?: return@LaunchedEffect
             source = text
-            output = ""
-            error = null
-            laidOutSource = null
-        }
-
-        // 实时排版：正文变化时重新计时，停下来才真正跑一次（打字过程中不排版）。
-        //
-        // 防抖只对**正文**生效：缩进与模式是点一下就该出结果的操作，让它们也等这 250ms，按钮就会
-        // 显得发木——连点几下加号，每一下都要等，中间还互相把计时器清零。所以正文没变就直接算。
-        //
-        // 排版本身放到默认调度器上跑：这项工作随文档长度线性涨（1MB 实测解析约 10ms、结果侧高亮
-        // 扫描约 25ms），留在组合线程上就是按一次键掉几帧。挪出去之后按键与滚动都不再被它卡住，
-        // 防抖的职责也回到它该管的那一件事——打字过程中别让中间态（多半是非法 JSON）闪出来。
-        // 换了输入就把这个协程取消掉，正在算的那一份即使算完也自然作废。
-        //
-        // 失败时把结果清空、改成显示错误本身：两者占的是结果框的同一块地方，留着上一次的结果
-        // 也看不见，却会让「复制结果」还能拷出一份与眼前内容不符的东西。
-        LaunchedEffect(source, mode, indent, sortKeys) {
-            // 本次要排的正文先落到局部：下面要跨一次挂起，回来之后再读状态可能已经是新值了。
-            val text = source
-            if (text.isBlank()) {
-                output = ""
-                error = null
-                laidOutSource = null
-                return@LaunchedEffect
-            }
-            if (text != laidOutSource) delay(FormatDebounceMillis)
-            val result = withContext(Dispatchers.Default) {
-                when (mode) {
-                    JsonResultMode.Pretty -> JsonFormat.format(text, indent, sortKeys)
-                    JsonResultMode.Compact -> JsonFormat.minify(text, sortKeys)
-                }
-            }
-            // 先记下「这次排的是哪份正文」，再落结果：记住的是已经算过的正文，不是刚拿到的那份。
-            laidOutSource = text
-            result.fold(
-                onSuccess = {
-                    output = it
-                    error = null
-                },
-                onFailure = {
-                    output = ""
-                    error = jsonErrorMessage(text, it)
-                },
-            )
-        }
-
-        // 结果框里这一份还对得上当前输入吗。为真有两段：防抖的安静窗口里，以及后台正在算的时候。
-        //
-        // 它不只是一句提示——「复制结果」必须跟着它一起禁用。否则那 250ms 里按钮是亮的，点下去
-        // 拷到的是**上一份**内容的排版结果，正是上面那段注释想在失败分支上避免的事。
-        // 输入为空时不算过期：那时框里本来就该是空的，没有什么「旧结果」可言。
-        val resultIsStale = source.isNotBlank() && source != laidOutSource
-
-        // 行数 / 字符数与「排版中…」报到窗口底部的状态栏，不再占编辑区上方那一行。
-        //
-        // 放在 `LaunchedEffect` 里而不是直接调：`reportStatus` 写的是面板的状态，在组合期间写
-        // 等于边读边写。键里带上 `output` 与 `error`，结果一落地就把数字换成结果那一侧的量。
-        LaunchedEffect(source, output, error, resultIsStale) {
-            host.reportStatus(
-                when {
-                    source.isBlank() -> null
-                    resultIsStale -> "排版中…"
-                    output.isNotEmpty() -> "结果 ${output.lineCountOf()} 行 · ${output.length} 字符"
-                    error != null -> "输入 ${source.lineCountOf()} 行 · ${source.length} 字符"
-                    else -> null
-                }
-            )
+            typed = false
+            formatted.reset()
         }
 
         Column(Modifier.fillMaxSize()) {
             // 操作栏固定在最上方：输入与结果并排后，控件留在两列之间既挤窄结果框，
-            // 也打断了「先动作、后对照」的阅读顺序。
-            //
-            // 从左到右三组，各是一种语义、各一副长相（见 `DevToolWidgets` 顶部那段）。
-            // 原先这三个控件共用同一种按钮外壳，「哪个是选中的」只能靠底色去猜——而底色同时
-            // 还要兼任「主操作」的记号，于是并排一实一虚，怎么读都别扭。
+            // 也打断了「先动作、后对照」的阅读顺序。次序与分组由 `DevToolFormatBar` 统一保证，
+            // 这里只补上本工具特有的那个开关。
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 一、多选一：结果面板按哪种方式排。分段控件自带「这两项互斥、现在选的是它」。
-                DevToolSegmentedControl(
-                    options = JsonResultMode.entries,
-                    selected = mode,
-                    optionLabel = { it.title },
-                    onSelect = { mode = it },
-                )
-
-                DevToolGroupDivider()
-
-                // 二、取一个值：缩进。描边格子而不是实心按钮——它是「一个字段当前的取值」，
-                // 点开才是一列选项，与「按下去就生效」的动作不是一类东西。
-                //
-                // 缩进只影响「美化」（压缩根本没有换行），但这里**不**按模式禁用：缩进是用户的口味
-                // 设置，想先设好再切回美化，没道理拦着；格子上一直显示着当前取值，点了也不会
-                // 「没反应」。原先按模式整组变灰，反而逼着用户先切模式、再调缩进、再切回来。
-                Text("缩进", fontSize = 12.sp, color = MaterialTheme.hintColor)
-                DevToolActionSpacer()
-                DevToolMenuButton(
-                    label = indentLabel(indent),
-                    options = JsonFormat.IndentOptions,
-                    selected = indent,
-                    optionLabel = ::indentLabel,
-                    onSelect = { indent = it },
-                )
-
-                DevToolGroupDivider()
-
-                // 三、开关：键排序跟「美化 / 压缩」不是一个维度——那两个互斥，这个只是叠在上面
-                // 的一层修饰。勾选框把「开没开」直接画出来，不必靠按钮底色去推。
-                DevToolToggle(
-                    title = "键排序",
-                    checked = sortKeys,
-                    onCheckedChange = { sortKeys = it },
+                DevToolFormatBar(
+                    mode = mode,
+                    onModeChange = { mode = it },
+                    indent = indent,
+                    indentOptions = JsonFormat.IndentOptions,
+                    indentLabel = ::indentLabel,
+                    onIndentChange = { indent = it },
+                    // 键排序跟「美化 / 压缩」不是一个维度——那两个互斥，这个只是叠在上面的一层修饰。
+                    toggles = {
+                        DevToolToggle(
+                            title = "键排序",
+                            checked = sortKeys,
+                            onCheckedChange = { sortKeys = it },
+                        )
+                    },
                 )
 
                 Spacer(Modifier.weight(1f))
@@ -228,7 +126,10 @@ internal object JsonDevTool : DevTool {
                 DevToolCodeField(
                     label = "输入",
                     value = source,
-                    onValueChange = { source = it },
+                    onValueChange = {
+                        source = it
+                        typed = true
+                    },
                     placeholder = "在此粘贴 JSON，从剪贴板条目打开，或把文件拖进来",
                     // 拖进来的文件与「打开文件」走同一条读法，读不出内容才退回显示路径——
                     // 与剪贴板里的文件条目完全一致（见 `readTextFileOrNull`）。
@@ -237,7 +138,7 @@ internal object JsonDevTool : DevTool {
                         .devToolFileDrop(host) { paths ->
                             source = paths.joinToString("\n") { readTextFileOrNull(it) ?: it }
                         },
-                    actions = { DevToolInputActions(source, { source = it }, host) },
+                    actions = { DevToolInputActions(source, { source = it; typed = true }, host) },
                 )
 
                 Spacer(Modifier.width(8.dp))
@@ -246,18 +147,18 @@ internal object JsonDevTool : DevTool {
                     label = "结果",
                     // 失败时错误就显示在结果框里（用错误色）：它是这次解析的产出，与结果同一个位置。
                     // 文案已经自带「第几行 第几列」，不必再前缀「解析失败」。
-                    value = error ?: output,
-                    isError = error != null,
+                    value = formatted.error ?: formatted.output,
+                    isError = formatted.error != null,
                     readOnly = true,
                     onValueChange = {},
                     placeholder = "美化 / 压缩的结果会显示在这里",
                     modifier = Modifier.weight(1f),
                     // 「保存 / 复制」跟着结果走：产出的是这个框里的内容，动作就该在这儿。
                     // 过期时传空串，两个动作随之禁用——那时框里那份不属于眼前的输入，
-                    // 存下来或拷出去都是错的（与工具栏上「复制结果」原先的判据一致）。
+                    // 存下来或拷出去都是错的。
                     actions = {
                         DevToolResultActions(
-                            value = if (resultIsStale) "" else output,
+                            value = if (formatted.isStale) "" else formatted.output,
                             host = host,
                             suggestedFileName = "formatted.json",
                         )
@@ -279,11 +180,3 @@ private fun indentLabel(indent: JsonIndent): String = when (indent) {
     is JsonIndent.Spaces -> "${indent.count} 空格"
     JsonIndent.Tab -> "制表符"
 }
-
-/**
- * 这段文字占几行。
- *
- * 用 `count { it == '\n' } + 1` 而不是 `lines().size`：后者会为一份 1MB 的文档切出一整个字符串列表，
- * 而状态栏每敲一个键就要问一次。空串算 0 行——「0 行」比「1 行」诚实。
- */
-private fun String.lineCountOf(): Int = if (isEmpty()) 0 else count { it == '\n' } + 1

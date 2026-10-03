@@ -47,6 +47,8 @@ import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
+import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
+import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
@@ -97,12 +99,18 @@ internal object MathDevTool : DevTool {
         // 支持的写法是**看一次就够**的参考材料，平时收起来，需要时摊在底部（替掉历史那一块）。
         var showHelp by remember { mutableStateOf(false) }
         val history = remember { mutableStateListOf<MathHistoryEntry>() }
+        // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
+        var typed by remember { mutableStateOf(false) }
 
         // 从剪贴板条目打开时灌入正文——复制一个式子再按快捷键，是这里最顺手的用法。
         LaunchedEffect(input) {
             val text = input?.devToolText() ?: return@LaunchedEffect
             source = text
+            typed = false
         }
+
+        // 来源报告给底部状态栏：改过编辑框就说「文本输入」，否则交回面板判断（剪贴板 / 文件）。
+        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
 
         // 实时求值：正文一变就重新计时，停下来才算一次。取消由 `LaunchedEffect` 负责——正在算的
         // 那一份即使算完也自然作废。
@@ -136,7 +144,10 @@ internal object MathDevTool : DevTool {
             DevToolCodeField(
                 label = "表达式",
                 value = source,
-                onValueChange = { source = it },
+                onValueChange = {
+                    source = it
+                    typed = true
+                },
                 placeholder = "例如 2^10、sin(pi / 2)、sin(90deg)；支持的写法见「语法帮助」",
                 // 表达式会长，折行比横向滚出去好读；这是少数用得上软折行的地方。
                 softWrap = true,
@@ -205,7 +216,11 @@ internal object MathDevTool : DevTool {
 
                 HistoryList(
                     entries = history,
-                    onPick = { source = it.expression },
+                    // 从历史里点回来的是用户此前算过的式子，同样算「自己输入的内容」。
+                    onPick = {
+                        source = it.expression
+                        typed = true
+                    },
                     modifier = Modifier.weight(1f),
                 )
             }

@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,10 +15,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
-import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.devtools.api.DataTypes
 import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
@@ -29,33 +25,17 @@ import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.api.readTextFileOrNull
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
-import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
+import com.qcmian.clipper.devtools.ui.components.DevToolFormatBar
 import com.qcmian.clipper.devtools.ui.components.DevToolInputActions
-import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
+import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
-import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
+import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
+import com.qcmian.clipper.devtools.ui.components.FormatMode
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
+import com.qcmian.clipper.devtools.ui.components.rememberFormattedText
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
 import com.qcmian.clipper.devtools.ui.components.code.scanXml
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-
-/**
- * 正文停下来多久才重新排版。与 JSON 工具取同一个值（见 `JsonDevTool` 里那段说明）。
- */
-private const val FormatDebounceMillis = 150L
-
-/**
- * 结果的排版方式。
- *
- * 它只是一个状态：排版本身是**实时**的（输入停下就重算），分段控件用于切换结果面板按哪种方式排。
- */
-private enum class XmlResultMode(val title: String) {
-    Pretty("美化"),
-    Compact("压缩"),
-}
 
 /**
  * XML 格式化 / 压缩工具。
@@ -84,9 +64,7 @@ internal object XmlDevTool : DevTool {
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
         var source by remember { mutableStateOf("") }
-        var output by remember { mutableStateOf("") }
-        var error by remember { mutableStateOf<String?>(null) }
-        var mode by remember { mutableStateOf(XmlResultMode.Pretty) }
+        var mode by remember { mutableStateOf(FormatMode.Pretty) }
         // 缩进只影响「美化」（压缩根本没有换行），但这里同样不按模式禁用：它是用户的口味设置，
         // 想先设好再切回美化没道理拦着（与 JSON 工具同一取舍，见 `JsonDevTool`）。
         var indent by remember { mutableStateOf(XmlFormat.DefaultIndent) }
@@ -94,105 +72,61 @@ internal object XmlDevTool : DevTool {
         var sortAttributes by remember { mutableStateOf(false) }
         // 注释**默认保留**：它是原文里人特意写下的话，在「格式化」这一步顺手丢掉最不该。
         var keepComments by remember { mutableStateOf(true) }
-        // 上一次真正排版用的正文。只有它变了才值得等防抖：换缩进、换模式都是点一下就定的事。
-        var laidOutSource by remember { mutableStateOf<String?>(null) }
+        // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
+        var typed by remember { mutableStateOf(false) }
+
+        // 实时排版交给共用管线（与 JSON 工具同一份，见 `rememberFormattedText`）：这里只声明
+        // 「怎么排」与「错了怎么说人话」，防抖、后台调度、过期判断、状态栏文案都由此统一。
+        val formatted = rememberFormattedText(
+            source = source,
+            options = listOf(mode, indent, sortAttributes, keepComments),
+            host = host,
+            transform = { text ->
+                when (mode) {
+                    FormatMode.Pretty -> XmlFormat.format(text, indent, sortAttributes, keepComments)
+                    FormatMode.Compact -> XmlFormat.minify(text, sortAttributes, keepComments)
+                }
+            },
+            errorMessage = { _, error -> xmlErrorMessage(error) },
+        )
+
+        // 来源报告给底部状态栏：改过编辑框就说「文本输入」，否则交回面板判断（剪贴板 / 文件）。
+        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
 
         // 每次主面板交进来一份新的剪贴板内容就整块替换：结果与提示都属于「上一份内容」。
+        // 先灌正文再 `reset()`——它会按新正文重排一遍。
         LaunchedEffect(input) {
             val text = input?.devToolText() ?: return@LaunchedEffect
             source = text
-            output = ""
-            error = null
-            laidOutSource = null
-        }
-
-        // 实时排版：正文变化时重新计时，停下来才真正跑一次；缩进与模式是点一下就该出结果的操作，
-        // 正文没变就不等（与 JSON 工具逐条对应，理由见 `JsonDevTool` 里那段长注释）。
-        //
-        // 排版挪到默认调度器上跑：它随文档长度线性涨，留在组合线程上就是按一次键掉几帧。
-        LaunchedEffect(source, mode, indent, sortAttributes, keepComments) {
-            val text = source
-            if (text.isBlank()) {
-                output = ""
-                error = null
-                laidOutSource = null
-                return@LaunchedEffect
-            }
-            if (text != laidOutSource) delay(FormatDebounceMillis)
-            val result = withContext(Dispatchers.Default) {
-                when (mode) {
-                    XmlResultMode.Pretty -> XmlFormat.format(text, indent, sortAttributes, keepComments)
-                    XmlResultMode.Compact -> XmlFormat.minify(text, sortAttributes, keepComments)
-                }
-            }
-            // 先记下「这次排的是哪份正文」，再落结果：记住的是已经算过的正文。
-            laidOutSource = text
-            result.fold(
-                onSuccess = {
-                    output = it
-                    error = null
-                },
-                onFailure = {
-                    output = ""
-                    error = xmlErrorMessage(it)
-                },
-            )
-        }
-
-        // 结果框里这一份还对得上当前输入吗。为真有两段：防抖的安静窗口里，以及后台正在算的时候。
-        // 失败时把结果清空、改成显示错误本身：两者占的是结果框的同一块地方。
-        val resultIsStale = source.isNotBlank() && source != laidOutSource
-
-        // 行数 / 字符数与「排版中…」报到窗口底部的状态栏（与 JSON 工具同一口径）。
-        LaunchedEffect(source, output, error, resultIsStale) {
-            host.reportStatus(
-                when {
-                    source.isBlank() -> null
-                    resultIsStale -> "排版中…"
-                    output.isNotEmpty() -> "结果 ${output.lineCountOf()} 行 · ${output.length} 字符"
-                    error != null -> "输入 ${source.lineCountOf()} 行 · ${source.length} 字符"
-                    else -> null
-                }
-            )
+            typed = false
+            formatted.reset()
         }
 
         Column(Modifier.fillMaxSize()) {
-            // 操作栏固定在最上方，从左到右三组，各是一种语义、各一副长相（见 `DevToolWidgets` 顶部）。
+            // 操作栏固定在最上方，次序与分组由 `DevToolFormatBar` 统一保证，这里只补上本工具
+            // 特有的两个开关。
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 一、多选一：结果面板按哪种方式排。
-                DevToolSegmentedControl(
-                    options = XmlResultMode.entries,
-                    selected = mode,
-                    optionLabel = { it.title },
-                    onSelect = { mode = it },
-                )
-
-                DevToolGroupDivider()
-
-                // 二、取一个值：缩进。描边格子而不是实心按钮——它是「一个字段当前的取值」。
-                Text("缩进", fontSize = 12.sp, color = MaterialTheme.hintColor)
-                DevToolActionSpacer()
-                DevToolMenuButton(
-                    label = indentLabel(indent),
-                    options = XmlFormat.IndentOptions,
-                    selected = indent,
-                    optionLabel = ::indentLabel,
-                    onSelect = { indent = it },
-                )
-
-                DevToolGroupDivider()
-
-                // 三、开关：这两个跟「美化 / 压缩」不是一个维度——那两个互斥，它们只是叠在上面的一层修饰。
-                DevToolToggle(
-                    title = "属性排序",
-                    checked = sortAttributes,
-                    onCheckedChange = { sortAttributes = it },
-                )
-                DevToolActionSpacer()
-                DevToolToggle(
-                    title = "保留注释",
-                    checked = keepComments,
-                    onCheckedChange = { keepComments = it },
+                DevToolFormatBar(
+                    mode = mode,
+                    onModeChange = { mode = it },
+                    indent = indent,
+                    indentOptions = XmlFormat.IndentOptions,
+                    indentLabel = ::indentLabel,
+                    onIndentChange = { indent = it },
+                    // 这两个跟「美化 / 压缩」不是一个维度——那两个互斥，它们只是叠在上面的一层修饰。
+                    toggles = {
+                        DevToolToggle(
+                            title = "属性排序",
+                            checked = sortAttributes,
+                            onCheckedChange = { sortAttributes = it },
+                        )
+                        DevToolActionSpacer()
+                        DevToolToggle(
+                            title = "保留注释",
+                            checked = keepComments,
+                            onCheckedChange = { keepComments = it },
+                        )
+                    },
                 )
 
                 Spacer(Modifier.weight(1f))
@@ -206,7 +140,10 @@ internal object XmlDevTool : DevTool {
                 DevToolCodeField(
                     label = "输入",
                     value = source,
-                    onValueChange = { source = it },
+                    onValueChange = {
+                        source = it
+                        typed = true
+                    },
                     placeholder = "在此粘贴 XML，从剪贴板条目打开，或把文件拖进来",
                     scan = ::scanXml,
                     // 拖进来的文件与「打开文件」走同一条读法，读不出内容才退回显示路径。
@@ -215,7 +152,7 @@ internal object XmlDevTool : DevTool {
                         .devToolFileDrop(host) { paths ->
                             source = paths.joinToString("\n") { readTextFileOrNull(it) ?: it }
                         },
-                    actions = { DevToolInputActions(source, { source = it }, host) },
+                    actions = { DevToolInputActions(source, { source = it; typed = true }, host) },
                 )
 
                 Spacer(Modifier.width(8.dp))
@@ -223,8 +160,8 @@ internal object XmlDevTool : DevTool {
                 DevToolCodeField(
                     label = "结果",
                     // 失败时错误就显示在结果框里（用错误色）：它是这次解析的产出，与结果同一个位置。
-                    value = error ?: output,
-                    isError = error != null,
+                    value = formatted.error ?: formatted.output,
+                    isError = formatted.error != null,
                     readOnly = true,
                     onValueChange = {},
                     placeholder = "美化 / 压缩的结果会显示在这里",
@@ -233,7 +170,7 @@ internal object XmlDevTool : DevTool {
                     // 「保存 / 复制」跟着结果走；过期时传空串，两个动作随之禁用。
                     actions = {
                         DevToolResultActions(
-                            value = if (resultIsStale) "" else output,
+                            value = if (formatted.isStale) "" else formatted.output,
                             host = host,
                             suggestedFileName = "formatted.xml",
                         )
@@ -261,11 +198,3 @@ private fun indentLabel(indent: XmlIndent): String = when (indent) {
  */
 private fun xmlErrorMessage(error: Throwable): String =
     error.message?.takeIf { it.isNotBlank() } ?: error::class.simpleName ?: "解析失败"
-
-/**
- * 这段文字占几行。
- *
- * 用 `count { it == '\n' } + 1` 而不是 `lines().size`：后者会为一份大文档切出一整个字符串列表，
- * 而状态栏每敲一个键就要问一次。空串算 0 行——「0 行」比「1 行」诚实。
- */
-private fun String.lineCountOf(): Int = if (isEmpty()) 0 else count { it == '\n' } + 1
