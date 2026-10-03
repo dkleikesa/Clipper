@@ -70,6 +70,41 @@ enum class ClipperIconKind {
     /** 向下落进托盘的箭头，编辑区「保存文件」用（与系统 `square.and.arrow.down` 同义）。 */
     SAVE,
 
+    // ------------------------------------------- 开发者工具 · 工具图标（按 ROADMAP 的规划备好）
+    //
+    // 这一组是为**还没做出来的工具**预留的图形词汇：它们现在没有引用者，因此不会出现在任何界面
+    // 上——侧边栏画的是「工具自己声明的图标」，工具没做出来，图标就无从显示。
+    //
+    // 提前备好的理由：这一套的形状与线宽是**一起**定的（同一个 24 网格、同一条 1.9 的线宽），
+    // 先落地再逐个补，比将来零散地加更容易保持齐整；新工具接上它只需在 `DevToolMetadata` 里
+    // 写一个名字。
+    /** 一摞圆盘，SQL 格式化用。与 [DATABASE] 形状相近但**不是同一个**：那个表「存储」，这个表
+     * 「SQL 语句」，各自跟着自己的设计稿走，合并了将来任一边调形状都会牵连另一边。 */
+    SQL,
+    /** 相框里一座山与一轮太阳，Base64 图片编解码用。与 [TYPE_IMAGE] 的关系同 [SQL] 与 [DATABASE]。 */
+    PICTURE,
+    /** 文稿右侧带一个向外的箭头，Base64 文本编解码用。 */
+    DOC_ARROW,
+    /** 地球：一条经线加一条赤道，URL 编解码用。 */
+    GLOBE,
+    /** 三个定位角加几个点，二维码用。 */
+    QR_CODE,
+    /** 盾牌加一个勾，证书解析用。 */
+    SHIELD,
+    /** 一个实心点加一个星号，即 `.*`，正则表达式用。 */
+    REGEX,
+    /** 三条横线，文本处理用。 */
+    TEXT_LINES,
+    /** 时钟，时间戳转换用。 */
+    CLOCK,
+    /** 一上一下两个箭头，格式转换用。 */
+    SWAP,
+    /** 钥匙，随机密码生成用。 */
+    KEY,
+    /** 井号，Hash 生成与校验用。 */
+    HASH,
+    /** 证件卡片，UUID 生成用。 */
+    ID_CARD,
 
     // ---------------------------------------------------------------- 条目类型
     /** 纯文本：一个带衬线的 "T"。 */
@@ -384,6 +419,115 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
             line(9f, 7f, 4.5f, 12f); line(4.5f, 12f, 9f, 17f)
             line(15f, 7f, 19.5f, 12f); line(19.5f, 12f, 15f, 17f)
             line(13.5f, 6f, 10.5f, 18f)
+            
+        }
+        ClipperIconKind.SQL -> {
+            val rx = 7.5f * g; val ry = 3f * g
+            drawOval(color, p(4.5f, 6f - 3f), Size(rx * 2, ry * 2), style = st)
+            line(4.5f, 6f, 4.5f, 18f); line(19.5f, 6f, 19.5f, 18f)
+            listOf(12f, 18f).forEach { y ->
+            drawArc(
+            color, 0f, 180f, false,
+            topLeft = p(4.5f, y - 3f), size = Size(rx * 2, ry * 2), style = st,
+            )
+            }
+            
+        }
+        ClipperIconKind.PICTURE -> {
+            drawRoundRect(
+            color, p(3f, 5f), Size(18f * g, 14f * g),
+            CornerRadius(2.5f * g), style = st,
+            )
+            val m = Path().apply {
+            moveTo(6f * g, 16f * g); lineTo(10f * g, 11f * g)
+            lineTo(13f * g, 14f * g); lineTo(15.5f * g, 11.5f * g); lineTo(18f * g, 16f * g)
+            }
+            drawPath(m, color, style = Stroke(toolStrokeWidth * 0.9f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            drawCircle(color, 1.3f * g, p(8f, 9f))
+            
+        }
+        ClipperIconKind.DOC_ARROW -> {
+            drawRoundRect(color, p(3.5f, 4f), Size(11f * g, 16f * g), CornerRadius(2f * g), style = st)
+            line(6.5f, 8f, 11.5f, 8f); line(6.5f, 12f, 11.5f, 12f); line(6.5f, 16f, 9.5f, 16f)
+            line(15f, 12f, 20.5f, 12f)
+            drawPath(
+            Path().apply {
+            moveTo(18.3f * g, 9.6f * g); lineTo(20.8f * g, 12f * g); lineTo(18.3f * g, 14.4f * g)
+            },
+            color, style = st,
+            )
+            
+        }
+        ClipperIconKind.GLOBE -> {
+            drawCircle(color, 8.5f * g, p(12f, 12f), style = st)
+            drawOval(color, p(8.5f, 3.5f), Size(7f * g, 17f * g), style = st)
+            line(3.5f, 12f, 20.5f, 12f)
+            
+        }
+        ClipperIconKind.QR_CODE -> {
+            listOf(p(3.5f, 3.5f), p(15f, 3.5f), p(3.5f, 15f)).forEach { o ->
+            drawRoundRect(color, o, Size(5.5f * g, 5.5f * g), CornerRadius(1f * g), style = st)
+            }
+            drawCircle(color, 1.2f * g, p(17.8f, 17.8f))
+            drawCircle(color, 1.2f * g, p(13.5f, 20.5f))
+            drawCircle(color, 1.2f * g, p(20.5f, 13.5f))
+            
+        }
+        ClipperIconKind.SHIELD -> {
+            val sh = Path().apply {
+            moveTo(12f * g, 3.5f * g); lineTo(20f * g, 6.5f * g); lineTo(20f * g, 12f * g)
+            cubicTo(20f * g, 17.5f * g, 16.5f * g, 20f * g, 12f * g, 21f * g)
+            cubicTo(7.5f * g, 20f * g, 4f * g, 17.5f * g, 4f * g, 12f * g)
+            lineTo(4f * g, 6.5f * g); close()
+            }
+            drawPath(sh, color, style = st)
+            drawPath(
+            Path().apply {
+            moveTo(9f * g, 12f * g); lineTo(11.2f * g, 14.3f * g); lineTo(15.2f * g, 9.8f * g)
+            },
+            color, style = st,
+            )
+            
+        }
+        ClipperIconKind.REGEX -> {
+            drawCircle(color, 1.6f * g, p(6.5f, 18f))
+            line(15f, 5.5f, 15f, 15.5f)
+            line(10.7f, 8f, 19.3f, 13f)
+            line(19.3f, 8f, 10.7f, 13f)
+            
+        }
+        ClipperIconKind.TEXT_LINES -> {
+            line(4f, 6.5f, 20f, 6.5f); line(4f, 12f, 20f, 12f); line(4f, 17.5f, 13f, 17.5f)
+            
+        }
+        ClipperIconKind.CLOCK -> {
+            drawCircle(color, 8.5f * g, p(12f, 12f), style = st)
+            line(12f, 7f, 12f, 12.3f); line(12f, 12.3f, 16f, 14.3f)
+            
+        }
+        ClipperIconKind.SWAP -> {
+            line(4f, 9f, 19f, 9f); line(4f, 15f, 19f, 15f)
+            drawPath(Path().apply { moveTo(16f * g, 5.8f * g); lineTo(19.5f * g, 9f * g); lineTo(16f * g, 12.2f * g) }, color, style = st)
+            drawPath(Path().apply { moveTo(8f * g, 11.8f * g); lineTo(4.5f * g, 15f * g); lineTo(8f * g, 18.2f * g) }, color, style = st)
+            
+        }
+        ClipperIconKind.KEY -> {
+            drawCircle(color, 4f * g, p(8f, 8f), style = st)
+            line(10.8f, 10.8f, 19f, 19f)
+            line(16f, 16f, 18.3f, 13.7f)
+            line(18.6f, 18.6f, 20.9f, 16.3f)
+            
+        }
+        ClipperIconKind.HASH -> {
+            line(9.5f, 4f, 7.5f, 20f); line(16.5f, 4f, 14.5f, 20f)
+            line(4.5f, 9f, 20f, 9f); line(4f, 15f, 19.5f, 15f)
+            
+        }
+        ClipperIconKind.ID_CARD -> {
+            drawRoundRect(color, p(3f, 5.5f), Size(18f * g, 13f * g), CornerRadius(2.2f * g), style = st)
+            drawCircle(color, 2.1f * g, p(8.5f, 11f), style = st)
+            line(13f, 9.5f, 18f, 9.5f); line(13f, 13f, 18f, 13f)
+            drawArc(color, 200f, 140f, false, topLeft = p(5.6f, 11.5f), size = Size(5.8f * g, 5.8f * g), style = Stroke(toolStrokeWidth * 0.85f, cap = StrokeCap.Round))
             
         }
         ClipperIconKind.FOLDER -> {
