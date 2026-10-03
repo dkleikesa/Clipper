@@ -29,10 +29,12 @@ import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.api.readTextFileOrNull
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
-import com.qcmian.clipper.devtools.ui.components.DevToolButton
+import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolInputActions
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
+import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
+import com.qcmian.clipper.devtools.ui.components.DevToolToggle
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
 import kotlinx.coroutines.Dispatchers
@@ -170,28 +172,28 @@ internal object JsonDevTool : DevTool {
         }
 
         Column(Modifier.fillMaxSize()) {
-            // 操作栏固定在最上方：输入与结果并排后，按钮留在两列之间既挤窄结果框，
+            // 操作栏固定在最上方：输入与结果并排后，控件留在两列之间既挤窄结果框，
             // 也打断了「先动作、后对照」的阅读顺序。
+            //
+            // 从左到右三组，各是一种语义、各一副长相（见 `DevToolWidgets` 顶部那段）。
+            // 原先这三个控件共用同一种按钮外壳，「哪个是选中的」只能靠底色去猜——而底色同时
+            // 还要兼任「主操作」的记号，于是并排一实一虚，怎么读都别扭。
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 这两个不是「动作」而是「状态」：点一下切换结果面板的排版方式，当前生效的实心。
-                DevToolButton(
-                    title = JsonResultMode.Pretty.title,
-                    primary = mode == JsonResultMode.Pretty,
-                    onClick = { mode = JsonResultMode.Pretty },
+                // 一、多选一：结果面板按哪种方式排。分段控件自带「这两项互斥、现在选的是它」。
+                DevToolSegmentedControl(
+                    options = JsonResultMode.entries,
+                    selected = mode,
+                    optionLabel = { it.title },
+                    onSelect = { mode = it },
                 )
-                DevToolActionSpacer()
-                DevToolButton(
-                    title = JsonResultMode.Compact.title,
-                    primary = mode == JsonResultMode.Compact,
-                    onClick = { mode = JsonResultMode.Compact },
-                )
-                // 「复制结果」搬去了结果框的标题行：产出的是那个框里的内容，按钮留在工具栏上
-                // 会让人先找按钮、再对框（见 `DevToolResultActions`）。这里因此只剩一个更宽的
-                // 间隔，把「选模式」和右边那组「决定输出长什么样」的控件分开。
-                Spacer(Modifier.width(14.dp))
 
+                DevToolGroupDivider()
+
+                // 二、取一个值：缩进。描边格子而不是实心按钮——它是「一个字段当前的取值」，
+                // 点开才是一列选项，与「按下去就生效」的动作不是一类东西。
+                //
                 // 缩进只影响「美化」（压缩根本没有换行），但这里**不**按模式禁用：缩进是用户的口味
-                // 设置，想先设好再切回美化，没道理拦着；菜单按钮上一直显示着当前取值，点了也不会
+                // 设置，想先设好再切回美化，没道理拦着；格子上一直显示着当前取值，点了也不会
                 // 「没反应」。原先按模式整组变灰，反而逼着用户先切模式、再调缩进、再切回来。
                 Text("缩进", fontSize = 12.sp, color = MaterialTheme.hintColor)
                 DevToolActionSpacer()
@@ -203,14 +205,14 @@ internal object JsonDevTool : DevTool {
                     onSelect = { indent = it },
                 )
 
-                Spacer(Modifier.width(10.dp))
+                DevToolGroupDivider()
 
-                // 开关而不是模式：它跟「美化 / 压缩」不是一个维度——那两个互斥，这个只是叠在上面
-                // 的一层修饰，所以摆在缩进旁边、和缩进一起算「输出长什么样」的那组。
-                DevToolButton(
+                // 三、开关：键排序跟「美化 / 压缩」不是一个维度——那两个互斥，这个只是叠在上面
+                // 的一层修饰。勾选框把「开没开」直接画出来，不必靠按钮底色去推。
+                DevToolToggle(
                     title = "键排序",
-                    primary = sortKeys,
-                    onClick = { sortKeys = !sortKeys },
+                    checked = sortKeys,
+                    onCheckedChange = { sortKeys = it },
                 )
 
                 Spacer(Modifier.weight(1f))

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,8 +54,19 @@ import com.qcmian.clipper.core.ui.theme.hintColor
 /**
  * 工具界面共用的一小组控件。
  *
- * 各插件只有一屏「输入框 + 一排按钮 + 输出框」，样式必须一致，所以不写在各工具里：一旦分叉，
+ * 各插件只有一屏「输入框 + 一排操作 + 输出框」，样式必须一致，所以不写在各工具里：一旦分叉，
  * JSON 工具与 XML 工具会长得不像同一套软件里的东西。
+ *
+ * 操作栏里的控件按**语义**分四类，各自一副长相。这条分工是刻意的：它们原先共用同一种按钮外壳，
+ * 于是「选中」只能靠底色去猜，而底色又同时要兼任「主操作」的记号——一个视觉承担两件事，
+ * 看的人自然分不清点下去会发生什么。
+ *
+ *  - 多选一 → [DevToolSegmentedControl]：一条轨道里几段，选中的那段实心主色；
+ *  - 取一个值 → [DevToolMenuButton]：描边、透明底，像一格字段，点开才是一列选项；
+ *  - 开关 → [DevToolToggle]：一枚勾选框，开没开直接画出来；
+ *  - 一次性动作 → [DevToolButton]（[DevToolButton.primary] 表示「主操作」，与「选中」无关）。
+ *
+ * 不同类之间用 [DevToolGroupDivider] 断开；同类之间用 [DevToolActionSpacer]。
  */
 
 /**
@@ -64,6 +76,14 @@ import com.qcmian.clipper.core.ui.theme.hintColor
  * 横竖两个方向都读这一个值，免得四处的间距各走各的。
  */
 internal val DevToolScrollbarGap = 5.dp
+
+/**
+ * 操作栏里所有控件共用的高度。
+ *
+ * 三种控件并排时高度必须一样，否则整排的基线会参差；写成一个常量而不是各写各的数字，
+ * 将来调也只调这一处。
+ */
+private val DevToolControlHeight = 30.dp
 
 /**
  * 一节等宽编辑区（输入或输出）。
@@ -182,13 +202,17 @@ fun DevToolButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    /** 主操作：实心主色。**这与「选中」不是一回事**——「多选一」的选中态归 [DevToolSegmentedControl]。 */
     primary: Boolean = false,
+    /** 描边、透明底：长得像一格字段而不是一颗按钮；[DevToolMenuButton] 用它表示「这里是一个取值」。 */
+    outlined: Boolean = false,
     /** 文字后面接着画的东西（例如 [DevToolMenuButton] 的下拉箭头）；拿到的是与文字同色的前景色。 */
     trailing: (@Composable (Color) -> Unit)? = null,
 ) {
     DevToolButtonSurface(
         enabled = enabled,
         primary = primary,
+        outlined = outlined,
         onClick = onClick,
         modifier = modifier,
     ) { contentColor ->
@@ -198,16 +222,20 @@ fun DevToolButton(
 }
 
 /**
- * [DevToolButton] 与 [DevToolMenuButton] 共用的外壳：同高、同圆角、同底色，悬停与禁用的表现也一致。
+ * [DevToolButton] 与 [DevToolMenuButton] 共用的外壳：同高、同圆角，悬停与禁用的表现也一致。
  * 两种按钮长得像同一套东西，靠的就是这一层——各自只决定里面放什么。
  *
  * [content] 拿到的是**内容该用的前景色**：它随 [enabled] / [primary] 变，所以在这里算好往里传，
  * 而不是让每个调用方自己再判一遍（判两遍早晚会不一致）。
+ *
+ * [outlined] 是「取值格」与「按钮」的分界线：描边 + 透明底读起来是「这里放着一个值」，实心底
+ * 读起来是「按下去会发生什么」。两者即使并排也不会被当成同一种控件。
  */
 @Composable
 private fun DevToolButtonSurface(
     enabled: Boolean,
     primary: Boolean,
+    outlined: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (Color) -> Unit,
@@ -215,8 +243,10 @@ private fun DevToolButtonSurface(
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    val shape = RoundedCornerShape(6.dp)
 
     val background = when {
+        outlined -> if (hovered && enabled) colors.onSurface.copy(alpha = 0.08f) else Color.Transparent
         !enabled -> colors.onSurface.copy(alpha = 0.05f)
         primary -> colors.primary
         hovered -> colors.onSurface.copy(alpha = 0.16f)
@@ -227,12 +257,19 @@ private fun DevToolButtonSurface(
         primary -> colors.onPrimary
         else -> colors.onSurface
     }
+    // 实心按钮不加边框，所以这里对它们画一条透明边——省得两种按钮的内缩各差 1dp。
+    val borderColor = when {
+        !outlined -> Color.Transparent
+        !enabled -> colors.outline.copy(alpha = 0.4f)
+        else -> colors.outline
+    }
 
     Row(
         modifier = modifier
-            .height(30.dp)
-            .clip(RoundedCornerShape(6.dp))
+            .height(DevToolControlHeight)
+            .clip(shape)
             .background(background)
+            .border(1.dp, borderColor, shape)
             .hoverable(interaction, enabled = enabled)
             .clickable(
                 interactionSource = interaction,
@@ -240,7 +277,7 @@ private fun DevToolButtonSurface(
                 enabled = enabled,
                 onClick = onClick,
             )
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = if (outlined) 12.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
@@ -256,7 +293,8 @@ private fun DevToolButtonSurface(
  * 要靠收缩或展开旁边的控件来表示状态，于是整排按钮跟着跳，而被收起来的那一份取值就看不见了。
  * 这里按钮上永远只有当前取值这一条文字，菜单展开也不改布局。
  *
- * 外壳与 [DevToolButton] 同一套，所以并排放在操作栏里不显得是外来控件。
+ * 外壳与 [DevToolButton] 同一套，但走**描边**那一版：它读起来是「一格字段当前填着什么」，
+ * 而不是「按下去会发生什么」——与旁边实心的动作按钮、分段控件里的选中段都不会混。
  *
  * 菜单行自己排「对号列 + 文字」，与剪贴板筛选栏的单选下拉（`FilterDropdown`）一致：不用
  * `DropdownMenuItem`，免得工具窗口里出现 Material 默认的菜单留白。
@@ -285,11 +323,12 @@ fun <T> DevToolMenuButton(
         DevToolButton(
             title = label,
             enabled = enabled,
+            outlined = true,
             onClick = { expanded = true },
             modifier = Modifier.onSizeChanged { anchorWidth = it.width },
             trailing = { contentColor ->
                 // 与剪贴板筛选栏的下拉（`FilterChip`）取同一档尺寸与间距：两处都是「点开一列选项」
-                // 的按钮，箭头大小不一样会显得是两套控件。图标用按钮的前景色，好跟着 primary 走。
+                // 的控件，箭头大小不一样会显得是两套东西。图标用控件的前景色。
                 Spacer(Modifier.width(3.dp))
                 ClipperIcon(ClipperIconKind.CHEVRON_DOWN, size = 15.dp, tint = contentColor)
             },
@@ -331,10 +370,145 @@ fun <T> DevToolMenuButton(
     }
 }
 
-/** 与 [DevToolButton] 的圆角一起构成操作栏的统一观感。 */
+/** 同一组控件之间的间隔。 */
 @Composable
 fun DevToolActionSpacer() {
     Spacer(Modifier.width(10.dp))
+}
+
+/**
+ * 不同组之间的间隔：一条细分隔线。
+ *
+ * 只把间距拉大不足以表达分组——间距是均一的，看过去仍是一排。一条竖线把「选模式 / 调取值 /
+ * 开修饰」切成几截，眼睛不必读文字就知道哪几个是一伙的。
+ */
+@Composable
+fun DevToolGroupDivider() {
+    Box(
+        Modifier
+            .padding(horizontal = 4.dp)
+            .width(1.dp)
+            .height(16.dp)
+            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+    )
+}
+
+/**
+ * 互斥选择：一条轨道里若干分段，选中的那一段实心主色，其余透明。
+ *
+ * 存在的理由是「多选一」这件事必须**看起来像一件事**。原先它由两个各自独立的按钮表示：
+ * 互斥关系看不出来，选中态只能靠底色猜——而底色同时还要兼任「主操作」的记号，于是相邻两个
+ * 按钮一实一虚，分不清哪个是「选中的」哪个是「更重要的」。合进一条轨道之后，「这几项里只能
+ * 挑一个、现在挑的是它」自带说明。
+ *
+ * 与 [DevToolToggle] 不能互换外观：那个是「开 / 关」，这个是「甲 / 乙」。
+ */
+@Composable
+fun <T> DevToolSegmentedControl(
+    options: List<T>,
+    selected: T,
+    optionLabel: (T) -> String,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    // 每段一份交互源：悬停高亮要各算各的。列表长度恒定，按长度记忆即可。
+    val interactions = remember(options.size) { List(options.size) { MutableInteractionSource() } }
+    val trackShape = RoundedCornerShape(7.dp)
+
+    Row(
+        modifier = modifier
+            .height(DevToolControlHeight)
+            .clip(trackShape)
+            // 轨道比周围重一点点：它要声明「我这几个是一组的」，底色太淡就看不出来。
+            .background(colors.onSurface.copy(alpha = 0.06f))
+            // 内缩 2dp，选中段才是嵌在轨道里的一条，而不是与轨道等高的色块。
+            .padding(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        options.forEachIndexed { index, option ->
+            val isSelected = option == selected
+            val hovered by interactions[index].collectIsHoveredAsState()
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(
+                        when {
+                            isSelected -> colors.primary
+                            hovered -> colors.onSurface.copy(alpha = 0.08f)
+                            else -> Color.Transparent
+                        }
+                    )
+                    .hoverable(interactions[index])
+                    .clickable(interactionSource = interactions[index], indication = null) {
+                        onSelect(option)
+                    }
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = optionLabel(option),
+                    fontSize = 13.sp,
+                    color = if (isSelected) colors.onPrimary else colors.onSurface,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 开关：一枚勾选框加标签，表示「这一层修饰开不开」。
+ *
+ * 与另外两类控件刻意拉开距离：分段控件是实心色块、下拉是描边格子，只有这个是勾选框。勾选框
+ * 天生只说「有没有」——不必靠底色去推当前是开是关，也不会与「选一个」混淆。
+ */
+@Composable
+fun DevToolToggle(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val boxShape = RoundedCornerShape(4.dp)
+
+    Row(
+        modifier = modifier
+            .height(DevToolControlHeight)
+            .clip(RoundedCornerShape(6.dp))
+            // 开关不给自己上底色：它是「叠在别的选择之上的一层修饰」，视觉重量该比那两类轻。
+            .background(if (hovered) colors.onSurface.copy(alpha = 0.06f) else Color.Transparent)
+            .hoverable(interaction)
+            .clickable(interactionSource = interaction, indication = null) {
+                onCheckedChange(!checked)
+            }
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(14.dp)
+                .clip(boxShape)
+                .background(if (checked) colors.primary else Color.Transparent)
+                .border(1.dp, if (checked) colors.primary else colors.outline, boxShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (checked) {
+                ClipperIcon(ClipperIconKind.CHECKMARK, size = 10.dp, tint = colors.onPrimary)
+            }
+        }
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = title,
+            fontSize = 13.sp,
+            color = if (checked) colors.primary else colors.onSurface,
+            maxLines = 1,
+        )
+    }
 }
 
 /** 工具内的一条提示（成功 / 失败）。 */
