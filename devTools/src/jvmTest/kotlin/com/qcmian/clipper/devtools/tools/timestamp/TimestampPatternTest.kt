@@ -23,7 +23,8 @@ class TimestampPatternTest {
         assertEquals("1970/01/01", TimestampPattern.format(epoch, utc, "yyyy/MM/dd"))
         // 中文标点是字面量，直接写在模板里。
         assertEquals("1970年01月01日", TimestampPattern.format(epoch, utc, "yyyy年MM月dd日"))
-        assertEquals("星期四", TimestampPattern.format(epoch, utc, "EEE"))
+        assertEquals("周四", TimestampPattern.format(epoch, utc, "EEE"))
+        assertEquals("星期四", TimestampPattern.format(epoch, utc, "EEEE"))
         assertEquals("上午 12:00", TimestampPattern.format(epoch, utc, "a hh:mm"))
         assertEquals("+0000", TimestampPattern.format(epoch, utc, "Z"))
         assertEquals("+00:00", TimestampPattern.format(epoch, utc, "ZZ"))
@@ -85,6 +86,33 @@ class TimestampPatternTest {
 
         val millis = Instant.parse("2028-11-22T10:12:34.123Z")
         assertEquals("2028-11-22 10:12:34.123", TimestampPattern.format(millis, utc, "%Y-%m-%d %H:%M:%S.%f"))
+    }
+
+    @Test
+    fun `month and weekday each have a short and a long spelling`() {
+        val instant = Instant.parse("2028-11-22T10:12:34Z")
+        // Java 靠字母个数分档，Python 靠大小写分档，两边对的是同两样东西。
+        assertEquals("11月", TimestampPattern.format(instant, utc, "MMM"))
+        assertEquals("十一月", TimestampPattern.format(instant, utc, "MMMM"))
+        assertEquals("周三", TimestampPattern.format(instant, utc, "EEE"))
+        assertEquals("星期三", TimestampPattern.format(instant, utc, "EEEE"))
+
+        assertEquals("11月", TimestampPattern.format(instant, utc, "%b"))
+        assertEquals("十一月", TimestampPattern.format(instant, utc, "%B"))
+        assertEquals("周三", TimestampPattern.format(instant, utc, "%a"))
+        assertEquals("星期三", TimestampPattern.format(instant, utc, "%A"))
+    }
+
+    @Test
+    fun `month names read back in either spelling`() {
+        assertEquals(
+            "2028-11-22T00:00:00Z",
+            TimestampPattern.parse("2028年11月22日", utc, "yyyy年MMMdd日").getOrThrow().toString(),
+        )
+        assertEquals(
+            "2028-11-22T00:00:00Z",
+            TimestampPattern.parse("2028年十一月22日", utc, "yyyy年MMMMdd日").getOrThrow().toString(),
+        )
     }
 
     @Test

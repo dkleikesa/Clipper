@@ -34,6 +34,8 @@ internal object TimestampSyntax {
                 TimestampSyntaxField("两位年", "yy", "%y", "28"),
                 TimestampSyntaxField("月", "MM", "%m", "11"),
                 TimestampSyntaxField("日", "dd", "%d", "22"),
+                TimestampSyntaxField("月份缩写", "MMM", "%b", "11月"),
+                TimestampSyntaxField("月份全称", "MMMM", "%B", "十一月"),
             ),
         ),
         TimestampSyntaxGroup(
@@ -43,14 +45,16 @@ internal object TimestampSyntax {
                 TimestampSyntaxField("12 时制小时", "hh", "%I", "10"),
                 TimestampSyntaxField("分", "mm", "%M", "12"),
                 TimestampSyntaxField("秒", "ss", "%S", "34"),
-                TimestampSyntaxField("毫秒", "S", "%f", "123"),
+                // Java 的 `S`（一个字母）是「最少位数」的一个数字，123 毫秒会写成 1；毫秒要写三个。
+                TimestampSyntaxField("毫秒", "SSS", "%f", "123"),
                 TimestampSyntaxField("上午 / 下午", "a", "%p", "上午"),
             ),
         ),
         TimestampSyntaxGroup(
             title = "其它",
             fields = listOf(
-                TimestampSyntaxField("星期", "E", "%A", "星期三"),
+                TimestampSyntaxField("星期缩写", "EEE", "%a", "周三"),
+                TimestampSyntaxField("星期全称", "EEEE", "%A", "星期三"),
                 TimestampSyntaxField("时区偏移", "Z", "%z", "+0800"),
                 // Python 的 `%z` 只能写成 `+0800` 那种，带冒号的没有对应写法。
                 TimestampSyntaxField("时区偏移（带冒号）", "ZZ", null, "+08:00"),

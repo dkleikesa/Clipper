@@ -24,6 +24,10 @@ import kotlinx.datetime.toLocalDateTime
  * 毫秒，两种风格通用。`SSS` 是规范写法，但 `.000` 从别处抄格式时太常见——不认它就会落进字面量
  * 被原样打出，看着像毫秒恒为 0（末尾一串 `9` 的 `.999` 不认：那只是 Go 参考时间风格的写法）。
  *
+ * 月份与星期的**长短两档按字母个数分**（与 Java 一致）：`MMM` / `EEE` 是缩写（`11月` / `周三`），
+ * `MMMM` / `EEEE` 是全称（`十一月` / `星期三`）；`M` / `MM` 仍是数字。Python 的 `%b` / `%a` 与
+ * `%B` / `%A` 分别对到这两档。
+ *
  * 解析时 `Z` / `z` 不参与（偏移有多种写法、识别它反而更易出错），其余符号都支持；模板里没有的
  * 字段用默认值补齐（年 1970、月 1、日 1、时分秒 0）。小数秒按**位数**换算：`.5` 是 500 毫秒、
  * `.12` 是 120 毫秒，超过三位截到毫秒。
@@ -78,7 +82,11 @@ internal object TimestampPattern {
                         index = read.next
                     }
 
-                    PatternField.MONTH -> readNumber(text, index, 2).let { month = it.value; index = it.next }
+                    PatternField.MONTH -> {
+                        val read = if (token.count >= 3) readMonthName(text, index) else readNumber(text, index, 2)
+                        month = read.value
+                        index = read.next
+                    }
                     PatternField.DAY -> readNumber(text, index, 2).let { day = it.value; index = it.next }
                     PatternField.HOUR24 -> readNumber(text, index, 2).let { hour = it.value; index = it.next }
                     PatternField.HOUR12 -> readNumber(text, index, 2).let { hour12 = it.value; index = it.next }
@@ -98,7 +106,9 @@ internal object TimestampPattern {
                     }
 
                     PatternField.WEEKDAY -> {
+                        // 长写法先试：「周三」与「星期三」没有前缀关系，但反过来先试短的会切掉「星期」。
                         val matched = TimestampConvert.WeekdayNames.firstOrNull { text.startsWith(it, index) }
+                            ?: TimestampConvert.WeekdayShortNames.firstOrNull { text.startsWith(it, index) }
                             ?: throw IllegalArgumentException("这里应该是星期几")
                         index += matched.length
                     }
@@ -132,7 +142,12 @@ internal object TimestampPattern {
             else -> pad(local.year, field.count)
         }
 
-        PatternField.MONTH -> pad(local.month.ordinal + 1, field.count)
+        PatternField.MONTH -> when {
+            field.count == 3 -> MonthNamesAbbrev[local.month.ordinal]
+            field.count >= 4 -> MonthNames[local.month.ordinal]
+            else -> pad(local.month.ordinal + 1, field.count)
+        }
+
         PatternField.DAY -> pad(local.day, field.count)
         PatternField.HOUR24 -> pad(local.hour, field.count)
         PatternField.HOUR12 -> pad((local.hour + 11) % 12 + 1, field.count)
@@ -140,7 +155,9 @@ internal object TimestampPattern {
         PatternField.SECOND -> pad(local.second, field.count)
         PatternField.MILLIS -> pad(local.nanosecond / 1_000_000, 3)
         PatternField.AMPM -> if (local.hour < 12) "上午" else "下午"
-        PatternField.WEEKDAY -> TimestampConvert.weekdayName(instant)
+        // 与 Java 的 `E` 记法一致：一到三个字母是短写法，四个及以上是全称（对应 Python 的 %a / %A）。
+        PatternField.WEEKDAY ->
+            if (field.count >= 4) TimestampConvert.weekdayName(instant) else TimestampConvert.weekdayShortName(instant)
         PatternField.OFFSET -> formatOffset(offsetSeconds, field.count)
         PatternField.ZONE_ID -> zone.id
     }
@@ -183,6 +200,35 @@ internal object TimestampPattern {
         var result = 1
         repeat(exponent) { result *= 10 }
         return result
+    }
+
+    /**
+     * 月份的中文写法：`MMM` 取短的一条（`11月`），`MMMM` 取长的一条（`十一月`）。
+     *
+     * 与 Java 在**中文 locale** 下的 `DateTimeFormatter` 一致（它给的就是这两个形式）。这个工具的
+     * 输出本来就全是中文（`EEEE` 给「星期三」），月份没道理单独跑一套英文。
+     */
+    private val MonthNamesAbbrev: List<String> = (1..12).map { "${it}月" }
+
+    private val MonthNames: List<String> = listOf(
+        "一月", "二月", "三月", "四月", "五月", "六月",
+        "七月", "八月", "九月", "十月", "十一月", "十二月",
+    )
+
+    /**
+     * 读一个月份：`十一月`、`11月`、`11` 都收。
+     *
+     * 不按模板写的是短写法还是全称去区分——写模板的人多半不在意自己用的是哪一种，分开认反而多
+     * 一处可能对不上的地方。
+     */
+    private fun readMonthName(text: String, index: Int): NumberRead {
+        MonthNames.forEachIndexed { offset, name ->
+            if (text.startsWith(name, index)) return NumberRead(offset + 1, index + name.length)
+        }
+        val read = readNumber(text, index, 2)
+        // 后面跟着「月」就一并吃掉（`11月`），否则当纯数字（`11`）。
+        val next = if (text.startsWith("月", read.next)) read.next + 1 else read.next
+        return NumberRead(read.value, next)
     }
 
     /**
@@ -374,7 +420,10 @@ internal object TimestampPattern {
      * Python `%X` → Java 符号；不认识返回 `null`。
      *
      * `%f` 在 Python 那边是**六位微秒**、且只有 `datetime.strftime` 认它（C 的 `time.strftime`
-     * 没有这条），这里按本工具的精度只映射到三位毫秒（见 [TimestampSyntax] 里那条要点）。
+     * 没有这条），这里按本工具的精度只映射到三位毫秒。
+     *
+     * 星期与月份在 Python 那边分缩写 / 全称两条（`%a` / `%A`、`%b` / `%B`），而 Java 靠**字母个数**
+     * 区分，因此映射成 `EEE` / `EEEE` 与 `MMM` / `MMMM`（见 [formatField] 里对个数的处理）。
      */
     private fun pythonField(spec: Char): String? = when (spec) {
         'Y' -> "yyyy"
@@ -387,7 +436,10 @@ internal object TimestampPattern {
         'S' -> "ss"
         'f' -> "SSS"
         'p' -> "a"
-        'A', 'a' -> "EEE"
+        'a' -> "EEE"
+        'A' -> "EEEE"
+        'b' -> "MMM"
+        'B' -> "MMMM"
         'z' -> "Z"
         'Z' -> "z"
         else -> null
