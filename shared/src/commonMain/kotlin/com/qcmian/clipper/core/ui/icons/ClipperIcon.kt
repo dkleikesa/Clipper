@@ -70,6 +70,7 @@ enum class ClipperIconKind {
     /** 向下落进托盘的箭头，编辑区「保存文件」用（与系统 `square.and.arrow.down` 同义）。 */
     SAVE,
 
+
     // ---------------------------------------------------------------- 条目类型
     /** 纯文本：一个带衬线的 "T"。 */
     TYPE_TEXT,
@@ -98,6 +99,17 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
     val s = size.minDimension
     val strokeWidth = s * 0.10f
     val stroke = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+
+    // 开发者工具那一组**按设计稿的 24 网格**画：坐标直接写 0..24 上的数，由 `p()` 换算成像素，
+    // 因此与设计稿逐点一致，而不是「照着样子重写一遍」——重写必然会在某几个坐标上偏一点。
+    // 线宽取设计稿的 1.9（缩放后约为边长的 7.9%，这里是 10%）：这一组自成一个家族，只出现在
+    // 侧边栏、图标栏与标题栏的工具名旁，细一档不会与其余图标显得凌乱。
+    val g = size.minDimension / 24f
+    fun p(x: Float, y: Float) = Offset(x * g, y * g)
+    val toolStrokeWidth = 1.9f * g
+    val st = Stroke(width = toolStrokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    fun line(x1: Float, y1: Float, x2: Float, y2: Float, width: Float = toolStrokeWidth) =
+        drawLine(color, p(x1, y1), p(x2, y2), width, StrokeCap.Round)
 
     when (kind) {
         ClipperIconKind.SEARCH -> {
@@ -350,84 +362,60 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
         // 这一组按同一个 0..1 网格画，线宽也统一取 `strokeWidth`（边长的 10%）：工具图标会并排
         // 出现在侧边栏与图标栏里，线重差一点就会显得有的重、有的轻。
         ClipperIconKind.BRACES -> {
-            // 花括号：上钩 → 直腰 → 中间向外的凹口 → 直腰 → 下钩。
-            //
-            // 凹口那一笔是关键。原先用一条从顶到底的 `cubicTo` 凑，中点是**尖角**（两条曲线在那里
-            // 相切方向不连续），14dp 下整个字形读起来像一对圆括号，和旁边那个 `<>` 也分不开。
-            // 花括号之所以是花括号，靠的正是中间那个朝外的折。
-            val braceStroke = Stroke(
-                width = strokeWidth * 0.9f,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round,
-            )
-            drawPath(
-                path = Path().apply {
-                    moveTo(s * 0.4417f, s * 0.1667f)
-                    cubicTo(s * 0.3625f, s * 0.1667f, s * 0.3708f, s * 0.2625f, s * 0.3708f, s * 0.3500f)
-                    cubicTo(s * 0.3708f, s * 0.4375f, s * 0.3250f, s * 0.4708f, s * 0.2625f, s * 0.5000f)
-                    cubicTo(s * 0.3250f, s * 0.5292f, s * 0.3708f, s * 0.5625f, s * 0.3708f, s * 0.6500f)
-                    cubicTo(s * 0.3708f, s * 0.7375f, s * 0.3625f, s * 0.8333f, s * 0.4417f, s * 0.8333f)
-                },
-                color = color,
-                style = braceStroke,
-            )
-            drawPath(
-                path = Path().apply {
-                    moveTo(s * 0.5583f, s * 0.1667f)
-                    cubicTo(s * 0.6375f, s * 0.1667f, s * 0.6292f, s * 0.2625f, s * 0.6292f, s * 0.3500f)
-                    cubicTo(s * 0.6292f, s * 0.4375f, s * 0.6750f, s * 0.4708f, s * 0.7375f, s * 0.5000f)
-                    cubicTo(s * 0.6750f, s * 0.5292f, s * 0.6292f, s * 0.5625f, s * 0.6292f, s * 0.6500f)
-                    cubicTo(s * 0.6292f, s * 0.7375f, s * 0.6375f, s * 0.8333f, s * 0.5583f, s * 0.8333f)
-                },
-                color = color,
-                style = braceStroke,
-            )
+            val l = Path().apply {
+            moveTo(10.6f * g, 4f * g)
+            cubicTo(8.7f * g, 4f * g, 8.9f * g, 6.3f * g, 8.9f * g, 8.4f * g)
+            cubicTo(8.9f * g, 10.5f * g, 7.8f * g, 11.3f * g, 6.3f * g, 12f * g)
+            cubicTo(7.8f * g, 12.7f * g, 8.9f * g, 13.5f * g, 8.9f * g, 15.6f * g)
+            cubicTo(8.9f * g, 17.7f * g, 8.7f * g, 20f * g, 10.6f * g, 20f * g)
+            }
+            val r = Path().apply {
+            moveTo(13.4f * g, 4f * g)
+            cubicTo(15.3f * g, 4f * g, 15.1f * g, 6.3f * g, 15.1f * g, 8.4f * g)
+            cubicTo(15.1f * g, 10.5f * g, 16.2f * g, 11.3f * g, 17.7f * g, 12f * g)
+            cubicTo(16.2f * g, 12.7f * g, 15.1f * g, 13.5f * g, 15.1f * g, 15.6f * g)
+            cubicTo(15.1f * g, 17.7f * g, 15.3f * g, 20f * g, 13.4f * g, 20f * g)
+            }
+            drawPath(l, color, style = st)
+            drawPath(r, color, style = st)
+            
         }
-
         ClipperIconKind.TAG -> {
-            drawLine(color, Offset(s * 0.40f, s * 0.24f), Offset(s * 0.16f, s * 0.50f), strokeWidth, StrokeCap.Round)
-            drawLine(color, Offset(s * 0.16f, s * 0.50f), Offset(s * 0.40f, s * 0.76f), strokeWidth, StrokeCap.Round)
-            drawLine(color, Offset(s * 0.60f, s * 0.24f), Offset(s * 0.84f, s * 0.50f), strokeWidth, StrokeCap.Round)
-            drawLine(color, Offset(s * 0.84f, s * 0.50f), Offset(s * 0.60f, s * 0.76f), strokeWidth, StrokeCap.Round)
+            line(9f, 7f, 4.5f, 12f); line(4.5f, 12f, 9f, 17f)
+            line(15f, 7f, 19.5f, 12f); line(19.5f, 12f, 15f, 17f)
+            line(13.5f, 6f, 10.5f, 18f)
+            
         }
-
         ClipperIconKind.FOLDER -> {
             drawPath(
-                path = Path().apply {
-                    moveTo(s * 0.12f, s * 0.80f)
-                    lineTo(s * 0.12f, s * 0.22f)
-                    lineTo(s * 0.40f, s * 0.22f)
-                    lineTo(s * 0.50f, s * 0.36f)
-                    lineTo(s * 0.88f, s * 0.36f)
-                    lineTo(s * 0.88f, s * 0.80f)
-                    close()
-                },
-                color = color,
-                style = stroke,
+            Path().apply {
+            moveTo(3.5f * g, 19f * g)
+            lineTo(3.5f * g, 6.5f * g)
+            lineTo(9.3f * g, 6.5f * g)
+            lineTo(11.3f * g, 9.2f * g)
+            lineTo(20.5f * g, 9.2f * g)
+            lineTo(20.5f * g, 19f * g)
+            close()
+            },
+            color, style = st,
             )
+            
         }
-
         ClipperIconKind.SAVE -> {
-            drawLine(color, Offset(s * 0.5f, s * 0.14f), Offset(s * 0.5f, s * 0.60f), strokeWidth, StrokeCap.Round)
+            line(12f, 4f, 12f, 14.5f)
             drawPath(
-                path = Path().apply {
-                    moveTo(s * 0.30f, s * 0.42f)
-                    lineTo(s * 0.50f, s * 0.62f)
-                    lineTo(s * 0.70f, s * 0.42f)
-                },
-                color = color,
-                style = stroke,
+            Path().apply {
+            moveTo(7.8f * g, 10.3f * g); lineTo(12f * g, 14.5f * g); lineTo(16.2f * g, 10.3f * g)
+            },
+            color, style = st,
             )
             drawPath(
-                path = Path().apply {
-                    moveTo(s * 0.18f, s * 0.66f)
-                    lineTo(s * 0.18f, s * 0.86f)
-                    lineTo(s * 0.82f, s * 0.86f)
-                    lineTo(s * 0.82f, s * 0.66f)
-                },
-                color = color,
-                style = stroke,
+            Path().apply {
+            moveTo(4.5f * g, 15.5f * g); lineTo(4.5f * g, 19.5f * g); lineTo(19.5f * g, 19.5f * g); lineTo(19.5f * g, 15.5f * g)
+            },
+            color, style = st,
             )
+            
         }
 
         // ---------------------------------------------------------------- 条目类型
