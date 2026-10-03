@@ -15,6 +15,8 @@ internal data class CodeColors(
     val number: Color,
     val constant: Color,
     val punctuation: Color,
+    /** 注释与 XML 的注释 / CDATA / 声明。 */
+    val comment: Color,
     val foldPlaceholder: Color,
     val foldPlaceholderBackground: Color,
     val gutterDivider: Color,
@@ -49,7 +51,7 @@ internal const val TabDisplayWidth = 4
  *  - 输入法、光标、选区仍然是原生控件在管（它们通过 [OffsetMapping] 换算偏移）；
  *  - 格式化 / 校验仍旧只看 `value`，与本变换无关。
  *
- * @param tokens 高亮片段，来自 [scanJson]
+ * @param tokens 高亮片段，来自扫描器（JSON 的 [scanJson] 或 XML 的 `scanXml`）
  * @param folded 当前折叠的括号对；嵌套时只取最外层
  */
 internal class CodeVisualTransformation(
@@ -138,6 +140,7 @@ internal class CodeVisualTransformation(
         CodeKind.Number -> colors.number
         CodeKind.Constant -> colors.constant
         CodeKind.Punctuation -> colors.punctuation
+        CodeKind.Comment -> colors.comment
     }
 }
 

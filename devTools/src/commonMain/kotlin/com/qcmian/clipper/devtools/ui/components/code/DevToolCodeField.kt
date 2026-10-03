@@ -132,6 +132,11 @@ internal fun DevToolCodeField(
     isError: Boolean = false,
     softWrap: Boolean = false,
     actions: @Composable () -> Unit = {},
+    /**
+     * 扫描器：把正文拆成着色片段、可折叠区间与行起点。默认按 JSON 扫，XML 工具传 `::scanXml`。
+     * 只影响显示层（配色与折叠），与「合不合法 / 排成什么样」无关——那是各工具自己的解析器。
+     */
+    scan: (String) -> CodeStructure = ::scanJson,
 ) {
     val colors = MaterialTheme.colorScheme
     val hint = MaterialTheme.hintColor
@@ -170,7 +175,7 @@ internal fun DevToolCodeField(
     // 折叠状态只记「被折叠括号对的起点」。文档一变：先按 diff 平移，再让与新配对不符的失效。
     val foldedStarts = remember { mutableStateListOf<Int>() }
     val text = fieldValue.text
-    val structure = remember(text) { scanJson(text) }
+    val structure = remember(text) { scan(text) }
     val folded = remember(structure, foldedStarts.toList()) {
         structure.brackets.filter { it.isFoldable && it.foldStart in foldedStarts }
     }
@@ -731,6 +736,7 @@ private val IdeaLightCodeColors = CodeColors(
     number = Color(0xFF1750EB),
     constant = Color(0xFF0033B3), // true / false / null，走 keyword 蓝
     punctuation = Color(0xFF000000),
+    comment = Color(0xFF8C8C8C), // IDEA 的注释灰
     foldPlaceholder = Color(0xFF8C8C8C),
     foldPlaceholderBackground = Color(0x14000000),
     gutterDivider = Color(0xFFE0E0E0),
@@ -762,6 +768,7 @@ private val AppDarkCodeColors = CodeColors(
     number = Color(0xFFFF9E64),
     constant = Color(0xFFBB9AF7),
     punctuation = Color(0xFFB4B4BD),
+    comment = Color(0xFF767687), // 比正文标点更暗一档的蓝灰，退到背景里去
     foldPlaceholder = Color(0xFF8E8E93),
     foldPlaceholderBackground = Color(0x33B4B4BD),
     gutterDivider = Color(0xFF35353B), // 应用的 surfaceVariant

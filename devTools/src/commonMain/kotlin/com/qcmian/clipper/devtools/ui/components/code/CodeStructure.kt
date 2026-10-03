@@ -8,7 +8,7 @@ package com.qcmian.clipper.devtools.ui.components.code
  */
 internal data class CodeToken(val start: Int, val end: Int, val kind: CodeKind)
 
-internal enum class CodeKind { Key, StringLiteral, Number, Constant, Punctuation }
+internal enum class CodeKind { Key, StringLiteral, Number, Constant, Punctuation, Comment }
 
 /**
  * 一对配对的括号。
@@ -180,5 +180,152 @@ private fun scanNumber(text: String, from: Int, tokens: MutableList<CodeToken>):
     }
     if (i == from) i++ // 孤立的 `-`：至少吃掉一个字符，避免死循环
     tokens.add(CodeToken(from, i, CodeKind.Number))
+    return i
+}
+
+/**
+ * 扫描 XML，得到着色片段、可折叠的元素区间与行起点。
+ *
+ * 与 [scanJson] 同一取舍：**不是**解析器（校验 / 排版归 `XmlFormat`），只回答显示层的两个问题——
+ * 「这个 token 该上什么色」「哪个元素的内容可以折」。非法输入照样有高亮，也不会与解析结果打架。
+ *
+ * 折叠用元素表达，而不是 XML 里并不存在的「括号」：起始标签的 `>` 与对应结束标签的 `<` 配成
+ * [BracketPair]，中间那段就是元素内容。于是 `<a>…</a>` 折叠成 `<a>…</a>` 里的一个省略号，
+ * 与 [scanJson] 把 `{…}` 折起来是同一套机制。
+ */
+internal fun scanXml(text: String): CodeStructure {
+    val tokens = ArrayList<CodeToken>()
+    val brackets = ArrayList<BracketPair>()
+    val lineStarts = ArrayList<Int>()
+    lineStarts.add(0)
+    // 尚未闭合元素的起始标签末尾（`>` 的下标）。`</name>` 到来时与栈顶配成一对。
+    val openStack = ArrayList<Int>()
+
+    var i = 0
+    while (i < text.length) {
+        val c = text[i]
+        when {
+            c == '\n' -> {
+                lineStarts.add(i + 1)
+                i++
+            }
+
+            c == '<' -> when {
+                // 注释 / CDATA / DOCTYPE / 处理指令：整段一个 Comment 着色，不再往里拆。
+                text.startsWith("<!--", i) -> i = markXmlRun(text, i, "-->", tokens)
+                text.startsWith("<![CDATA[", i) -> i = markXmlRun(text, i, "]]>", tokens)
+                text.startsWith("<?", i) -> i = markXmlRun(text, i, "?>", tokens)
+                text.startsWith("<!", i) -> i = markXmlRun(text, i, ">", tokens)
+                else -> i = scanXmlTag(text, i, tokens, brackets, openStack)
+            }
+
+            // 正文里的字符实体，例如 `&amp;`；没找到分号就当一个普通字符跳过。
+            c == '&' -> {
+                val end = text.indexOf(';', i + 1)
+                if (end in (i + 1) until text.length) {
+                    tokens.add(CodeToken(i, end + 1, CodeKind.Constant))
+                    i = end + 1
+                } else {
+                    i++
+                }
+            }
+
+            else -> i++
+        }
+    }
+
+    return CodeStructure(tokens = tokens, brackets = brackets, lineStarts = lineStarts.toIntArray())
+}
+
+/** 从 [start] 起把一整段（注释 / CDATA / 声明）标成 Comment，返回它之后的下标。 */
+private fun markXmlRun(
+    text: String,
+    start: Int,
+    terminator: String,
+    tokens: MutableList<CodeToken>,
+): Int {
+    val found = text.indexOf(terminator, start + 1)
+    val stop = if (found < 0) text.length else found + terminator.length
+    tokens.add(CodeToken(start, stop, CodeKind.Comment))
+    return stop
+}
+
+/** 扫一个标签（起始或结束）；返回标签结束后的下标。 */
+private fun scanXmlTag(
+    text: String,
+    start: Int,
+    tokens: MutableList<CodeToken>,
+    brackets: MutableList<BracketPair>,
+    openStack: MutableList<Int>,
+): Int {
+    var i = start
+    tokens.add(CodeToken(i, i + 1, CodeKind.Punctuation)) // `<`
+    i++
+
+    if (i < text.length && text[i] == '/') {
+        // 结束标签 `</name>`：与栈顶的起始标签配成一对，中间那段即元素内容。
+        tokens.add(CodeToken(i, i + 1, CodeKind.Punctuation)) // `/`
+        i++
+        val nameStart = i
+        while (i < text.length && !text[i].isWhitespace() && text[i] != '>') i++
+        if (i > nameStart) tokens.add(CodeToken(nameStart, i, CodeKind.Key))
+        while (i < text.length && text[i] != '>') i++
+        if (i < text.length) {
+            tokens.add(CodeToken(i, i + 1, CodeKind.Punctuation))
+            i++
+        }
+        val openEnd = if (openStack.isEmpty()) null else openStack.removeAt(openStack.lastIndex)
+        if (openEnd != null && start > openEnd) brackets.add(BracketPair(openEnd, start))
+        return i
+    }
+
+    // 起始标签：名字，随后是一串「属性名 = "值"」，末尾可能是 `/>`。
+    val nameStart = i
+    while (i < text.length && !text[i].isWhitespace() && text[i] != '>' && text[i] != '/') i++
+    if (i > nameStart) tokens.add(CodeToken(nameStart, i, CodeKind.Key))
+
+    var selfClosing = false
+    while (i < text.length && text[i] != '>') {
+        when {
+            text[i].isWhitespace() -> i++
+
+            text[i] == '/' -> {
+                tokens.add(CodeToken(i, i + 1, CodeKind.Punctuation))
+                selfClosing = true
+                i++
+            }
+
+            text[i] == '=' -> {
+                tokens.add(CodeToken(i, i + 1, CodeKind.Punctuation))
+                i++
+            }
+
+            text[i] == '"' || text[i] == '\'' -> {
+                val quote = text[i]
+                val valueStart = i
+                i++
+                while (i < text.length && text[i] != quote) i++
+                if (i < text.length) i++
+                tokens.add(CodeToken(valueStart, i, CodeKind.StringLiteral))
+            }
+
+            else -> {
+                val attrStart = i
+                while (i < text.length && !text[i].isWhitespace() &&
+                    text[i] != '=' && text[i] != '>' && text[i] != '/'
+                ) {
+                    i++
+                }
+                if (i > attrStart) tokens.add(CodeToken(attrStart, i, CodeKind.Key))
+            }
+        }
+    }
+
+    if (i < text.length) {
+        tokens.add(CodeToken(i, i + 1, CodeKind.Punctuation)) // `>`
+        // `>` 的下标要留到对应 `</name>` 到来时才算得出折叠加 `isFoldable`；自闭合标签没有。
+        if (!selfClosing) openStack.add(i)
+        i++
+    }
     return i
 }

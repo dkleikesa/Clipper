@@ -154,4 +154,83 @@ class CodeStructureTest {
         assertNull(matchBracketPair(structure, 0))
         assertNull(matchBracketPair(structure, 1))
     }
+
+    // ---- XML 扫描器 ----
+
+    /** 把 token 还原成「原始片段 → 类别」，比断言偏移更好读。 */
+    private fun xmlTokens(text: String): List<Pair<String, CodeKind>> =
+        scanXml(text).tokens.map { text.substring(it.start, it.end) to it.kind }
+
+    @Test
+    fun `xml tags name attributes and values are told apart`() {
+        val text = """<a b="c">d</a>"""
+        assertEquals(
+            listOf(
+                "<" to CodeKind.Punctuation,
+                "a" to CodeKind.Key,
+                "b" to CodeKind.Key,
+                "=" to CodeKind.Punctuation,
+                "\"c\"" to CodeKind.StringLiteral,
+                ">" to CodeKind.Punctuation,
+                "<" to CodeKind.Punctuation,
+                "/" to CodeKind.Punctuation,
+                "a" to CodeKind.Key,
+                ">" to CodeKind.Punctuation,
+            ),
+            xmlTokens(text)
+        )
+    }
+
+    @Test
+    fun `xml comments cdata and declarations each colour as one piece`() {
+        val text = """<?xml version="1.0"?><!-- hi --><![CDATA[x]]>"""
+        assertEquals(
+            listOf(
+                "<?xml version=\"1.0\"?>" to CodeKind.Comment,
+                "<!-- hi -->" to CodeKind.Comment,
+                "<![CDATA[x]]>" to CodeKind.Comment,
+            ),
+            xmlTokens(text)
+        )
+    }
+
+    @Test
+    fun `xml elements fold between their start and end tags`() {
+        val text = "<a>\n  <b>1</b>\n</a>"
+        // 内层先闭合所以在内层先入表，与 JSON 一致。
+        assertEquals(
+            listOf(8 to 10, 2 to 15),
+            scanXml(text).brackets.map { it.open to it.close }
+        )
+        val outer = scanXml(text).brackets.last()
+        assertEquals(3, outer.foldStart) // 起始标签 `>` 之后
+        assertEquals(15, outer.foldEnd) // 结束标签 `<` 之前
+        assertTrue(outer.isFoldable)
+        assertEquals(outer, scanXml(text).foldableOnLine(text, 1))
+        assertEquals(scanXml(text).brackets.first(), scanXml(text).foldableOnLine(text, 2))
+    }
+
+    @Test
+    fun `a self-closing tag never opens a fold`() {
+        val text = "<a>\n  <b/>\n</a>"
+        // `<b/>` 没有内容、也不占用栈：只留下最外层那一对。
+        assertEquals(listOf(2 to 11), scanXml(text).brackets.map { it.open to it.close })
+    }
+
+    @Test
+    fun `empty elements colour but cannot be folded`() {
+        val text = "<a></a>"
+        val pair = scanXml(text).brackets.single()
+        assertEquals(2 to 3, pair.open to pair.close)
+        assertFalse(pair.isFoldable)
+    }
+
+    @Test
+    fun `unclosed xml tags colour but cannot be folded`() {
+        // 边打边写的中间态：结束标签还没出现，`brackets` 里就没有可折叠的区间。
+        val structure = scanXml("<a><b>")
+        assertTrue(structure.brackets.isEmpty())
+        assertEquals("<" to CodeKind.Punctuation, xmlTokens("<a><b>")[0])
+        assertEquals(1, structure.lineCount)
+    }
 }
