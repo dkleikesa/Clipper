@@ -17,7 +17,11 @@ internal data class CodeColors(
     val punctuation: Color,
     val foldPlaceholder: Color,
     val foldPlaceholderBackground: Color,
-    val gutterDivider: Color
+    val gutterDivider: Color,
+    /** 光标所在那一行的整行底纹。 */
+    val currentLineBackground: Color,
+    /** 光标停在某个括号上时，与它配对的那两个括号的底纹。 */
+    val bracketBackground: Color
 )
 
 /** 折叠区间被替换成的那个字符。 */

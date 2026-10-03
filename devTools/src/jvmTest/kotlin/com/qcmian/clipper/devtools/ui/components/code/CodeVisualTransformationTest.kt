@@ -25,6 +25,9 @@ class CodeVisualTransformationTest {
         foldPlaceholder = Color(0xFF000006),
         foldPlaceholderBackground = Color(0x11000006),
         gutterDivider = Color(0xFF000008),
+        // 当前行 / 括号配对走的是绘制层，不参与这个变换；这里只需凑齐构造参数。
+        currentLineBackground = Color(0x1100000A),
+        bracketBackground = Color(0x1100000B),
     )
 
     private fun transform(text: String, folded: List<BracketPair> = emptyList()) =

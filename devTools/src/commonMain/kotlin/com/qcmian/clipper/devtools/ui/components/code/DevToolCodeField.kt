@@ -34,14 +34,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -158,6 +163,10 @@ internal fun DevToolCodeField(
         }
     }
 
+    // 当前行 / 括号配对两处高亮只在**聚焦时**画：没有光标的框（例如还没点进去、或右侧只读结果）
+    // 谈「当前行」没有意义，画上去反而像一块脏背景。
+    var focused by remember { mutableStateOf(false) }
+
     // 折叠状态只记「被折叠括号对的起点」。文档一变：先按 diff 平移，再让与新配对不符的失效。
     val foldedStarts = remember { mutableStateListOf<Int>() }
     val text = fieldValue.text
@@ -180,6 +189,27 @@ internal fun DevToolCodeField(
     }
     val lines = remember(layout, mapping, structure) {
         layout?.let { visualLines(it, mapping, structure) }
+    }
+
+    // 光标（选区活动端）所在的那一行，在正文坐标系里的上下缘。
+    //
+    // 走高亮变换会让**每次移动光标**都重跑一遍全量 filter（大文档上就是每次方向键几十毫秒），
+    // 所以这里改用排版结果现算：它只依赖 layout，与正文内容无关，光标动一下代价几乎为零。
+    // 折行时一条逻辑行会占多个可视行，但光标只在其中一行，取它自己那一行的范围正合适。
+    val caret = fieldValue.selection.end
+    val currentLineBand: Pair<Float, Float>? = remember(layout, mapping, caret, focused, readOnly) {
+        // 右侧只读结果框不画：那里没有「正在编辑的行」，一条底色只会与左侧争注意力。
+        if (readOnly || !focused) return@remember null
+        val l = layout ?: return@remember null
+        val transformed = mapping.originalToTransformed(caret)
+        if (transformed !in 0..l.layoutInput.text.length) return@remember null
+        val line = l.getLineForOffset(transformed)
+        l.getLineTop(line) to l.getLineBottom(line)
+    }
+
+    // 光标紧挨着的那个括号，以及它的配对。
+    val bracketPair: Pair<Int, Int>? = remember(structure, caret, focused) {
+        if (focused) matchBracketPair(structure, caret) else null
     }
 
     val density = LocalDensity.current
@@ -210,12 +240,13 @@ internal fun DevToolCodeField(
 
     Column(modifier.fillMaxWidth()) {
         // 标签在左、动作在右：动作属于这个框，就该跟它的名字同处一行。
+        // 字号跟着编辑区标题行整体提一档（11 → 13sp）：这一行是每个框的入口，原先小得像脚注。
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(label, fontSize = 11.sp, color = hint)
+            Text(label, fontSize = 13.sp, color = hint)
             Spacer(Modifier.weight(1f))
             actions()
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(6.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -286,6 +317,16 @@ internal fun DevToolCodeField(
                         .weight(1f)
                         // 装订线要的是正文在 Row 里的纵向位置，横向滚动不影响它。
                         .onGloballyPositioned { fieldTopInRow = it.positionInParent().y }
+                        // 当前行整行铺一条底纹。画在**横向滚动容器这一层**：它的宽度恒等于可视宽度，
+                        // 所以底纹铺满一整行而不随内容长短伸缩；纵向坐标与正文同源，对得齐。
+                        .drawBehind {
+                            val band = currentLineBand ?: return@drawBehind
+                            drawRect(
+                                color = codeColors.currentLineBackground,
+                                topLeft = Offset(0f, band.first),
+                                size = Size(size.width, (band.second - band.first).coerceAtLeast(0f)),
+                            )
+                        }
                         // 不折行时这一层才是滚动容器：子节点拿到无限宽约束，于是按最长一行排版。
                         // 挂在这一层而不是外面含装订线的 Row 上——挂外面，行号会跟着正文一起横向滚走。
                         .then(if (softWrap) Modifier else Modifier.horizontalScroll(horizontalScroll))
@@ -293,9 +334,17 @@ internal fun DevToolCodeField(
                     // 正文自己的原点。横向滚动时它会跟着移，所以点击换算必须读这里而不是外层的
                     // 位置——否则往右滚过之后，点在同一个像素上会落到更靠后的字符。
                     Box(
-                        modifier = Modifier.onGloballyPositioned {
-                            origins.text = it.positionInRoot()
-                        }
+                        modifier = Modifier
+                            // 括号配对底纹画在**正文这一层**（跟随横向滚动）：位置直接取自正文
+                            // 坐标系的包围盒，不必再去抵消一次滚动量。
+                            .drawBehind {
+                                val pair = bracketPair ?: return@drawBehind
+                                drawBracketHighlight(layout, mapping, pair.first, codeColors.bracketBackground)
+                                drawBracketHighlight(layout, mapping, pair.second, codeColors.bracketBackground)
+                            }
+                            .onGloballyPositioned {
+                                origins.text = it.positionInRoot()
+                            }
                     ) {
                         // 占位提示放在**文本框内部**、用与正文同一套度量：它的原点因此与正文完全
                         // 一致。放在外面当兄弟节点（旧 DevToolEditor 的写法）会因为它自己的字号/
@@ -329,6 +378,7 @@ internal fun DevToolCodeField(
                                 // 折行时才撑满：不折行时外层给的是无限宽，要求一个无限的宽度
                                 // 没有意义。不撑满则按文字自然宽度排版，横向滚动才有内容可滚。
                                 .then(if (softWrap) Modifier.fillMaxWidth() else Modifier)
+                                .onFocusChanged { focused = it.isFocused }
                                 .focusRequester(focusRequester),
                         )
                         // 折叠处的 `…`：叠在字形上，点它展开。
@@ -613,6 +663,58 @@ private fun unfoldAroundCaret(
 }
 
 /**
+ * 光标紧挨着的那个括号，以及它的配对，返回这一对括号的两个文档偏移。
+ *
+ * 「紧挨着」有两层：光标右边的那个字符是括号（`caret == open/close`），或光标左边的那个字符
+ * 是括号（`caret == open+1/close+1`）。两层可能同时成立——`]}` 之间就有两个括号一左一右——
+ * 这时**优先右边**：光标刚落在一个括号前面时，想看的是它跟谁配对，而不是上一个刚说完的。
+ *
+ * 只认 [CodeStructure.brackets] 里已经配好对的那部分：孤立括号（例如打到一半的 `{`）没有配对，
+ * 高亮它就等于什么都没说。扫描时开闭括号是同一个栈，所以这里不必再判类型。
+ *
+ * 一次线性扫过括号表。这在本项目的量级上可忽略——装订线每画一行就做一次同样的扫描
+ * （见 `foldableOnLine`），它比这个热得多。
+ */
+internal fun matchBracketPair(structure: CodeStructure, caret: Int): Pair<Int, Int>? {
+    // 先只记「左边的那个括号」，整表扫完还没有「右边」的才用它——右边优先级更高，因此不能
+    // 边扫边采用：内层 `]` 先入表，若当场采用，`]}` 之间就会错认成内层那一对。
+    var onLeft: Pair<Int, Int>? = null
+    for (pair in structure.brackets) {
+        if (caret == pair.open || caret == pair.close) return pair.open to pair.close
+        if (onLeft == null && (caret == pair.open + 1 || caret == pair.close + 1)) {
+            onLeft = pair.open to pair.close
+        }
+    }
+    return onLeft
+}
+
+/**
+ * 把一个括号字符的底纹画出来。
+ *
+ * 位置取自排版结果按**显示偏移**算的包围盒：显示层可能把制表符拉宽、把折叠压成一个占位符，
+ * 直接拿文档偏移去问会错位，所以先过一遍 [mapping]。括号恒为一列、也不会被折叠，因此
+ * `+1` 一定落在它自己身上。
+ */
+private fun DrawScope.drawBracketHighlight(
+    layout: TextLayoutResult?,
+    mapping: OffsetMapping,
+    offset: Int,
+    color: Color,
+) {
+    val result = layout ?: return
+    val transformed = mapping.originalToTransformed(offset)
+    if (transformed !in 0 until result.layoutInput.text.length) return
+    val box = result.getBoundingBox(transformed)
+    if (box.width <= 0f || box.height <= 0f) return
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(box.left, box.top),
+        size = Size(box.width, box.height),
+        cornerRadius = CornerRadius(2f, 2f),
+    )
+}
+
+/**
  * IntelliJ Light 的语法配色。
  *
  * 用固定色值而不是从 Material 色板派生：这套配色的意义就在于「看起来像 IDEA」，
@@ -632,6 +734,10 @@ private val IdeaLightCodeColors = CodeColors(
     foldPlaceholder = Color(0xFF8C8C8C),
     foldPlaceholderBackground = Color(0x14000000),
     gutterDivider = Color(0xFFE0E0E0),
+    // 当前行用中性灰而不是浅蓝：白底上一块淡蓝会与选中态 / 主色按钮撞在一起，像第二层选区。
+    currentLineBackground = Color(0x0F1B1B1F),
+    // 配对括号用主色底纹：与界面里其他蓝色强调同族，一眼认得出「这两个是一对」。
+    bracketBackground = Color(0x330A84FF),
 )
 
 /**
@@ -659,6 +765,9 @@ private val AppDarkCodeColors = CodeColors(
     foldPlaceholder = Color(0xFF8E8E93),
     foldPlaceholderBackground = Color(0x33B4B4BD),
     gutterDivider = Color(0xFF35353B), // 应用的 surfaceVariant
+    // 深底上抬一档白，比浅色那边更明显一点才看得出（深色下对比本来就弱）。
+    currentLineBackground = Color(0x14FFFFFF),
+    bracketBackground = Color(0x400A84FF),
 )
 
 /** 当前主题该用哪套语法配色。 */

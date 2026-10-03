@@ -123,4 +123,35 @@ class CodeStructureTest {
         assertEquals("\"a\"" to CodeKind.Key, tokens(text)[1])
         assertEquals(1, structure.lineCount)
     }
+
+    @Test
+    fun `a caret beside a bracket points at its pair`() {
+        //        0123456789012
+        val text = """{"a": [1, 2]}"""
+        val structure = scanJson(text)
+        assertEquals(listOf(6 to 11, 0 to 12), structure.brackets.map { it.open to it.close })
+
+        // 光标落在开括号上，或紧随其后——正文里最常见的两种位置，都该认出配对。
+        assertEquals(0 to 12, matchBracketPair(structure, 0))
+        assertEquals(0 to 12, matchBracketPair(structure, 1))
+        // 内层：光标在 `[` 上 / 紧挨它右边，配的是内层的 `]`，不是最外层。
+        assertEquals(6 to 11, matchBracketPair(structure, 6))
+        assertEquals(6 to 11, matchBracketPair(structure, 7))
+        // 闭括号一侧对称成立。
+        assertEquals(6 to 11, matchBracketPair(structure, 11))
+        assertEquals(0 to 12, matchBracketPair(structure, 12))
+        // 文末（闭括号之后）也算挨着最外层。
+        assertEquals(0 to 12, matchBracketPair(structure, 13))
+        // 不在任何括号旁边，就没有配对可高亮。
+        assertNull(matchBracketPair(structure, 5))
+    }
+
+    @Test
+    fun `an unpaired bracket has nothing to highlight`() {
+        // 边打边写的中间态：`{` 还没闭合，`brackets` 里根本没有它。
+        val structure = scanJson("""{"a": 1""")
+        assertTrue(structure.brackets.isEmpty())
+        assertNull(matchBracketPair(structure, 0))
+        assertNull(matchBracketPair(structure, 1))
+    }
 }
