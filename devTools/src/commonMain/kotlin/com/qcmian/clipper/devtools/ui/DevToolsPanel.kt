@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +57,10 @@ import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.registry.DevToolsRegistry
+import com.qcmian.clipper.devtools.ui.components.code.CodeFieldEngine
+import com.qcmian.clipper.devtools.ui.components.code.DefaultCodeFieldEngine
+import com.qcmian.clipper.devtools.ui.components.code.LocalCodeFieldEngine
+import com.qcmian.clipper.devtools.ui.components.code.next
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -135,6 +140,9 @@ fun DevToolsPanel(
     }
 
     var selectedId by remember { mutableStateOf<String?>(null) }
+    // 代码框用哪一套实现。放在面板这一层：状态栏那枚开关改它，工具里的代码框读它。
+    // 初值取 `DefaultCodeFieldEngine`，与「没人提供局部值」时的兜底是同一个出处。
+    var engine by remember { mutableStateOf(DefaultCodeFieldEngine) }
     // 用户自己点过工具没有（换一条记录就重置）。探测挪到后台之后结果可能晚到，那时用户说不定
     // 早就在用了——不能让它把用户点好的选择顶掉。换一条记录时重新允许自动推荐。
     var pickedByUser by remember(item) { mutableStateOf(false) }
@@ -300,11 +308,14 @@ fun DevToolsPanel(
 
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
-                    when {
-                        // 还在认这段内容是什么：先不画工具（见上面 `effectiveSelectedId` 的说明）。
-                        detected == null && tools.isNotEmpty() -> Identifying()
-                        selectedTool == null -> EmptyTools()
-                        else -> ToolContent(tool = selectedTool, item = item, host = host)
+                    // 引擎开关在这里生效：工具里所有代码框都读这个局部值（见 `LocalCodeFieldEngine`）。
+                    CompositionLocalProvider(LocalCodeFieldEngine provides engine) {
+                        when {
+                            // 还在认这段内容是什么：先不画工具（见上面 `effectiveSelectedId` 的说明）。
+                            detected == null && tools.isNotEmpty() -> Identifying()
+                            selectedTool == null -> EmptyTools()
+                            else -> ToolContent(tool = selectedTool, item = item, host = host)
+                        }
                     }
                 }
                 // 只采信**当前工具**报的值：别的工具留下的（即便还在）不关这一件的事。
@@ -315,6 +326,8 @@ fun DevToolsPanel(
                     source = sourceLabel(item, openedFiles.value, toolSource),
                     message = status.value,
                     toolStatus = toolStatus,
+                    engine = engine,
+                    onEngineChange = { engine = it },
                 )
             }
         }
@@ -561,6 +574,9 @@ private fun ToolStatusBar(
     source: String,
     message: String?,
     toolStatus: String?,
+    /** 当前代码框实现，以及切换它的入口。 */
+    engine: CodeFieldEngine,
+    onEngineChange: (CodeFieldEngine) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Column {
@@ -589,6 +605,43 @@ private fun ToolStatusBar(
                 Spacer(Modifier.width(12.dp))
                 Text(toolStatus, fontSize = 10.sp, color = MaterialTheme.hintColor, maxLines = 1)
             }
+            Spacer(Modifier.width(12.dp))
+            EngineToggle(engine = engine, onChange = onEngineChange)
+        }
+    }
+}
+
+/**
+ * 引擎开关：显示当前实现的名字，点一下换下一档。
+ *
+ * 摆在状态栏最右端，因为它是**看这个面板的人**的开关（换一套实现对比功能），不属于任何一件工具、
+ * 也不该去挤工具栏那一行；放这里不额外占任何高度。
+ *
+ * 「编辑框」三个字留着而不是只写实现名：单独一个「原生」在状态栏里说不清是什么东西。
+ */
+@Composable
+private fun EngineToggle(engine: CodeFieldEngine, onChange: (CodeFieldEngine) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    HoverTooltip(
+        text = "代码框实现：${engine.label}（点击切换）",
+        positioning = TooltipAnchorPosition.Above,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (hovered) colors.onSurface.copy(alpha = 0.08f) else Color.Transparent)
+                .hoverable(interaction)
+                .clickable(interactionSource = interaction, indication = null) {
+                    onChange(engine.next())
+                }
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        ) {
+            Text("编辑框", fontSize = 10.sp, color = MaterialTheme.hintColor)
+            Spacer(Modifier.width(5.dp))
+            Text(engine.label, fontSize = 10.sp, color = colors.primary)
         }
     }
 }
