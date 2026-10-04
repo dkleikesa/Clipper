@@ -1,6 +1,7 @@
 package com.qcmian.clipper.devtools.detect
 
 import com.qcmian.clipper.devtools.api.DataTypes
+import com.qcmian.clipper.devtools.tools.base64.Base64Format
 import com.qcmian.clipper.devtools.tools.json.JsonFormat
 import com.qcmian.clipper.devtools.tools.timestamp.TimestampConvert
 import com.qcmian.clipper.devtools.tools.xml.isWellFormedXml
@@ -22,7 +23,7 @@ interface DataTypeDetector {
      */
     val specificity: Int get() = 0
 
-    /** [text] 是否属于本类型。实现必须**不抛异常**——探测跑在打开面板的同步路径上。 */
+    /** [text] 是否属于本类型。实现必须**不抛异常**——抛出去会毁掉整次探测（面板就不推工具了）。 */
     fun matches(text: String): Boolean
 }
 
@@ -81,6 +82,36 @@ internal object TimestampDataTypeDetector : DataTypeDetector {
     override fun matches(text: String): Boolean = TimestampConvert.isEpochNumber(text)
 }
 
+/**
+ * 一段 Base64。
+ *
+ * 判据刻意**收得比较紧**：Base64 的字母表全是普通字母数字，放宽一点点，一长串英文单词或者一个
+ * camelCase 标识符就会被认成 Base64（它们同样「长度够、字符合法、还解得开」）。四道关卡：
+ *
+ *  1. 长度 ≥ [MIN_LENGTH]——`test`、`abcd` 也是合法 Base64，但那显然不是「一段 Base64」；
+ *  2. 不含空格 / 制表符——Base64 字母表里没有空格，折行只会用换行；带空格的多半是普通文本；
+ *  3. 至少有一个数字或 `+ / = - _`——专门用来挡「一长串纯字母」（见上）；
+ *  4. 真的解得开（含 URL 安全字母表与缺省填充）。
+ *
+ * 代价是极少数「恰好只有字母」的真实 Base64 不会被自动认出（长度 16 时约 3.6%，越长越低）。
+ * 那只是不自动选中，手动点一下侧边栏照旧可用。
+ */
+internal object Base64DataTypeDetector : DataTypeDetector {
+    override val typeName: String = DataTypes.BASE64
+    override val specificity: Int = 55
+
+    /** 短于这个长度就不认。 */
+    private const val MIN_LENGTH = 16
+
+    override fun matches(text: String): Boolean {
+        val payload = Base64Format.dataUriPayload(text).text.trim()
+        if (payload.length < MIN_LENGTH) return false
+        if (payload.any { it == ' ' || it == '\t' }) return false
+        if (payload.none { it.isDigit() || it in "+/=_-" }) return false
+        return Base64Format.decode(payload).isSuccess
+    }
+}
+
 /** 兜底：任何有内容的文本。始终排在最后（[specificity] 为 0）。 */
 internal object TextDataTypeDetector : DataTypeDetector {
     override val typeName: String = DataTypes.TEXT
@@ -96,6 +127,7 @@ val BuiltInDataTypeDetectors: List<DataTypeDetector> = listOf(
     JsonDataTypeDetector,
     XmlDataTypeDetector,
     TimestampDataTypeDetector,
+    Base64DataTypeDetector,
     UrlDataTypeDetector,
     TextDataTypeDetector,
 )

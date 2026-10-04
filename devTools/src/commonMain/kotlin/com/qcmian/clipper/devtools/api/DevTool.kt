@@ -21,6 +21,9 @@ object DataTypes {
 
     /** Unix 时间戳：一串纯数字（秒或毫秒）。时间戳转换工具与探测器在这一组常量上对齐。 */
     const val TIMESTAMP = "timestamp"
+
+    /** 一段 Base64（含带 `data:` 头的写法）：字符都在字母表里、且解得开。 */
+    const val BASE64 = "base64"
 }
 
 /** 工具在侧边栏里的分组。枚举顺序就是分组在侧边栏里的先后。 */

@@ -621,6 +621,8 @@ private fun typeLabel(name: String): String = when (name) {
     DataTypes.JSON -> "JSON"
     DataTypes.XML -> "XML"
     DataTypes.URL -> "链接"
+    DataTypes.TIMESTAMP -> "时间戳"
+    DataTypes.BASE64 -> "Base64"
     DataTypes.TEXT -> "文本"
     else -> name
 }

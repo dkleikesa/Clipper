@@ -35,11 +35,13 @@ import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
+import com.qcmian.clipper.devtools.api.DataTypes
 import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
+import com.qcmian.clipper.devtools.detect.Base64DataTypeDetector
 import com.qcmian.clipper.devtools.api.readBytesOrNull
 import com.qcmian.clipper.devtools.api.readTextFileOrNull
 import com.qcmian.clipper.devtools.api.writeBytesFile
@@ -140,6 +142,8 @@ internal object Base64DevTool : DevTool {
         icon = ClipperIconKind.DOC_ARROW,
     )
 
+    override val acceptedDataTypes: Set<String> = setOf(DataTypes.BASE64)
+
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
         var mode by remember { mutableStateOf(Base64Mode.Encode) }
@@ -203,7 +207,8 @@ internal object Base64DevTool : DevTool {
             }
         }
 
-        // 从剪贴板条目打开：图片直接当图片来编码，文件按路径读，其余按文本灌进**当前方向**那一个框。
+        // 从剪贴板条目打开：图片直接当图片来编码，文件按路径读，其余按文本灌进输入框——并且**替用户
+        // 选好方向**：复制一段 Base64 再打开工具，十有八九是要解它，默认落在编码方向等于白点一次。
         LaunchedEffect(input) {
             val item = input ?: return@LaunchedEffect
             val image = item.image
@@ -218,8 +223,19 @@ internal object Base64DevTool : DevTool {
                 applyPath(item.files.first())
                 return@LaunchedEffect
             }
-            updateText(withContext(Dispatchers.Default) { item.devToolText() }, fromUser = false)
+            val text = withContext(Dispatchers.Default) { item.devToolText() }
+            // 判据与面板的探测**共用同一个**（`Base64DataTypeDetector`）：面板正是靠它把本工具推荐
+            // 出来的，两边用同一条规则才不会「它推荐了、进来却不是解码」。
+            val looksEncoded = withContext(Dispatchers.Default) { Base64DataTypeDetector.matches(text) }
             source = null
+            mode = if (looksEncoded) Base64Mode.Decode else Base64Mode.Encode
+            if (looksEncoded) {
+                decodeText = text
+                decodeTyped = false
+            } else {
+                encodeText = text
+                encodeTyped = false
+            }
         }
 
         // 实时求值：输入一变就重新计时，停下来才算一次。取消由 `LaunchedEffect` 负责——正在算的
