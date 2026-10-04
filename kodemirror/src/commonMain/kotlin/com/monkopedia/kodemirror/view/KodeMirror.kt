@@ -25,6 +25,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -72,6 +73,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -104,6 +106,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.monkopedia.kodemirror.language.unfoldFoldAt
 import com.monkopedia.kodemirror.state.ChangeSpec
 import com.monkopedia.kodemirror.state.DocPos
 import com.monkopedia.kodemirror.state.EditorSelection
@@ -1313,9 +1316,36 @@ private fun EditorContent(
                                     )
                                     .widthIn(min = minW)
                             }
+                            // <本仓库补丁> 正文里那个 `…`（折叠起来的块）：光标移上去变手型，点一下展开。
+                            //
+                            // `…` 是 `DecorationApplication` 注进正文的一个**字符**（替换类装饰带的
+                            // widget 从来没被画出来，见 `FoldWidget`），没有节点可以挂 `clickable` 或
+                            // `pointerHoverIcon`——只能自己接手势、按排版结果判断指针在不在它身上。
+                            //
+                            // 于是「看得出能点」与「点得到」共用同一个命中判定（[foldPlaceholderHit]）：
+                            // 各写一份迟早会漂成「显示手型但点不动」或者反过来。
+                            //
+                            // 与编辑器根节点那套「按下即落光标」的分工：那一套在 Main 阶段**子节点
+                            // 优先**，这两个手势挂在正文这一层、是它的子节点，命中就消费掉（这一次
+                            // 点击不当成「在正文上点了一下」），没命中就放它过去。
+                            val foldModifier = foldPlaceholderModifier(
+                                key = item.from,
+                                placeholder = item.foldPlaceholderOffset,
+                                layout = { textLayout },
+                                onClick = { placeholder ->
+                                    // 先换成文档偏移再解折叠区间：区间会随编辑平移，而 `item` 里的
+                                    // `from/to` 是排版那一刻的旧值，拿它去查会落空。
+                                    unfoldFoldAt(
+                                        session,
+                                        item.from.value +
+                                            unmapTabOffset(placeholder, item.tabOffsetMap)
+                                    )
+                                },
+                            )
                             Box(
                                 modifier = contentModifier
                                     .then(contentExtraModifier)
+                                    .then(foldModifier)
                                     .drawSelectionOverlay(
                                         state,
                                         item.from.value,
@@ -1447,6 +1477,78 @@ private const val MaxClickCount = 3
  * （slop）都照系统那套，见手势里那一处。
  */
 private const val TapRepeatIntervalMillis = 500L
+
+/**
+ * <本仓库补丁> 点折叠占位符 `…` 时，命中区域左右各放宽多少。
+ *
+ * `…` 在屏幕上只有几个像素宽（一个省略号字符），严格按字形判定基本点不中。左右各让出这么多，
+ * 点起来才是「点在它上面」。高度方向不让：行高本来就只有十几像素，再放宽就会吃掉上下相邻的信息。
+ */
+private val FoldPlaceholderTapSlop = 4.dp
+
+/**
+ * <本仓库补丁> 正文里那个 `…` 的手势层：光标停在它身上时变手型，点它时回调出去。
+ *
+ * 两件事共用同一个命中判定（[foldPlaceholderHit]），因为它们必须回答同一个问题「指针在不在
+ * `…` 上」——各写一份迟早会漂成「显示手型却点不动」。
+ *
+ * 光标是**自己算出来再设**的，不是靠 `clickable` 那种「有节点的地方自动变手型」：`…` 只是正文里的
+ * 一个字符，没有节点。命中与否存进状态，`pointerHoverIcon` 随之切换——指针不动时不会反复写进
+ * 状态（值没变，Compose 不会重组）。
+ *
+ * @param key 让手势在换行 / 换会话时重建（它的值本身不参与判定，命中判定用的是最新的 [layout]）。
+ * @param placeholder `…` 在这一行渲染文本里的偏移；`null`（不是折叠行）时不挂任何手势。
+ * @param layout 取当前排版结果；正文还没排过版时为 `null`。
+ * @param onClick 命中之后要做什么，参数就是 [placeholder]。
+ */
+@Composable
+private fun foldPlaceholderModifier(
+    key: Any?,
+    placeholder: Int?,
+    layout: () -> TextLayoutResult?,
+    onClick: (Int) -> Unit,
+): Modifier {
+    if (placeholder == null) return Modifier
+    val slop = with(LocalDensity.current) { FoldPlaceholderTapSlop.toPx() }
+    var hovering by remember(key) { mutableStateOf(false) }
+    return Modifier
+        .pointerHoverIcon(if (hovering) PointerIcon.Hand else PointerIcon.Text)
+        .pointerInput(key, placeholder) {
+            awaitPointerEventScope {
+                while (true) {
+                    // 只看不消费：这一路只为了算光标形状，别的（正文落光标、拖选）照旧。
+                    val position = awaitPointerEvent(PointerEventPass.Initial)
+                        .changes.firstOrNull()?.position
+                        ?: continue
+                    hovering = foldPlaceholderHit(position, layout(), placeholder, slop)
+                }
+            }
+        }
+        .pointerInput(key, placeholder) {
+            detectTapGestures { tap ->
+                if (foldPlaceholderHit(tap, layout(), placeholder, slop)) onClick(placeholder)
+            }
+        }
+}
+
+/**
+ * <本仓库补丁> 指针是不是落在折叠占位符 `…` 上。
+ *
+ * 点击坐标与排版坐标是同一个原点：正文那一层的 `Box` 就是文字所在的那一层，那点内边距挂在它
+ * **里面**（`contentExtraModifier`），不会把两者错开。
+ */
+private fun foldPlaceholderHit(
+    position: Offset,
+    layout: TextLayoutResult?,
+    placeholder: Int,
+    slop: Float,
+): Boolean {
+    val box: Rect = layout?.getBoundingBox(placeholder) ?: return false
+    return position.x >= box.left - slop &&
+        position.x <= box.right + slop &&
+        position.y >= box.top &&
+        position.y <= box.bottom
+}
 
 /**
  * <本仓库补丁> 一次点击该落成什么选区：单击落光标，双击选中该处的词，三击选中该行。

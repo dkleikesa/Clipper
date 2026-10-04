@@ -164,6 +164,57 @@ class KodemirrorCodeFieldTest {
         assertEquals("abc", typed)
     }
 
+    /**
+     * 折叠起来的那一行显示成 `{…}`，点那个 `…` 要能展开。
+     *
+     * 那条 `…` 是注进正文的一个**字符**（折叠的替换装饰带的 widget 从来没被画出来，见
+     * `FoldWidget` 的说明），没有自己的节点可以点，所以这里横着扫正文最左端那一小段：哪一格能
+     * 展开都算过——它左右各留了一点命中余量（`FoldPlaceholderTapSlop`），落在字形边缘也该中。
+     *
+     * 扫描同时钉住三件事：`…` 确实画在正文里（没画出来一处都点不着）、点它只展开**一次**、
+     * 展开后那一行真的回到屏幕上。扫不到就直接失败，不会静默跳过。
+     *
+     * 折叠用装订线那一格完成（它的坐标由行号节点实测给出），点 `…` 才是这一条要验的展开路径。
+     */
+    @Test
+    fun `点折叠占位符能展开`() = runComposeUiTest {
+        field(value = FOLDABLE)
+        onNodeWithText("3").assertIsDisplayed()
+
+        // 折叠：点装订线第一行那一格（行号节点的右边就是折叠列）。
+        val lineOne = onNodeWithText("1").fetchSemanticsNode().boundsInRoot
+        onRoot().performTouchInput {
+            down(Offset(lineOne.right + 9f, (lineOne.top + lineOne.bottom) / 2f))
+            up()
+        }
+        waitForIdle()
+        onNodeWithText("3").assertDoesNotExist()
+
+        // 展开：点正文里的 `…`。从正文最左端横着扫，落点带风就往后挪几像素。
+        val rowCenterY = (lineOne.top + lineOne.bottom) / 2f
+        val contentLeft = lineOne.right + 26f
+        val tappedX = (0..12).firstOrNull { step ->
+            val x = contentLeft + step * 4f
+            onRoot().performTouchInput {
+                down(Offset(x, rowCenterY))
+                up()
+            }
+            waitForIdle()
+            onAllNodesWithText("3").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertNotNull(tappedX, "正文最左端这一段里应当有一处能点开折叠的 `…`")
+        onNodeWithText("3").assertIsDisplayed()
+
+        // 再点同一下：已经没有折叠可展开了，这一下不该把什么又折回去。
+        onRoot().performTouchInput {
+            down(Offset(contentLeft + tappedX * 4f, rowCenterY))
+            up()
+        }
+        waitForIdle()
+        onNodeWithText("3").assertIsDisplayed()
+    }
+
+
     @Test
     fun `外部换内容会回灌且不再回调回去`() = runComposeUiTest {
         var current by mutableStateOf(THREE_LINES)
@@ -371,5 +422,8 @@ class KodemirrorCodeFieldTest {
         const val ONE_LONG_LINE = "{\"a\": \"一个足够长的值，长到在窄框里一行放不下\"}"
 
         const val XML = "<a>\n  <b/>\n</a>"
+
+        /** 三行、且第一行能折起来（`{` 与 `}` 跨行）：点折叠占位符那条用例用它。 */
+        const val FOLDABLE = "{\n  \"a\": 1\n}"
     }
 }

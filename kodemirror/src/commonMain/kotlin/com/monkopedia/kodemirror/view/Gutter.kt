@@ -22,12 +22,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.style.TextAlign
 import com.monkopedia.kodemirror.state.Extension
 import com.monkopedia.kodemirror.state.Facet
@@ -104,11 +107,19 @@ fun GutterView(session: EditorSession, lineNumber: Int, modifier: Modifier = Mod
         configs.any { it.type == GutterType.ActiveLineGutter }
 
     Row(
-        modifier = if (hasActiveLineGutter) {
-            modifier.background(theme.activeLineGutterBackground)
-        } else {
-            modifier
-        },
+        modifier = Modifier
+            .then(
+                if (hasActiveLineGutter) {
+                    modifier.background(theme.activeLineGutterBackground)
+                } else {
+                    modifier
+                }
+            )
+            // <本仓库补丁> 装订线整列给回**箭头**光标。编辑器给整块面板设了 I 形（见 `KodeMirror`
+            // 里那处 `pointerHoverIcon(PointerIcon.Text)`），而装订线是它的一部分，于是鼠标移到
+            // 行号或折叠箭头上时仍然显示「这里能插字」——那里既不能落光标也不能选中文本。
+            // 折叠那一列由各自的 `clickable` 再改成手型（子节点优先），不受这一行影响。
+            .pointerHoverIcon(PointerIcon.Default),
         verticalAlignment = Alignment.CenterVertically
     ) {
         for (config in configs) {
@@ -138,10 +149,14 @@ fun GutterView(session: EditorSession, lineNumber: Int, modifier: Modifier = Mod
                 // Other gutter columns (fold gutter, etc.)
                 val clickHandler = config.lineMarkerClick
                 Box(
+                    // <本仓库补丁> `lineMarkerClick` 挂着时才整格可点。上游把它挂在每一格上，
+                    // 于是「这一行没有箭头」的空格也成了可点区域、悬停还会亮一块底色——看着就是
+                    // 平白多出来一个按钮。折叠 / 展开改由箭头自己接（见 `FoldGutterMarker`），
+                    // 这里因此通常没有 handler；留着这条分支是给别的 gutter 列用的。
                     modifier = Modifier.width(theme.layout.customGutterWidth)
                         .let { mod ->
                             if (clickHandler != null) {
-                                mod.clickable {
+                                mod.fillMaxHeight().clickable {
                                     clickHandler(session, line.from.value)
                                 }
                             } else {

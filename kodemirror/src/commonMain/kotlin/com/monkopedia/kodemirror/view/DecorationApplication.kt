@@ -51,7 +51,15 @@ internal sealed class ColumnItem {
          * expanded offset for document-relative offset `i`.
          * `null` when no expansion was needed (no tabs in the line).
          */
-        val tabOffsetMap: IntArray? = null
+        val tabOffsetMap: IntArray? = null,
+        /**
+         * <本仓库补丁> 折叠占位符 `…` 在**这一行渲染出来的文本**里的偏移；不是折叠行时为 `null`。
+         *
+         * 折叠起来的块在正文里就是一个 `…` 字符（见 `buildColumnItems`），而它得能点开：手势那一层
+         * 只有屏幕坐标，得先问排版结果「这个字符画在哪」才知道点没点中。偏移随行一起带出去，免得
+         * 绘制侧再按另一套规矩算一遍（制表符展开、行尾拼接都会把它算歪）。
+         */
+        val foldPlaceholderOffset: Int? = null
     ) : ColumnItem() {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -62,7 +70,8 @@ internal sealed class ColumnItem {
                 content == other.content &&
                 lineDecorations == other.lineDecorations &&
                 inlineWidgets == other.inlineWidgets &&
-                tabOffsetMap.contentEquals(other.tabOffsetMap)
+                tabOffsetMap.contentEquals(other.tabOffsetMap) &&
+                foldPlaceholderOffset == other.foldPlaceholderOffset
         }
 
         override fun hashCode(): Int {
@@ -73,6 +82,7 @@ internal sealed class ColumnItem {
             result = 31 * result + lineDecorations.hashCode()
             result = 31 * result + inlineWidgets.hashCode()
             result = 31 * result + (tabOffsetMap?.contentHashCode() ?: 0)
+            result = 31 * result + (foldPlaceholderOffset ?: 0)
             return result
         }
     }
@@ -421,7 +431,13 @@ internal fun buildColumnItems(
                     content,
                     lineDecos,
                     inlineWidgets,
-                    tabOffsetMap = result.offsetMap
+                    tabOffsetMap = result.offsetMap,
+                    // `…` 就画在这一行正文的 [content.length - 尾部长度] 处：尾部（闭括号那一行的
+                    // 剩余部分）接在它后面，才是这一行完整的内容。从末尾往回数，就不必关心 `…`
+                    // 前面那段被制表符展开宽了多少。
+                    foldPlaceholderOffset = replaceOnLine.widget?.let {
+                        content.length - (tail?.content?.length ?: 0) - 1
+                    }
                 )
             )
 

@@ -100,13 +100,51 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 `wordAt` 有一处不对称（上游如此）：它按 `pos` 左侧字符向前扩、按 `pos` 处字符向后扩，所以双击
 落在词的右侧空白上会选中**左边那个词**——`TapSelectionTest` 把这个行为钉住了，别当成 bug 顺手改。
 
-### 4. 鼠标指针形状（`view/KodeMirror.kt`）
+### 4. 鼠标指针形状（`view/KodeMirror.kt` + `view/Gutter.kt`）
 
 上游一处都没设：鼠标移到正文上仍是箭头，看不出「这里能点字」。补法是**只在正文那个 Box** 上加
 `PointerIcon.Text`——两条滚动条是它的兄弟节点，各自的 `PointerIcon.Default`（箭头）不受影响。
 不要图省事设在编辑器根节点上：那会把两条滚动条也一起变成 I 形。
 
-### 5. 折叠收成一行（`view/DecorationApplication.kt`）
+装订线是那个 Box 的**一部分**，于是行号与折叠箭头上也跟着显示 I 形——那里既不能落光标也不能
+选中文本（`view/Gutter.kt` 给整列补了 `PointerIcon.Default`）。折叠那一列再由各自的
+`clickable` 改成手型（子节点优先），成了「看得出与点得到一致」：鼠标进了折叠列就是手型。
+
+### 5. 点折叠箭头 / 点占位符都展开（`language/Fold.kt` + `view/Gutter.kt` + `view/KodeMirror.kt`）
+
+上游的箭头点击是「按这一行现查当前折叠状态」（`lineMarkerClick`），而 marker 与它所在的组合
+比会话活得久：用户在箭头那一行上改一个字，会话就是新的了，旧 marker 指着的区间早已不存在——
+点下去自然什么也不会发生。补法是把**区间随 marker 一起带下去**（`FoldGutterMarker(range)`），
+点击时照着它派发 `unfoldEffect`。
+
+这一项**整个删掉**了，而不是修一修继续用：`clickable` 是按 gutter 配置挂到**每一格**上的
+（`GutterView`），与这一行有没有箭头无关——留着它，没有箭头的空格也会变成可点区域、悬停还亮一块
+底色，看着就是平白多出来一个按钮。折叠 / 展开改由箭头自己接，网格里只有有箭头的那几格可点，
+「看得出来」与「点得到」才对得上。
+
+箭头那一格同时铺满整格（`fillMaxSize` + 居中的 chevron），不再只有 8×4dp 的箭头能点。
+
+正文里那个 `…` 是另一条路：它是 `DecorationApplication` 注进正文的一个**字符**，没有节点可以挂
+`clickable`（折叠的替换装饰带的 widget 从来没被画出来，见 `FoldWidget` 的说明——上游那套
+`inlineWidgets` 只收 `WidgetDecoration`）。所以：
+
+- `DecorationApplication` 把 `…` 在**渲染文本**里的偏移随行带出去（`TextLine.foldPlaceholderOffset`，
+  从行尾往回数，因此不必关心它前面被制表符展开宽了多少）；
+- `KodeMirror` 在正文那一层挂一层手势（`foldPlaceholderModifier`）：按
+  `TextLayoutResult.getBoundingBox` 判断指针在不在它身上（左右各让 4dp，`FoldPlaceholderTapSlop`），
+  在就**把光标设成手型**、点下去就换成文档偏移交给 `unfoldFoldAt`。
+
+光标是**自己算出来再设**的，不是靠 `clickable` 那种「有节点的地方自动变手型」：`…` 只是正文里的一个
+字符，没有节点可以挂 `clickable` 或 `pointerHoverIcon`。看与点**共用同一个命中判定**
+（`foldPlaceholderHit`）——各写一份迟早会漂成「显示手型却点不动」。那一路只读事件不消费
+（`PointerEventPass.Initial`），正文落光标、拖选照旧。
+
+**先偏移再查区间**：区间会随编辑平移，而行里带的 `from/to` 是排版那一刻的旧值。
+
+与编辑器根节点那套「按下即落光标」的手势不冲突：那一套在 Main 阶段**子节点优先**，这一个挂在正文
+这一层、是它的子节点，命中就消费掉（这一次点击不当成「在正文上点了一下」），没命中就放它过去。
+
+### 6. 折叠收成一行（`view/DecorationApplication.kt`）
 
 被替换掉的那一段里**含换行**，所以它后面的正文在文档意义上已经与本行同属一行了。上游只把替换
 起点那一行截断，随后跳到结束那一行**整行**渲染——于是 `{...}` 摊成两行（`{…` 一行、闭括号一行），
@@ -116,7 +154,7 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 `lineNum = endLine.number + 1` 跳过它。折叠起来的块因此显示成 `{…}`、`"a": {…},` 一行——
 与原生实现一致（它用显示变换删掉换行，走的是同一个道理）。`FoldRowCollapseTest` 钉住这两条。
 
-### 6. 折叠箭头改画 90° chevron（`language/Fold.kt`）
+### 7. 折叠箭头改画 90° chevron（`language/Fold.kt`）
 
 上游用两个**字符**当箭头（U+2304 展开 / U+203A 折叠），角度全看字体，实际渲染又窄又尖。
 改成 `Canvas` 画：长边 8dp、短边 4dp、线宽 1.5dp（与原生实现的 `FoldChevron` 同一套尺寸），
@@ -125,13 +163,20 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 
 ### 本仓库自己的测试
 
-`src/jvmTest`（配 `build.gradle.kts` 里的 `jvmTest` 依赖）里有两个：
+`src/jvmTest`（配 `build.gradle.kts` 里的 `jvmTest` 依赖）里有三个：
 
 - `TapSelectionTest` 覆盖上面第 3 处：喂位置与连击数、读最终选区；
-- `FoldRowCollapseTest` 覆盖第 5 处：喂一条替换装饰、读渲染出来的行（行数 + 每行文本）。
+- `FoldClickTest` 覆盖第 5 处：折一段再点它，读「还剩没剩折叠区间」（箭头那一路给区间、正文那一路
+  只给偏移，两条各有用例）；
+- `FoldRowCollapseTest` 覆盖第 6 处：喂一条替换装饰、读渲染出来的行（行数 + 每行文本）。
 
 **光标闪烁、指针形状、箭头角度、手势判定都测不了**——前三个是画出来的（`FoldRowCollapseTest`
-只验到「收成一行」，验不到画成什么样），最后一个要真实事件时钟，只能手点。
+只验到「收成一行」，验不到画成什么样；`FoldClickTest` 只验到「点下去展开了」，验不到点得到多大），
+最后一个要真实事件时钟，只能手点。
+
+**点正文里那个 `…`** 这条端到端路径在 `:devTools` 的 `KodemirrorCodeFieldTest` 里（那里有真的
+组合与手势注入）：折起来、横扫正文最左端、找到能展开的那一点。命中区域的**大小**它同样验不了
+（那是几个像素的容差），但「画出来了、点得着、只展开一次」三条都钉住了。
 
 ## 与上游同步
 

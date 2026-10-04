@@ -21,19 +21,24 @@ package com.monkopedia.kodemirror.language
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 import com.monkopedia.kodemirror.lezer.common.NodeProp
 import com.monkopedia.kodemirror.lezer.common.SyntaxNode
@@ -61,6 +66,7 @@ import com.monkopedia.kodemirror.view.GutterMarker
 import com.monkopedia.kodemirror.view.GutterType
 import com.monkopedia.kodemirror.view.KeyBinding
 import com.monkopedia.kodemirror.view.LocalContentTextStyle
+import com.monkopedia.kodemirror.view.LocalEditorSession
 import com.monkopedia.kodemirror.view.LocalEditorTheme
 import com.monkopedia.kodemirror.view.ReplaceDecorationSpec
 import com.monkopedia.kodemirror.view.WidgetType
@@ -117,7 +123,20 @@ val unfoldEffect: StateEffectType<FoldRange> = StateEffect.define(
     }
 )
 
-private class FoldWidget : WidgetType() {
+/**
+ * 折叠占位符的 widget 定义（`ReplaceDecoration` 上的那一份）。
+ *
+ * **它现在画不到屏幕上**：上游那套 widget 渲染（`KodeMirror.kt` 里的 `inlineWidgets`）只收
+ * `WidgetDecoration`，替换类装饰带的 widget 从来没被收集过。屏幕上的 `{…}` 里那个 `…` 是
+ * `DecorationApplication` 注进正文的一个字符，点击落点也走那条线（见 [unfoldFoldAt] 与
+ * `KodeMirror` 里正文那一层的命中判定）——所以这里不再挂 `clickable`：真点得着的是那个字符，
+ * 给一个画不出来的节点挂点击只会让人以为点在它身上。
+ *
+ * 留着这个类是因为它仍是「折叠占位符长什么样」的唯一定义（底色圆角小方块），与
+ * [FoldGutterMarker] 里那枚箭头一起构成折叠标记的全貌；上游哪天把替换类 widget 也接上，
+ * 这里就是现成的画面。
+ */
+private class FoldWidget(private val range: FoldRange) : WidgetType() {
     @Composable
     override fun Content() {
         val theme = LocalEditorTheme.current
@@ -139,9 +158,40 @@ private class FoldWidget : WidgetType() {
         }
     }
 
-    override fun equals(other: Any?): Boolean = other is FoldWidget
+    override fun equals(other: Any?): Boolean =
+        other is FoldWidget && other.range == range
 
-    override fun hashCode(): Int = this::class.hashCode()
+    override fun hashCode(): Int = range.hashCode()
+}
+
+/**
+ * <本仓库补丁> 展开一个已折叠的区间：装订线箭头那一格被点，走的就是它。
+ *
+ * 区间由调用方拿着（见 [FoldGutterMarker]），因此这里不必再去查一遍折叠状态。
+ */
+internal fun unfoldFold(session: EditorSession, range: FoldRange) {
+    session.dispatch(
+        TransactionSpec(
+            effects = listOf(unfoldEffect.of(range))
+        )
+    )
+}
+
+/**
+ * <本仓库补丁> 展开**落在 [pos] 上**的那个折叠区间（`pos` 是文档偏移）；没有就什么都不做。
+ *
+ * 给「点正文里那个 `…`」用：`…` 是 `DecorationApplication` 注进正文的一个字符，手势那一层只有
+ * 屏幕坐标，换算回文档偏移之后拿到的正是折叠区间的起点（见 `KodeMirror` 里正文那一层的命中判定）。
+ *
+ * 与 [unfoldCode] 的区别是它不碰选区：那一个要求光标已经落在折叠区间上，是给键位命令用的。
+ */
+internal fun unfoldFoldAt(session: EditorSession, pos: Int) {
+    var range: FoldRange? = null
+    foldedRanges(session.state).between(DocPos(pos), DocPos(pos)) { from, to, _ ->
+        range = FoldRange(DocPos(from), DocPos(to))
+        false
+    }
+    range?.let { unfoldFold(session, it) }
 }
 
 /**
@@ -157,7 +207,8 @@ val foldState: StateField<DecorationSet> = StateField.define(
                 val fold = effect.asType(foldEffect)
                 if (fold != null) {
                     val range = fold.value
-                    val widget = FoldWidget()
+                    // 区间交给 widget 自己：点开占位符时要照着它派发 unfold（见 [FoldWidget]）。
+                    val widget = FoldWidget(range)
                     val deco = Decoration.replace(
                         ReplaceDecorationSpec(widget = widget)
                     )
@@ -349,8 +400,8 @@ val foldKeymap: List<KeyBinding> = listOf(
 /**
  * Extension that adds a gutter column with fold indicators.
  *
- * Shows a clickable indicator (triangle) next to lines that can be
- * folded or unfolded.
+ * Shows a clickable chevron next to lines that can be folded or unfolded.
+ * <本仓库补丁> 整个格子都可点，箭头画在里面（见 [FoldGutterMarker]）。
  */
 fun foldGutter(): Extension = extensionListOf(
     codeFolding(),
@@ -362,21 +413,19 @@ fun foldGutter(): Extension = extensionListOf(
                 val lineFromPos = DocPos(lineFrom)
                 val line = state.doc.lineAt(lineFromPos)
                 val folded = foldedRanges(state)
-                var hasFold = false
-                folded.between(lineFromPos, line.to) { from, _, _ ->
+                var foldedRange: FoldRange? = null
+                folded.between(lineFromPos, line.to) { from, to, _ ->
                     if (from >= lineFrom && DocPos(from) <= line.to) {
-                        hasFold = true
+                        foldedRange = FoldRange(DocPos(from), DocPos(to))
                         false
                     } else {
                         true
                     }
                 }
-                if (hasFold) {
-                    FoldGutterMarker(folded = true)
-                } else {
-                    val canFold = foldable(state, lineFromPos) != null
-                    if (canFold) FoldGutterMarker(folded = false) else null
-                }
+                // 折叠中与「可以折叠」两种情形都带**区间**而不只是一个布尔：箭头那一格自己要知道
+                // 该收哪一段、该放哪一段（见 `FoldGutterMarker`）。
+                foldedRange?.let { FoldGutterMarker(folded = true, range = it) }
+                    ?: foldable(state, lineFromPos)?.let { FoldGutterMarker(folded = false, range = it) }
             },
             lineMarkerChange = { update ->
                 update.docChanged ||
@@ -385,59 +434,65 @@ fun foldGutter(): Extension = extensionListOf(
                             it.asType(foldEffect) != null || it.asType(unfoldEffect) != null
                         }
                     }
-            },
-            lineMarkerClick = { view, lineFrom ->
-                val state = view.state
-                val lineFromPos = DocPos(lineFrom)
-                val line = state.doc.lineAt(lineFromPos)
-                val folded = foldedRanges(state)
-                var wasFolded = false
-                folded.between(lineFromPos, line.to) { from, to, _ ->
-                    if (from >= lineFrom && DocPos(from) <= line.to) {
-                        view.dispatch(
-                            TransactionSpec(
-                                effects = listOf(
-                                    unfoldEffect.of(
-                                        FoldRange(DocPos(from), DocPos(to))
-                                    )
-                                )
-                            )
-                        )
-                        wasFolded = true
-                        false
-                    } else {
-                        true
-                    }
-                }
-                if (!wasFolded) {
-                    val range = foldable(state, lineFromPos)
-                    if (range != null) {
-                        view.dispatch(
-                            TransactionSpec(
-                                effects = listOf(foldEffect.of(range))
-                            )
-                        )
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    true
-                }
             }
+            // 刻意**不留** `lineMarkerClick`：它会让装订线的每一格都变成可点区域（见
+            // `GutterView`——`clickable` 是按配置挂上去的，与这一行有没有箭头无关），于是没有折叠
+            // 箭头的行也会冒出一块悬停底色，看着像多出来一个按钮。
+            //
+            // 折叠 / 展开由箭头自己接（见 [FoldGutterMarker]）：网格里只有有箭头的那几格可点，
+            // 「看得出来」与「点得到」正好对上。上游把这一项当兜底，是因为它的箭头只覆盖很小一块；
+            // 本仓库的箭头已经铺满整格，兜底反而制造幻觉。
         )
     )
 )
 
-private class FoldGutterMarker(val folded: Boolean) : GutterMarker() {
+private class FoldGutterMarker(val folded: Boolean, val range: FoldRange) : GutterMarker() {
     @Composable
     override fun Content(theme: EditorTheme) {
-        FoldChevron(folded = folded, color = theme.gutterForeground)
+        // 会话由编辑器在顶层提供（见 `KodeMirror`）。在这里读而不是在点击回调里读：局部值
+        // 只有组合期拿得到，而回调跑在事件期。
+        val session = LocalEditorSession.current
+        // <本仓库补丁> 铺满**整格**：箭头本身只有 8×4dp（见 [FoldChevron]），而这一格是
+        // `customGutterWidth` × 行高。上游把 `clickable` 挂在「包住箭头」的那一层上，于是真正
+        // 能点的只有箭头那么大一块——差几个像素就点不到。这里让内容撑满格子、箭头居中画在里面，
+        // 整格因此都可点，**看得出与点得到一致**：鼠标进了这一列就是手型。
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerHoverIcon(PointerIcon.Hand)
+                .clickable { unfoldOrFold(session) },
+            contentAlignment = Alignment.Center
+        ) {
+            FoldChevron(folded = folded, color = theme.gutterForeground)
+        }
     }
 
-    override fun equals(other: Any?): Boolean = other is FoldGutterMarker && folded == other.folded
+    /**
+     * 点箭头：折叠中（或**刚折叠、会话已被替换**）就展开它代表的区间，否则折叠它。
+     *
+     * 这里刻意不复刻 `lineMarkerClick` 那套「按行查一遍当前折叠状态」的判断：那一套拿的是
+     * `lineMarker` 求值那一刻的会话，而标记随组合存活——用户在箭头所在的这一行上改一个字，
+     * 会话就是新的了，旧标记指的区间早已不存在（拿它去展开等于展开一段已经不折叠的文本，
+     * 界面上就是「点一下没反应」）。展开用的区间就在 [range] 里，直接照着它派发。
+     */
+    private fun unfoldOrFold(session: EditorSession) {
+        // 这一格对应的区间此刻还折着吗？折着就展开——与「点一下占位符」同一条路。
+        var foldedNow = false
+        foldedRanges(session.state).between(range.from, range.to) { _, _, _ ->
+            foldedNow = true
+            false
+        }
+        if (foldedNow) {
+            unfoldFold(session, range)
+        } else if (foldable(session.state, session.state.doc.lineAt(range.from).from) != null) {
+            session.dispatch(TransactionSpec(effects = listOf(foldEffect.of(range))))
+        }
+    }
 
-    override fun hashCode(): Int = folded.hashCode()
+    override fun equals(other: Any?): Boolean =
+        other is FoldGutterMarker && folded == other.folded && range == other.range
+
+    override fun hashCode(): Int = 31 * folded.hashCode() + range.hashCode()
 }
 
 /** <本仓库补丁> 折叠箭头：展开时的长边（横向）与短边（纵向）。两条边等长，尖端因此是 90°。 */
