@@ -203,6 +203,58 @@ class GlobalHotKeyControllerTest {
     }
 
     // -------------------------------------------------------------------------------------
+    // 开发者工具热键：叫到眼前 / 在眼前时关掉
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * 这一条是本文件里最要紧的一条：窗口开到后台之后再按快捷键，**不能**把它关掉。
+     *
+     * 「切换」在窗口不可见时等于「按了没反应」——关的是一个用户看不见的窗口；用户按这一下
+     * 想要的是把它叫到眼前。判据是窗口的焦点位，见 `devToolsHotKeyActionOf`。
+     */
+    @Test
+    fun `开发窗口开着但不在最前时 按住热键只请求叫到眼前 不关窗`() = runTest {
+        val f = fixture(devToolsFocused = false).also { it.start(backgroundScope) }
+
+        f.devToolsHotKeyTriggered()
+        runCurrent()
+
+        assertEquals(1, f.panel.devToolsShowRequests.value, "该把窗口叫到眼前")
+        assertEquals(0, f.panel.devToolsToggleRequests.value, "不能把后台的窗口关掉——那看起来就是「按了没反应」")
+    }
+
+    @Test
+    fun `开发窗口已经在最前时 按住热键仍然是关掉它`() = runTest {
+        val f = fixture(devToolsFocused = true).also { it.start(backgroundScope) }
+
+        f.devToolsHotKeyTriggered()
+        runCurrent()
+
+        assertEquals(1, f.panel.devToolsToggleRequests.value, "窗口就在眼前，这一下是「关掉」")
+        assertEquals(0, f.panel.devToolsShowRequests.value, "已经在最前，没有可叫的")
+    }
+
+    /**
+     * 关掉之后必须还能按回来。
+     *
+     * `devToolsOpen` 落到 `false` 要走一圈（宿主把请求转成动作、状态持有者更新、重组、窗口隐藏），
+     * 下一次按下可能赶在它落地之前；那时焦点位若还是「在眼前」，这一次按下会又走「关掉」一路——
+     * 窗口于是再也开不出来。所以走「关掉」这一路时要顺手把焦点位清掉。
+     */
+    @Test
+    fun `刚关掉窗口后再按一次 是重新打开而不是再关一次`() = runTest {
+        val f = fixture(devToolsFocused = true).also { it.start(backgroundScope) }
+
+        f.devToolsHotKeyTriggered()
+        assertFalse(f.panel.isDevToolsWindowFocused, "关掉之后不能再自称「在眼前」")
+
+        f.devToolsHotKeyTriggered()
+
+        assertEquals(1, f.panel.devToolsToggleRequests.value, "第二次按下是重新打开，不该再发一次关闭请求")
+        assertEquals(1, f.panel.devToolsShowRequests.value, "第二次按下走的是「出现在眼前」这一路")
+    }
+
+    // -------------------------------------------------------------------------------------
     // 夹具
     // -------------------------------------------------------------------------------------
 
@@ -211,10 +263,12 @@ class GlobalHotKeyControllerTest {
 
     private fun TestScope.fixture(
         state: DesktopShellUiState = DesktopShellUiState(),
+        devToolsFocused: Boolean = false,
     ): Fixture = Fixture(
         state = MutableStateFlow(state),
         repository = FakeClipboardRepository(AppSettings()),
         native = RecordingNative().apply { modifierFlags = popupMask },
+        devToolsFocused = devToolsFocused,
         now = { testScheduler.currentTime },
     )
 
@@ -236,6 +290,7 @@ class GlobalHotKeyControllerTest {
         val state: MutableStateFlow<DesktopShellUiState>,
         repository: ClipboardRepository,
         val native: RecordingNative,
+        devToolsFocused: Boolean,
         now: () -> Long,
     ) {
         val panel = WindowController(now = now)
@@ -243,6 +298,11 @@ class GlobalHotKeyControllerTest {
 
         var openedByHotKey = 0
         var movedToCursor = 0
+
+        init {
+            // 窗口的焦点位由窗口自己的焦点监听维护；这里直接摆好「按下的那一刻它在不在最前」。
+            panel.isDevToolsWindowFocused = devToolsFocused
+        }
 
         val controller = GlobalHotKeyController(
             state = state,
@@ -254,6 +314,16 @@ class GlobalHotKeyControllerTest {
             onMoveToCursor = { movedToCursor++ },
             now = now,
         )
+
+        /**
+         * 模拟按下开发者工具热键。
+         *
+         * 打的是**产品代码里那一个** [GlobalHotKeyController.onDevToolsHotKeyPressed]，而不是在
+         * 测试里复刻一份分流：复刻会让「改坏了 `when` 的某一条分支」照样全绿。没法打到的只有
+         * 外面那层注册（`observeShortcut` 直接调 `MacGlobalHotKey` 的静态原生接口），那一层
+         * 没有可测的分支。
+         */
+        fun devToolsHotKeyTriggered() = controller.onDevToolsHotKeyPressed()
 
         fun start(scope: CoroutineScope) {
             scope.launch { controller.observeHotKeyHold() }

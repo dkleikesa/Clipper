@@ -38,6 +38,7 @@ import com.qcmian.clipper.devtools.ui.DevToolsPanel
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
 import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.host.WindowController
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -221,13 +222,29 @@ fun ApplicationScope.ClipperDevToolsWindow(
                 windowController.isDevToolsWindowFocused = false
                 return@LaunchedEffect
             }
-            // 与面板、设置窗口同样的理由放到后台线程：macOS 对刚启动的应用会延迟处理「激活自己」。
-            launch(Dispatchers.IO) { runCatching { MacWorkspace.activateSelf() } }
-            window.toFront()
-            // 窗口刚显示时还没成为 focused window，焦点请求会被拒，因此跨几帧重试到成功为止。
-            repeat(FOCUS_TARGET_ATTEMPTS) {
-                if (focusKeyboardTarget(window)) return@LaunchedEffect
-                withFrameNanos { }
+            bringToFront(window)
+        }
+
+        // 热键要求这个窗口「出现在眼前」：窗口开着但已经不在最前时再按一次 `⇧⌘D` 走的就是这一路。
+        //
+        // 为什么需要一条独立通道：这一路在状态上**多半什么都不用变**（`devToolsOpen` 本来就是
+        // true，窗口也一直在组合里），只靠 `visible` 驱动的副作用观察不到「又按了一次」。
+        // 热键回调按焦点位把「关掉」与「出现在眼前」分流（见 `GlobalHotKeyController`），
+        // 两条各自到达这里。
+        //
+        // 状态上也可能要变：窗口刚被关掉（`Esc` / `⌘W`）而这一次按下已经发出时，`devToolsOpen`
+        // 已是 false，这时把它置回 true 才算真正响应了这一次按下；窗口本来就在，置位是空操作。
+        //
+        // 这一路不必自己判断窗口在不在：热键只在「焦点位是假」（＝窗口不在眼前）时才发它，
+        // 而窗口确实隐藏着的时候，下面那层可见性检查会让这次请求安静地结束。
+        //
+        // `collect` 而不是 `collectLatest`：连续的两次请求不该互相取消——焦点是跨帧重试到
+        // 成功为止的，取消掉前一次正好会把「窗口刚被叫到最前」那一刻的焦点请求也一起丢掉。
+        LaunchedEffect(window, windowController) {
+            windowController.devToolsShowRequests.collect { count ->
+                if (count <= 0) return@collect
+                if (!state.devToolsOpen) viewModel.onAction(ClipboardUiAction.OpenDevTools)
+                bringToFront(window)
             }
         }
 
@@ -255,5 +272,42 @@ fun ApplicationScope.ClipperDevToolsWindow(
                 titleBarDragModifier = dragTitleBar,
             )
         }
+    }
+}
+
+/**
+ * 把开发者工具窗口带到最前并取得键盘焦点：窗口**首次显示**与**后台按快捷键叫回来**共用。
+ *
+ * 三件事都必须做，少一件就不算「到最前」：
+ * - 等窗口真的可见：Compose 把 `window.isVisible = visible` 排在**下一个 AWT tick**
+ *   （见它 `AwtWindow` 里那段说明），因此「状态已置位」不等于「窗口已经在屏幕上」；
+ * - `MacWorkspace.activateSelf()`：本应用是菜单栏应用（`LSUIElement`），不激活整个应用的话，
+ *   窗口成为不了 key window，编辑区输不进字、也收不到快捷键。它放在后台线程，理由见下；
+ * - `focusKeyboardTarget`：AWT 焦点必须落在内容组件上而不是窗口框架上（见 [focusKeyboardTarget]）。
+ *
+ * 它**不判断窗口该不该在**：显隐由状态决定，这里只负责在窗口该在前面时把它弄到前面。
+ *
+ * 声明成 `CoroutineScope` 的扩展（而不是自己起一个作用域）是必要的：这些等待与重试要跨帧，
+ * 调用方的协程被取消（窗口被收起、应用退出）时这次「叫到最前」也该跟着停。
+ */
+private suspend fun CoroutineScope.bringToFront(window: java.awt.Window) {
+    // 等它显示出来再动手：`toFront()` 对还没显示出来的窗口不起作用，而按键那一路（窗口本来就
+    // 开着）只会白等一帧。重试期间窗口也可能已经被收起（用户按 `⌘W` / `⎋`），那时必须停手——
+    // 否则这一次「叫到最前」会把焦点从用户已经切过去的应用里抢回来。
+    repeat(FOCUS_TARGET_ATTEMPTS) {
+        if (window.isVisible) return@repeat
+        withFrameNanos { }
+    }
+    if (!window.isVisible) return
+
+    // 与面板、设置窗口同样的理由放到后台线程：macOS 对刚启动的应用会延迟处理「激活自己」，
+    // 同步等它完成会让这个窗口的绘制与输入一起卡住（见 `ClipperWindow` 里那段说明）。
+    launch(Dispatchers.IO) { runCatching { MacWorkspace.activateSelf() } }
+    window.toFront()
+    // 窗口刚显示 / 刚被激活时还没成为 focused window，焦点请求会被拒，因此跨帧重试到成功为止。
+    repeat(FOCUS_TARGET_ATTEMPTS) {
+        if (!window.isVisible) return
+        if (focusKeyboardTarget(window)) return
+        withFrameNanos { }
     }
 }

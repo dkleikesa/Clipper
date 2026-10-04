@@ -8,8 +8,10 @@ import com.qcmian.clipper.core.platform.macos.MacModifierMonitor
 import com.qcmian.clipper.core.settings.ShortcutSpec
 import com.qcmian.clipper.desktop.domain.CYCLE_INTERVAL_MILLIS
 import com.qcmian.clipper.desktop.domain.CYCLE_START_DELAY_MILLIS
+import com.qcmian.clipper.desktop.domain.DevToolsHotKeyAction
 import com.qcmian.clipper.desktop.domain.MODIFIER_POLL_MILLIS
 import com.qcmian.clipper.desktop.domain.PopupMode
+import com.qcmian.clipper.desktop.domain.devToolsHotKeyActionOf
 import com.qcmian.clipper.desktop.domain.nsModifierMask
 import com.qcmian.clipper.host.HotkeyController
 import com.qcmian.clipper.host.WindowController
@@ -52,7 +54,8 @@ private enum class ComboState { NONE, PARTIAL, COMPLETE }
  *
  * 两条系统级热键（见 `ShortcutSlot.global`）里，只有**呼出面板**参与「按住循环」，两条路径
  * 因此在这里就分开：[applyGlobalHotKey] 的 `onTrigger` 各自接到不同的动作上。开发者工具那条
- * 不参与循环，也就不需要「暂停键不进循环」那类特例。
+ * 不参与循环，也就不需要「暂停键不进循环」那类特例；它唯一的判断是「窗口此刻在不在最前」，
+ * 用来区分「让它出现在眼前」与「再按一次关掉」（见 [onDevToolsHotKeyPressed]）。
  *
  * 它与窗口几何、面板显隐之间只通过少量回调相接：呼出时通知「表现层」记录前台应用
  * （[onHotKeyOpened]），托盘呼出的面板再按则把窗口挪到鼠标处（[onMoveToCursor]）。
@@ -329,10 +332,11 @@ internal class GlobalHotKeyController(
                     onRelease = { onHotKeyReleased() },
                 )
                 // 开发者工具只认按下：它没有「按住循环」，松开也就什么都不用做。
+                // 按下的处理见 [onDevToolsHotKeyPressed]。
                 applyGlobalHotKey(
                     id = HOT_KEY_DEV_TOOLS,
                     spec = devTools,
-                    onTrigger = { panel.requestToggleDevTools() },
+                    onTrigger = { onDevToolsHotKeyPressed() },
                 )
                 try {
                     awaitCancellation()
@@ -341,6 +345,33 @@ internal class GlobalHotKeyController(
                     MacGlobalHotKey.unregister(HOT_KEY_DEV_TOOLS)
                 }
             }
+    }
+
+    /**
+     * 开发者工具热键按下：让它出现在眼前，或者（它已经在眼前时）关掉它。
+     *
+     * 「开着的窗口再按一次」有两种意图，判据是它此刻在不在最前（见 [devToolsHotKeyActionOf]）：
+     * 不在最前是「让它出现在眼前」，已经在最前才是「关掉」。焦点位由窗口自己的焦点监听维护
+     * （见 `WindowController.isDevToolsWindowFocused`），这里只读它：热键回调跑在 AppKit 线程，
+     * 它是 `@Volatile` 的。
+     *
+     * 从 `observeShortcut` 里抽出来，是为了让它能被单测直接驱动：注册那一层是纯原生调用
+     * （`MacGlobalHotKey` 那套静态接口），单测里根本跑不起来，而**这一段**才是这条热键的全部
+     * 语义。
+     */
+    internal fun onDevToolsHotKeyPressed() {
+        when (devToolsHotKeyActionOf(panel.isDevToolsWindowFocused)) {
+            DevToolsHotKeyAction.CLOSE -> {
+                // 顺手把焦点位清掉：那一位是「窗口就在眼前」的证据，而 `devToolsOpen` 落到
+                // `false` 要走一圈（`App` 把请求转成动作、状态持有者更新、重组、窗口隐藏），
+                // 下一次按下时它可能还是 `true`；不清的话那一次又会走「关掉」这一路，于是窗口
+                // 关掉之后就再也按不回来。
+                panel.isDevToolsWindowFocused = false
+                panel.requestToggleDevTools()
+            }
+
+            DevToolsHotKeyAction.PRESENT -> panel.requestDevToolsToFront()
+        }
     }
 
     /**

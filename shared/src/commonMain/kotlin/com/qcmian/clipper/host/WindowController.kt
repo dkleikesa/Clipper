@@ -125,6 +125,16 @@ class WindowController(
         _devToolsToggleRequests.value++
     }
 
+    private val _devToolsShowRequests = MutableStateFlow(0)
+
+    /**
+     * 系统级快捷键请求把开发者工具窗口**推到最前**（窗口开着、但已经不在最前时）；见
+     * [devToolsShowRequests]。
+     */
+    fun requestDevToolsToFront() {
+        _devToolsShowRequests.value++
+    }
+
     private val _exitRequested = MutableStateFlow(false)
 
     /** 宿主 ViewModel 落盘完成后置位，由应用根结束进程。 */
@@ -154,6 +164,19 @@ class WindowController(
      * 而热键注册在桌面外壳的 ViewModel 里，两者互不持有——与 [toggleRequests] 同一种接法。
      */
     val devToolsToggleRequests: StateFlow<Int> = _devToolsToggleRequests.asStateFlow()
+
+    /**
+     * 系统级快捷键（`⇧⌘D`）请求把**已经开着的**开发者工具窗口带到最前时自增。
+     *
+     * 与 [devToolsToggleRequests] 分开，是因为「开着的窗口再按一次」有两种截然不同的意图：
+     * 用户看着它时按是「关掉」，它被别的应用压到后台时按是「叫回来」。判据只有窗口自己知道
+     * （`WindowController.isDevToolsWindowFocused` 由它的焦点监听维护），因此这里不替它决定，
+     * 只把两条意图各自送到——事件由热键回调里读到的焦点位分流（见 `GlobalHotKeyController`）。
+     *
+     * 用计数器而不是布尔量：[requestDevToolsToFront] 每次都是一次**新的**「叫回来」，
+     * 连着按两下（中间又被别的应用抢走前台）也得各响应一次。
+     */
+    val devToolsShowRequests: StateFlow<Int> = _devToolsShowRequests.asStateFlow()
 
     /** 关闭弹窗的同时也关闭预览滑出面板。 */
     fun requestHide() {
