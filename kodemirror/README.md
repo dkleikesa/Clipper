@@ -40,12 +40,21 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 - **竖向滚动条**。上游只画了横向那条——纵向它交给滚轮与光标自动滚动，功能上不缺、但没有任何
   视觉提示；本仓库把 KodeMirror 当默认实现后，这就表现为「滚动条不见了」。
   补法是照它横向那条的样子**画在编辑器内部**（不往外套、也不外露内部状态）：
-  - 新的私有 `VerticalScrollbar` + `verticalScrollablePx` / `verticalThumbOf`，以及
-    `ScrollbarThickness` / `ScrollbarMinThumbLength` 两个常量（取值与横向那条一致）；
+  - 新的私有 `VerticalScrollbar`（几何 `verticalMetrics` / `verticalThumbOf`、拖拽锚点
+    `verticalDragAnchor`、落点 `scrollToContentOffset`），以及 `ScrollbarThickness` /
+    `ScrollbarMinThumbLength` 两个常量（取值与横向那条一致）；
   - 正文右端让出 `ScrollbarThickness` 那一列，免得滑块压住字；
   - 另外新增了 5 行 import（`Canvas`、`fillMaxSize`、`CornerRadius`、`PointerIcon`、`pointerHoverIcon`）。
 
-  纯新增，**没有改动上游任何一行既有逻辑**；升级时把这几个块照抄回去即可。
+  **落位必须按帧合并**：指针事件只写一个 `pending` 目标值，由 `snapshotFlow` 每帧取最后一个值
+  落一次位。原因是这条滚动条的**每次落位都要让 `LazyListState` 重测一屏**——横向那条拖的是
+  `ScrollState`，落位只是改一个浮点数，所以它可以每个事件都落，这条不行。踩过的两个坑：
+  `draggable` + `scrollBy` 的增量会被下一次调用取消而丢掉；在指针事件里逐次同步落位
+  （`dispatchRawDelta`）会让一帧内重测好几遍，**比不写这条滚动条还卡**。滚轮之所以顺，是因为
+  它的事件率本身低于帧率，一帧顶多落一次。
+
+  这一处**不是纯新增**：`EditorContent(...)` 的调用点被改写了（套进一个 `Row`、加上滚动条那一
+  列），行被重排但逻辑未变。所以同步时不能只找新增块——按 `grep -rn "本仓库补丁"` 的输出逐块重打。
 
 ## 与上游同步
 

@@ -43,7 +43,8 @@ import kotlin.test.assertTrue
  * 没有语义节点。下面几条正是靠这个差别证明「开关真的换了实现」。
  *
  * 离屏渲染验不了的（要在面板里手动过）：点折叠箭头折起来、光标旁括号亮起、输入法上屏、
- * 滚轮与触控板滚动、自绘滚动条（这一侧没有，见 `KodemirrorCodeField` 的说明）。
+ * 滚轮与触控板滚动，以及**拖滚动条时的手感**——滚动条本身有下面两条拖拽用例兜着，但「一帧里
+ * 要量多少新露出的行」这类开销，测试框架量不出来。
  */
 class KodemirrorCodeFieldTest {
 
@@ -99,6 +100,56 @@ class KodemirrorCodeFieldTest {
         waitUntil(timeoutMillis = 5_000) {
             onAllNodesWithText("200").fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    @Test
+    fun `拖动滑块滚过的距离与手指一致`() = runComposeUiTest {
+        val lines = 200
+        underTest({ CodeFieldEngine.Kodemirror }) {
+            DevToolCodeField(
+                label = "输入",
+                value = (1..lines).joinToString("\n") { "line$it" },
+                onValueChange = {},
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        // 先把几何量出来：行高（相邻两行行号的顶距）、轨道长（正文顶端到窗口底边），
+        // 再推出「滑块行程 ↔ 内容可滚像素」之比。都用实测值，不写死任何像素。
+        val rootHeight = onRoot().fetchSemanticsNode().size.height.toFloat()
+        val trackTop = onNodeWithText("1").fetchSemanticsNode().boundsInRoot.top
+        val rowHeight = onNodeWithText("2").fetchSemanticsNode().boundsInRoot.top - trackTop
+        val trackLength = rootHeight - trackTop
+        val contentHeight = rowHeight * lines
+        val scrollable = contentHeight - trackLength
+        val thumbLength = trackLength * trackLength / contentHeight
+        val travel = trackLength - thumbLength
+        val ratio = scrollable / travel
+
+        // 抓住滑块（此刻贴顶）往下拖 30% 行程，**分 40 步**。
+        //
+        // 这条测的是「换算比例对」：滑块行程 ↔ 内容可滚像素是同一份换算，拖 30% 就该滚 30%
+        // 的内容（比例写反、乘除颠倒都会在这里红）。
+        //
+        // **它测不出真机上那种卡顿**，别指望它：真机上指针事件比帧密，滚动位置在一帧里要被改写
+        // 很多次，而测试框架在两次注入之间会把协程与帧都跑完——这个前提在测试里根本不成立。
+        // 实测把增量式（`draggable` + `scrollBy`）或异步式（`scrollToItem`）的实现放回去，同一条
+        // 用例照样通过；两种写法在真机上的问题见 `KodeMirror.kt` 里 `scrollToContentOffset` 的说明。
+        val startY = trackTop + 2f
+        val distance = travel * 0.3f
+        val expectedFirstVisible = 1 + (distance * ratio / rowHeight).toInt()
+
+        onRoot().performTouchInput {
+            down(Offset(right - 6f, startY))
+            repeat(40) { step ->
+                moveTo(Offset(right - 6f, startY + distance * (step + 1) / 40f))
+            }
+            up()
+        }
+
+        // 期望的那一行已经在视野里；而行程一半处（约第 2 行）早该滚过去——丢位移的实现两头都不满足。
+        onNodeWithText(expectedFirstVisible.toString()).assertIsDisplayed()
+        onNodeWithText((expectedFirstVisible / 2).toString()).assertDoesNotExist()
     }
 
     @Test

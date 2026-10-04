@@ -86,6 +86,10 @@ import com.monkopedia.kodemirror.view.placeholder as kodemirrorPlaceholder
  * 那条，纵向没有——本仓库在内联源码里照横向的样子补了一条（见 `:kodemirror` 的 README「本仓库
  * 补丁」），与横向同款：同粗细、同一条极淡的轨道、同滑块色、纯拖拽。因此**这一侧不挂任何外挂
  * 构件**，横竖两条都由 KodeMirror 自己画在正文之上（拖动它真的能滚，见 `KodemirrorCodeFieldTest`）。
+ * 拖动时指针事件只写一个目标值，**每帧才往 `LazyListState` 落一次位**（每次落位都要重测一屏，
+ * 逐事件落位会一帧重测好几遍）——所以拖条的手感以滚轮为上限：纵向每帧要量新露出的行，那是
+ * `LazyListState` 的本分，换谁驱动都省不掉；原生框的正文是普通 `ScrollState`（整篇只排版一次、
+ * 滚动只做整体偏移），这是它与原生框唯一的手感差别。
  *
  * 唯一还能量出来的差别是**让出的宽度**：KodeMirror 内部让 10dp，原生那条让 15dp
  * （`VerticalScrollbarWidth + DevToolScrollbarGap`），于是折行位置差 5dp。

@@ -1345,7 +1345,7 @@ private fun EditorContent(
  * 本仓库把 KodeMirror 当默认实现之后，这一点就直接表现为「滚动条不见了」。
  *
  * 与横向那条：粗细（[ScrollbarThickness]）、滑块下限（[ScrollbarMinThumbLength]）、「一条极淡的
- * 轨道 + 圆角滑块」、纯拖拽——全部一致。两处**不得不不同**：
+ * 轨道 + 圆角滑块」、纯拖拽——全部一致。三处**不得不不同**：
  *
  *  1. 横向滚的是 `ScrollState`（`value` / `maxValue` 直接就能算），竖向那个行列表只报告「第一个
  *     可见项 + 项内偏移」，内容总高要自己算：本编辑器的每一行等高，所以「可见行平均高 × 总行数」
@@ -1353,11 +1353,20 @@ private fun EditorContent(
  *  2. `layoutInfo` **不能在组合里读**——它每次布局都产生一个新对象，在组合里读会每帧重组一次
  *     （上游为此刻意改用 `snapshotFlow`）。因此这里的几何在**绘制**里现算、在手势回调里现算，
  *     都不进组合；组合里只读 `canScrollForward / canScrollBackward` 这两位（只在越过边界时翻转）。
+ *  3. **每帧最多落一次位**（见下面 `pending` 那段）。这是这条滚动条唯一真正棘手之处，也踩过坑：
+ *     横向那条每次落位只是改 `ScrollState` 里的一个浮点数（正文重新放置一下），而竖向每次落位都
+ *     要让 `LazyListState` **重测一屏**。指针事件比帧密得多（高回报率鼠标 / 触控板能到 100Hz 以上），
+ *     若每个事件都落一次位，一帧里就会重测好几遍——手感比不写这条滚动条还差。滚轮之所以顺，正是
+ *     因为它的**事件率本身低于帧率**，一帧顶多落一次。
+ *
+ * 拖拽**不能用 `Modifier.draggable`**（横向那条能用，是因为它拖的是 `ScrollState`）：它只给
+ * 增量，而按增量去 `scrollBy` 时，行列表的滚动被下一次调用取消，那一段位移就永远丢了——指针
+ * 事件比帧密得多，于是滑块一路落后于手指。它还要先越过触摸阈值才开始动。这里改成与
+ * `ScrollbarTrack` 同一套：按下即锚定，之后每个事件都从**按下那一刻**重算一个绝对目标。
  */
 @Composable
 private fun VerticalScrollbar(lazyState: LazyListState, modifier: Modifier = Modifier) {
     val theme = LocalEditorTheme.current
-    val scope = rememberCoroutineScope()
     val thumbColor = theme.foreground.copy(alpha = 0.35f)
     val trackColor = theme.foreground.copy(alpha = 0.08f)
     val minThumbPx = with(LocalDensity.current) { ScrollbarMinThumbLength.toPx() }
@@ -1366,6 +1375,21 @@ private fun VerticalScrollbar(lazyState: LazyListState, modifier: Modifier = Mod
     // 因此不会带出「每帧重组」那类问题。
     var trackLengthPx by remember { mutableStateOf(0f) }
 
+    // 手指要求滚到的内容像素；`null` = 这一帧没有新目标。
+    //
+    // 手势只写这一个数（一次赋值，完全不碰行列表），落位挪到**帧上**做：`snapshotFlow` 的发射
+    // 天然按快照应用（≈ 每帧）合并，且只发最后一个值——于是无论一帧里来了多少个指针事件，行列表
+    // 每帧只重测一次。这是本函数上方第 3 点的落地，也是「手感能否达到滚轮档」的唯一关键。
+    var pending by remember { mutableStateOf<Float?>(null) }
+
+    LaunchedEffect(lazyState) {
+        snapshotFlow { pending }.collect { target ->
+            if (target == null) return@collect
+            pending = null
+            scrollToContentOffset(lazyState, target)
+        }
+    }
+
     Box(
         modifier = modifier
             .width(ScrollbarThickness)
@@ -1373,61 +1397,95 @@ private fun VerticalScrollbar(lazyState: LazyListState, modifier: Modifier = Mod
             // 指针落在滚动条上时给回默认箭头：正文那一层是文本光标（I 形），不覆盖的话鼠标移到
             // 这里仍然显示 I 形，看着像还能选字。
             .pointerHoverIcon(PointerIcon.Default)
-            .draggable(
-                orientation = Orientation.Vertical,
-                state = rememberDraggableState { deltaPx ->
-                    // 与横向同一条换算：滑块走完全程 ↔ 内容滚完全程，因此手指移动多少、滑块就移动
-                    // 多少。这里读 `layoutInfo` 是在手势回调里（不在组合里），不必绕 snapshotFlow。
-                    val thumb = verticalThumbOf(lazyState, trackLengthPx, minThumbPx)
-                        ?: return@rememberDraggableState
-                    val scrollable = verticalScrollablePx(lazyState)
-                        ?: return@rememberDraggableState
-                    val travel = trackLengthPx - thumb.length
-                    if (travel > 0f) {
-                        scope.launch { lazyState.scrollBy(deltaPx * (scrollable / travel)) }
+            .pointerInput(lazyState) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val drag = verticalDragAnchor(lazyState, down.position.y, trackLengthPx, minThumbPx)
+                        // 没得滚（内容刚好放得下）：不接管这次手势，也别吃掉它。
+                        ?: return@awaitEachGesture
+                    down.consume()
+                    // 按下即生效：抓住滑块时等于原地不动，按在轨道空白处则是把滑块中心对到手指
+                    // ——与原生那条滚动条同一个手感。这里只写数、不落位，落位交给上面那个收集器。
+                    pending = drag.anchor
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        change.consume()
+                        if (!change.pressed) break
+                        // 从**按下那一刻**重算绝对目标，而不是把增量累加进当前偏移：中途到达边界
+                        // 被截掉一部分时也不会丢位移，滑块因此始终与手指对齐。
+                        pending = drag.anchor +
+                            (change.position.y - down.position.y) * drag.ratio
                     }
                 }
-            ),
+            },
     ) {
         Canvas(Modifier.fillMaxSize()) {
             // 轨道：与横向一样，一条几乎看不见的底，滑块滑到哪里都看得出轨道在哪。
             drawRect(color = trackColor)
             val thumb = verticalThumbOf(lazyState, size.height, minThumbPx) ?: return@Canvas
-            val inset = 1.dp.toPx()
+            val inset = ScrollbarThumbInset.toPx()
             drawRoundRect(
                 color = thumbColor,
                 topLeft = Offset(inset, thumb.start),
                 size = Size((size.width - inset * 2f).coerceAtLeast(0f), thumb.length),
-                cornerRadius = CornerRadius(4.dp.toPx())
+                cornerRadius = CornerRadius(ScrollbarCornerRadius.toPx())
             )
         }
     }
 }
 
-/** 竖向滚动条的粗细、滑块的最小长度：与 [HorizontalScrollbar] 里的那两个取值一致。 */
+/** 两条滚动条**共用**的粗细与滑块下限。放在一处，横向那条也读它，免得两条漂开。 */
 private val ScrollbarThickness = 10.dp
 private val ScrollbarMinThumbLength = 24.dp
+
+/** 滑块相对轨道的内缩，两条同量：画出来就是「10dp 轨道 + 8dp 滑块」。 */
+private val ScrollbarThumbInset = 1.dp
+
+/** 滑块圆角，两条同一取值。 */
+private val ScrollbarCornerRadius = 4.dp
 
 /** 滑块在轨道上的位置与长度（像素，沿轨道方向）。 */
 private class ScrollbarThumb(val start: Float, val length: Float)
 
 /**
- * 竖向可滚动的像素数（内容总高 − 视口高）；放得下、或还没完成布局时为 `null`。
+ * 行列表的一次读数：行高、视口高、内容总高、已滚像素。
  *
- * 每一行等高，因此「可见行平均高 × 总行数」就是内容总高。视口取
- * `viewportEndOffset - viewportStartOffset`（不含列表内边距，与首尾判定量纲一致）。
- *
- * **只在绘制 / 手势里调用**：它读 `layoutInfo`。
+ * **只在绘制 / 手势里取**（它读 `layoutInfo`）。做成一次读全，是为了让同一次换算里的几个数
+ * 出自**同一份**快照：分别去读会各自读到一个新对象，算出来的滑块与落点就可能不是一套。
  */
-private fun verticalScrollablePx(state: LazyListState): Float? {
+private class VerticalMetrics(
+    val itemHeight: Float,
+    val viewport: Float,
+    val content: Float,
+    val scrolled: Float,
+    val itemCount: Int,
+) {
+    /** 内容比视口多出来的像素；不大于 0 就是放得下。 */
+    val scrollable: Float get() = content - viewport
+}
+
+/**
+ * 取一次读数。每一行等高，因此「可见行平均高 × 总行数」就是内容总高——**不是估算**。
+ *
+ * 视口取 `viewportEndOffset - viewportStartOffset`（不含列表内边距，与首尾判定同量纲）。
+ * 尚未布局（没有可见项）或取不到有效值时给 `null`。
+ */
+private fun verticalMetrics(state: LazyListState): VerticalMetrics? {
     val info = state.layoutInfo
     val visible = info.visibleItemsInfo
     if (visible.isEmpty() || info.totalItemsCount <= 0) return null
-    val average = visible.sumOf { it.size }.toFloat() / visible.size
-    if (average <= 0f) return null
+    val itemHeight = visible.sumOf { it.size }.toFloat() / visible.size
+    if (itemHeight <= 0f) return null
     val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
     if (viewport <= 0f) return null
-    return (average * info.totalItemsCount - viewport).takeIf { it > 0f }
+    return VerticalMetrics(
+        itemHeight = itemHeight,
+        viewport = viewport,
+        content = itemHeight * info.totalItemsCount,
+        scrolled = state.firstVisibleItemIndex * itemHeight + state.firstVisibleItemScrollOffset,
+        itemCount = info.totalItemsCount,
+    )
 }
 
 /** 滑块几何；没有可滚空间时给 `null`（这时不该画滑块）。**只在绘制 / 手势里调用**。 */
@@ -1437,25 +1495,76 @@ private fun verticalThumbOf(
     minThumbPx: Float
 ): ScrollbarThumb? {
     if (trackLength <= 0f) return null
-    val scrollable = verticalScrollablePx(state) ?: return null
-    val info = state.layoutInfo
-    val visible = info.visibleItemsInfo
-    val average = visible.sumOf { it.size }.toFloat() / visible.size
-    val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
-    val content = average * info.totalItemsCount
+    val metrics = verticalMetrics(state) ?: return null
+    if (metrics.scrollable <= 0f) return null
 
-    val thumbLength = (trackLength * viewport / content)
+    val thumbLength = (trackLength * metrics.viewport / metrics.content)
         .coerceIn(minThumbPx.coerceAtMost(trackLength), trackLength)
-    val scrolled = state.firstVisibleItemIndex * average + state.firstVisibleItemScrollOffset
-
-    // 估算与真实布局可能有几像素出入，首尾改用 `LazyListState` 的精确判定兜住，
+    // 行高取平均、真实布局可能有几像素出入，首尾改用 `LazyListState` 的精确判定兜住，
     // 这样滚到头时滑块一定贴住轨道两端。
     val fraction = when {
         !state.canScrollBackward -> 0f
         !state.canScrollForward -> 1f
-        else -> (scrolled / scrollable).coerceIn(0f, 1f)
+        else -> (metrics.scrolled / metrics.scrollable).coerceIn(0f, 1f)
     }
     return ScrollbarThumb(start = fraction * (trackLength - thumbLength), length = thumbLength)
+}
+
+/**
+ * 一次拖拽的锚点：把「手指在轨道上的位置」换成「内容该滚到哪」的那条直线。
+ *
+ *     content(y) = anchor + (y - downY) * ratio
+ *
+ * [ratio] 是「内容像素 / 轨道像素」，即滑块走完全程对应内容滚完全程；`anchor` 由**按下那一刻**
+ * 的滑块位置与手指位置定出：抓住滑块就保持抓住时的相对位置（按下不动），按在轨道空白处则把滑块
+ * 中心对到手指。
+ *
+ * 关键在于它是**绝对**映射：每个事件都从按下点重算目标，不把增量累加进「当前偏移」。行列表的
+ * 滚动会被下一次调用取消，累加式一旦遇到取消就丢掉那一段位移，滑块会一路落后于手指。
+ */
+private class VerticalDragAnchor(val anchor: Float, val ratio: Float)
+
+/** 定出拖拽锚点；没有可滚空间时给 `null`（这时不该接管这次手势）。 */
+private fun verticalDragAnchor(
+    state: LazyListState,
+    downY: Float,
+    trackLength: Float,
+    minThumbPx: Float
+): VerticalDragAnchor? {
+    val thumb = verticalThumbOf(state, trackLength, minThumbPx) ?: return null
+    val metrics = verticalMetrics(state) ?: return null
+    val travel = trackLength - thumb.length
+    if (travel <= 0f || metrics.scrollable <= 0f) return null
+
+    val ratio = metrics.scrollable / travel
+    val grab = if (downY in thumb.start..(thumb.start + thumb.length)) {
+        downY - thumb.start
+    } else {
+        thumb.length / 2f
+    }
+    // `(downY - grab) * ratio` 就是「滑块起点这一刻对应的内容偏移」：抓住滑块时它等于当前已滚
+    // 像素（按下因此不动），按在空白处则是把滑块中心对到手指之后的位置。
+    return VerticalDragAnchor(anchor = (downY - grab) * ratio, ratio = ratio)
+}
+
+/**
+ * 把内容滚到 [offset] 像素处（夹在范围内）。
+ *
+ * **一次调用就是一帧的开销**：`scrollToItem` 会让行列表重测一屏。所以它只应由 [VerticalScrollbar]
+ * 那个按帧合并的收集器调用，**绝不能在指针事件里逐次调用**（踩过这个坑：把落位改成
+ * `dispatchRawDelta` 后每个事件同步落一次，一帧里重测好几遍，比原来还卡）。
+ *
+ * 用 `scrollToItem` 而不是 `dispatchRawDelta`：后者的滚动范围受限于上游已经铺开的窗口，超出的
+ * 部分会被少消费掉——而拖动本来就是一跳几百像素，正落在它的短板上。`scrollToItem` 接受任意行号，
+ * 跳多远都一步到位。目标仍是**绝对**的（由 [verticalDragAnchor] 从按下点算出），所以哪怕某一帧
+ * 被跳过、或到边界被夹住，滑块也不会漂移。
+ */
+private suspend fun scrollToContentOffset(state: LazyListState, offset: Float) {
+    val metrics = verticalMetrics(state) ?: return
+    val clamped = offset.coerceIn(0f, metrics.scrollable.coerceAtLeast(0f))
+    val index = (clamped / metrics.itemHeight).toInt().coerceIn(0, metrics.itemCount - 1)
+    val itemOffset = (clamped - index * metrics.itemHeight).roundToInt()
+    state.scrollToItem(index, itemOffset)
 }
 
 /**
@@ -1474,6 +1583,9 @@ private fun verticalThumbOf(
  * Dragging maps thumb-track pixels back to content pixels by the inverse ratio
  * `(trackWidth - thumb)` of travel ↔ `maxValue` of scroll, so a full thumb
  * sweep scrolls the full content.
+ *
+ * 轨道粗细 / 滑块内缩 / 圆角与竖向那条**共用** [ScrollbarThickness] / [ScrollbarThumbInset] /
+ * [ScrollbarCornerRadius]：两条看起来才是「同一条滚动条换了个方向」。
  */
 @Composable
 private fun HorizontalScrollbar(scrollState: ScrollState, modifier: Modifier = Modifier) {
@@ -1487,7 +1599,7 @@ private fun HorizontalScrollbar(scrollState: ScrollState, modifier: Modifier = M
     Box(
         modifier = modifier
             .testTag("KodeMirror_hscroll")
-            .height(10.dp)
+            .height(ScrollbarThickness)
             .background(trackColor)
             .onSizeChanged { trackWidthPx = it.width }
     ) {
@@ -1497,7 +1609,7 @@ private fun HorizontalScrollbar(scrollState: ScrollState, modifier: Modifier = M
             // Visible fraction of the content -> thumb length as a fraction of
             // the track. The total content width in px is viewport + maxValue.
             val viewportFraction = trackWidth / (trackWidth + maxValue)
-            val minThumbPx = with(LocalDensity.current) { 24.dp.toPx() }
+            val minThumbPx = with(LocalDensity.current) { ScrollbarMinThumbLength.toPx() }
             val thumbWidthPx = (trackWidth * viewportFraction)
                 .coerceIn(minThumbPx.coerceAtMost(trackWidth), trackWidth)
             val travel = trackWidth - thumbWidthPx
@@ -1513,9 +1625,12 @@ private fun HorizontalScrollbar(scrollState: ScrollState, modifier: Modifier = M
                 modifier = Modifier
                     .offset { IntOffset(thumbOffsetPx.roundToInt(), 0) }
                     .width(thumbWidthDp)
-                    .height(8.dp)
-                    .padding(vertical = 1.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    // 铺满整条轨道再内缩 [ScrollbarThumbInset]：画出来 8dp、上下各留 1dp，
+                    // 与竖向那条的滑块同一厚度、同样居中（这里原来是 `height(8.dp)` + 内缩 1dp，
+                    // 画出来只有 6dp 且贴在轨道顶部——两条宽度就是这么看岔的）。
+                    .fillMaxHeight()
+                    .padding(vertical = ScrollbarThumbInset)
+                    .clip(RoundedCornerShape(ScrollbarCornerRadius))
                     .background(thumbColor)
                     .draggable(
                         orientation = Orientation.Horizontal,
