@@ -543,6 +543,10 @@ private const val MaxGutterHeightPx = 260_000f
  *
  * 只处理**滚动窗口内**的行：控件是在一个滚动容器里一次性铺开整篇文档的，两万行的 JSON
  * 若每帧给每行量一次文字、挂一个箭头，滚动会直接卡死。
+ *
+ * 整列给回**箭头**光标：面板给整块区域设了 I 形（见 [NativeCodeField] 里那处
+ * `pointerHoverIcon(PointerIcon.Text)`），而这一列既不能落光标也不能选中文本。折叠箭头那一格
+ * 由它自己的 `pointerHoverIcon(PointerIcon.Hand)` 再改成手型（子节点优先）。
  */
 @Composable
 private fun FoldGutter(
@@ -575,7 +579,7 @@ private fun FoldGutter(
         index == 0 || visible[index - 1].docLine != line.docLine
     }
 
-    Box(modifier = Modifier.width(width).height(height)) {
+    Box(modifier = Modifier.width(width).height(height).pointerHoverIcon(PointerIcon.Default)) {
         if (showNumbers) {
             Canvas(Modifier.fillMaxSize()) {
                 // 行号靠右（紧挨着折叠列）；不显示折叠列时那一列与间距都不必让出来。
