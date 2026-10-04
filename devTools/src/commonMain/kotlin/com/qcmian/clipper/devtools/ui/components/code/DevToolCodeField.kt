@@ -124,9 +124,9 @@ private val ChevronStroke = 1.5.dp
  * 折行会把「一行」这个结构本身弄没，对照两份 JSON 时尤其误导。目前写死默认值，等设置项齐了
  * 再由界面提供开关。
  *
- * [lineNumbers] 与 [folding] 是给「不是代码的输入」留的关断开关：数学表达式那种一行一个式子的
- * 输入既没有行号可数、也没有块可折，两个都关掉后装订线整列消失，正文紧贴左边框——但点击落光标、
- * 当前行底纹、滚动条这些**交互**仍与代码框完全一致，这才是「统一的输入框」该有的样子。
+ * [lineNumbers] 默认开着——所有输入框都要显示行号；[folding] 才是给「本来就没有块可折」的输入
+ * （数学表达式、Base64 长串）留的关断开关。两者都关掉时装订线整列消失，正文紧贴左边框——但点击
+ * 落光标、当前行底纹、滚动条这些**交互**仍与代码框完全一致，这才是「统一的输入框」该有的样子。
  *
  * 实现上没有现成的开关可拨——`softWrap` 只是 `TextDelegate` 的内部参数，公开的
  * `BasicTextField` 没有它。所以「不折」是靠布局达成的：正文那一层挂上横向滚动，子节点因此
@@ -555,6 +555,20 @@ private fun visualLines(
 }
 
 /**
+ * 装订线高度能钉到的上限（像素）。
+ *
+ * Compose 把约束的宽高打包进一个 `Long`，单边最大只能表示 `0x3FFFF`（262143）像素；超出这个
+ * 数的 `Modifier.height(...)` 会直接抛
+ * `IllegalArgumentException: Can't represent a width of 0 and height of 514429 in Constraints`
+ * （`SizeNode.targetConstraints` 就是这么构造约束的）。软折行的超长输入——几百 KB 的 Base64
+ * 粘进来就是几万可视行——很容易顶穿这条线，所以装订线高度在这里封顶。
+ *
+ * 代价：文档比这更高时，超出那一段**不再绘制行号**（正文照常显示、照常滚动，不会崩）。
+ * 262143 往下留两千出头的余量，免得 `Dp` → 像素取整刚好踩线。
+ */
+private const val MaxGutterHeightPx = 260_000f
+
+/**
  * 行号 + 折叠箭头那一列。
  *
  * 只处理**滚动窗口内**的行：控件是在一个滚动容器里一次性铺开整篇文档的，两万行的 JSON
@@ -580,8 +594,11 @@ private fun FoldGutter(
     onToggle: (BracketPair) -> Unit,
 ) {
     val textHeight = lines?.lastOrNull()?.bottom ?: 0f
-    val height = with(LocalDensity.current) { (fieldTopInRow + textHeight).toDp() }
     val viewportHeight = if (viewport > 0) viewport.toFloat() else textHeight
+    // 钉住的高度先封顶：超长文档的内容高超出 Compose 能表示的尺寸时会直接抛异常（见 [MaxGutterHeightPx]）。
+    val height = with(LocalDensity.current) {
+        (fieldTopInRow + textHeight).coerceAtMost(MaxGutterHeightPx).toDp()
+    }
     val visible = lines.orEmpty().filter { it.bottom >= scroll && it.top <= scroll + viewportHeight }
     // 一个逻辑行可能有多个可视行（软换行的续行），行号与箭头都只挂在它的第一可视行上。
     val heads = visible.filterIndexed { index, line ->

@@ -277,9 +277,8 @@ internal object TimestampDevTool : DevTool {
                         "按「输入格式」填，例如 2026-10-03 14:30:00"
                     },
                     filePaste = rememberFilePaste(host),
-                    // 时间戳与日期时间都是短文本，折行比横向滚出去好读；既没有行号可数、也没有块可折。
+                    // 时间戳与日期时间都是短文本，折行比横向滚出去好读；没有块可折，行号照显示。
                     softWrap = true,
-                    lineNumbers = false,
                     folding = false,
                     scan = ::scanPlain,
                     modifier = Modifier

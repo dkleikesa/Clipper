@@ -145,7 +145,7 @@ internal object MathDevTool : DevTool {
 
         Column(Modifier.fillMaxSize()) {
             // 与 JSON / XML 工具用**同一个**输入框：点击落光标、当前行底纹、滚动条这些交互因此
-            // 完全一致。表达式既没有行号可数、也没有块可折，两个开关都关掉即可。
+            // 完全一致。行号照显示；表达式没有块可折，只关掉折叠。
             DevToolCodeField(
                 label = "表达式",
                 value = source,
@@ -157,7 +157,6 @@ internal object MathDevTool : DevTool {
                 filePaste = rememberFilePaste(host),
                 // 表达式会长，折行比横向滚出去好读；这是少数用得上软折行的地方。
                 softWrap = true,
-                lineNumbers = false,
                 folding = false,
                 scan = ::scanPlain,
                 modifier = Modifier.fillMaxWidth().height(ExpressionFieldHeight),

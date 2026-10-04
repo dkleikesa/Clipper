@@ -349,7 +349,6 @@ internal object Base64DevTool : DevTool {
                     // Base64 是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
                     // 折行只改显示，`value` 仍是那一整行，复制 / 保存拿到的还是原样。
                     softWrap = true,
-                    lineNumbers = false,
                     folding = false,
                     scan = ::scanPlain,
                     modifier = Modifier
@@ -579,7 +578,6 @@ private fun ResultTextField(
         readOnly = true,
         isError = isError,
         softWrap = softWrap,
-        lineNumbers = false,
         folding = false,
         scan = ::scanPlain,
         modifier = modifier,
