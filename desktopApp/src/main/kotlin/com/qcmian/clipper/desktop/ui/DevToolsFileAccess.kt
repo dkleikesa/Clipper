@@ -5,11 +5,12 @@ import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.awtTransferable
 import java.awt.FileDialog
 import java.awt.Frame
+import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
 import java.io.File
 
 /**
- * 开发者工具需要的两件平台活儿：弹原生文件对话框、从拖放里取出文件路径。
+ * 开发者工具需要的三件平台活儿：弹原生文件对话框、从拖放里取出文件路径、读剪贴板里的文件路径。
  *
  * 放在这里而不是 `:devTools` 里：两者都要碰 AWT，而工具模块是 commonMain、只该拿到路径
  * （见 `DevToolHost`）。读写文件本身不在这里——那一段走 kotlinx-io，留在工具侧。
@@ -42,5 +43,23 @@ private fun pickFile(parent: Frame, mode: Int, suggestedName: String?): String? 
 @OptIn(ExperimentalComposeUiApi::class)
 internal fun droppedFilePaths(event: DragAndDropEvent): List<String> = runCatching {
     val data = event.awtTransferable.getTransferData(DataFlavor.javaFileListFlavor)
+    (data as? List<*>)?.filterIsInstance<File>()?.map { it.absolutePath }.orEmpty()
+}.getOrDefault(emptyList())
+
+/**
+ * 系统剪贴板里放着的文件路径；剪贴板里不是文件时返回空表。
+ *
+ * 走 AWT 而不是 `MacPasteboard`：这条只在开发者工具窗口里用，而那个窗口本身就跑在 AWT/Compose 上，
+ * AWT 早已初始化；`javaFileListFlavor` 由 macOS 从粘贴板上的 `public.file-url` 映射而来，这里够用。
+ * （**捕获**剪贴板那条主路径仍然绕开 AWT，见 `MacClipboardDataSource`——那是为了不在应用启动早期
+ * 就把 AWT 拖起来，与此处的场合不同。）
+ */
+internal fun clipboardFilePaths(): List<String> = runCatching {
+    val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+    val data = if (clipboard.isDataFlavorAvailable(DataFlavor.javaFileListFlavor)) {
+        clipboard.getData(DataFlavor.javaFileListFlavor)
+    } else {
+        null
+    }
     (data as? List<*>)?.filterIsInstance<File>()?.map { it.absolutePath }.orEmpty()
 }.getOrDefault(emptyList())

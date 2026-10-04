@@ -107,6 +107,8 @@ fun DevToolsPanel(
     onPickFileToOpen: () -> String? = { null },
     onPickFileToSave: (String) -> String? = { null },
     onDroppedFilePaths: (DragAndDropEvent) -> List<String> = { emptyList() },
+    /** 剪贴板里若放着文件就给出它们的路径；见 [DevToolHost.clipboardFilePaths]。 */
+    onClipboardFilePaths: () -> List<String> = { emptyList() },
     modifier: Modifier = Modifier,
     titleBarDragModifier: Modifier = Modifier,
 ) {
@@ -196,7 +198,13 @@ fun DevToolsPanel(
     // 文件那一组只把「弹对话框 / 解析拖放」转给宿主：读写文件由工具侧用 kotlinx-io 自己做
     // （见 `readTextFileOrNull`），这里因此不碰文件内容。顺势记下这一次拿到的路径——它比
     // 「这条剪贴板记录是什么」更贴近眼下编辑区里的内容（见 `sourceLabel`）。
-    val host = remember(onCopyToClipboard, onPickFileToOpen, onPickFileToSave, onDroppedFilePaths) {
+    val host = remember(
+        onCopyToClipboard,
+        onPickFileToOpen,
+        onPickFileToSave,
+        onDroppedFilePaths,
+        onClipboardFilePaths,
+    ) {
         object : DevToolHost {
             override fun copyToClipboard(text: String) {
                 if (text.isEmpty()) return
@@ -224,6 +232,8 @@ fun DevToolsPanel(
 
             override fun droppedFilePaths(event: DragAndDropEvent): List<String> =
                 onDroppedFilePaths(event).also { if (it.isNotEmpty()) openedFiles.value = it }
+
+            override fun clipboardFilePaths(): List<String> = onClipboardFilePaths()
         }
     }
     LaunchedEffect(status.value) {

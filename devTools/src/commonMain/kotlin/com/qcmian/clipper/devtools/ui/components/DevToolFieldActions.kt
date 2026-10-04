@@ -155,6 +155,37 @@ private fun readPickedFile(host: DevToolHost): String? {
 }
 
 /**
+ * 「粘贴文件」：剪贴板里放着文件时，粘进来的是**文件内容**，而不是系统默认给的那个文件名。
+ *
+ * 为什么要拦这一道：系统对「Finder 复制的文件」只提供**文件名**这一种文本表示（实测见
+ * `FinderCopyTest`），不拦的话文本框里永远只会出现文件名。
+ *
+ * 与 [devToolFileDrop] 同一分工——路径由宿主从平台载荷里取（`DevToolHost.clipboardFilePaths`），
+ * 内容由工具侧用 kotlinx-io 读，两边各只有一处。
+ *
+ * 返回值约定（配合 `DevToolCodeField` 的 `filePaste`）：
+ *  - `null`：剪贴板里不是文件，**交回系统默认粘贴**；
+ *  - 空串：是文件、但读不出文本（二进制），**吞掉这次粘贴**并给一句提示，免得又把文件名贴进去。
+ */
+@Composable
+fun rememberFilePaste(host: DevToolHost): () -> String? = remember(host) {
+    {
+        val paths = host.clipboardFilePaths()
+        if (paths.isEmpty()) {
+            null
+        } else {
+            val texts = paths.mapNotNull(::readTextFileOrNull)
+            if (texts.isEmpty()) {
+                host.showStatus("剪贴板里的文件读不出文本，用「打开文件」或直接拖进来")
+                ""
+            } else {
+                texts.joinToString("\n")
+            }
+        }
+    }
+}
+
+/**
  * 让这个区域接受「从访达里拖进来的文件」：落下时把路径交给 [onFiles]。
  *
  * 做成 `Modifier` 扩展而不是某个控件的一个参数：落点是「这一片编辑区」，凡是画在这块区域里的

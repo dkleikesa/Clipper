@@ -51,6 +51,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
+import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
@@ -153,6 +154,7 @@ internal object MathDevTool : DevTool {
                     typed = true
                 },
                 placeholder = "例如 2^10、sin(pi / 2)、sin(90deg)；支持的写法见「语法帮助」",
+                filePaste = rememberFilePaste(host),
                 // 表达式会长，折行比横向滚出去好读；这是少数用得上软折行的地方。
                 softWrap = true,
                 lineNumbers = false,

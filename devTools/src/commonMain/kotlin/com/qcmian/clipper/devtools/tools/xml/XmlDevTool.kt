@@ -33,6 +33,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolToggle
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.FormatMode
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
+import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import com.qcmian.clipper.devtools.ui.components.rememberFormattedText
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
 import com.qcmian.clipper.devtools.ui.components.code.scanXml
@@ -149,6 +150,7 @@ internal object XmlDevTool : DevTool {
                         typed = true
                     },
                     placeholder = "在此粘贴 XML，从剪贴板条目打开，或把文件拖进来",
+                    filePaste = rememberFilePaste(host),
                     scan = ::scanXml,
                     // 拖进来的文件与「打开文件」走同一条读法，读不出内容才退回显示路径。
                     modifier = Modifier

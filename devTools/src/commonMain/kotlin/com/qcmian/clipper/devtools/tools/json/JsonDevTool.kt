@@ -32,6 +32,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolToggle
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.FormatMode
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
+import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import com.qcmian.clipper.devtools.ui.components.rememberFormattedText
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
 import kotlinx.coroutines.Dispatchers
@@ -135,6 +136,7 @@ internal object JsonDevTool : DevTool {
                         typed = true
                     },
                     placeholder = "在此粘贴 JSON，从剪贴板条目打开，或把文件拖进来",
+                    filePaste = rememberFilePaste(host),
                     // 拖进来的文件与「打开文件」走同一条读法，读不出内容才退回显示路径——
                     // 与剪贴板里的文件条目完全一致（见 `readTextFileOrNull`）。
                     modifier = Modifier

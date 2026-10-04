@@ -49,6 +49,13 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -153,6 +160,14 @@ internal fun DevToolCodeField(
      * 统一的标签），并自行安排原本挂在标题行上的动作。默认 `true`，原有调用不受影响。
      */
     showLabel: Boolean = true,
+    /**
+     * 「粘贴文件」：按下粘贴键时先问它。返回文件**内容**就地插入；返回 `null` 表示剪贴板里不是
+     * 文件，按系统默认粘贴。
+     *
+     * 拦截是必要的：系统对「复制的文件」只提供**文件名**这一种文本表示（实测见 `FinderCopyTest`），
+     * 不拦的话文本框里永远只有文件名。为 `null`（默认）时完全不插手。
+     */
+    filePaste: (() -> String?)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val hint = MaterialTheme.hintColor
@@ -253,6 +268,49 @@ internal fun DevToolCodeField(
     // 正文左缘相对面板内缩多少：装订线那一列，加上它与正文之间的间隙。
     val textStartInset = if (showGutter) gutterWidth + GutterTextGap else 0.dp
     // 装订线不单独上色：与正文同一块底色，只靠一条竖分隔线分界（见两套配色里的 gutterDivider）。
+
+    /**
+     * 接收一次新的编辑值：折叠位置按 diff 平移，工具那边同步拿到新正文。
+     *
+     * 文本框自己的 `onValueChange` 与「粘贴文件」（见 [filePasteModifier]）都走它——两条路各写一遍
+     * 的话，早晚会出现「粘贴进来的内容工具收不到」这种只在一侧发生的毛病。
+     */
+    fun accept(new: TextFieldValue) {
+        val old = fieldValue
+        fieldValue = new
+        if (new.text != old.text) {
+            remapFolds(foldedStarts, old.text, new.text)
+            onValueChange(new.text)
+        } else {
+            unfoldAroundCaret(foldedStarts, new.selection, structure)
+        }
+    }
+
+    /**
+     * 「粘贴文件」：`onPreviewKeyEvent` 跑在文本框自己的粘贴处理**之前**，吃掉这次按键，系统那条
+     * 「粘成文件名」的路就不会走（见参数 [filePaste]）。
+     */
+    fun filePasteModifier(): Modifier {
+        val paste = filePaste
+        if (paste == null || readOnly) return Modifier
+        return Modifier.onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown || event.key != Key.V) {
+                return@onPreviewKeyEvent false
+            }
+            if (!event.isMetaPressed && !event.isCtrlPressed) return@onPreviewKeyEvent false
+            val content = paste() ?: return@onPreviewKeyEvent false
+            val selection = fieldValue.selection
+            val text = fieldValue.text
+            val updated = text.substring(0, selection.min) + content + text.substring(selection.max)
+            accept(
+                fieldValue.copy(
+                    text = updated,
+                    selection = TextRange(selection.min + content.length),
+                )
+            )
+            true
+        }
+    }
 
     fun toggleFold(pair: BracketPair) {
         if (pair.foldStart in foldedStarts) {
@@ -397,16 +455,7 @@ internal fun DevToolCodeField(
                         }
                         BasicTextField(
                             value = fieldValue,
-                            onValueChange = { new ->
-                                val old = fieldValue
-                                fieldValue = new
-                                if (new.text != old.text) {
-                                    remapFolds(foldedStarts, old.text, new.text)
-                                    onValueChange(new.text)
-                                } else {
-                                    unfoldAroundCaret(foldedStarts, new.selection, structure)
-                                }
-                            },
+                            onValueChange = { new -> accept(new) },
                             readOnly = readOnly,
                             textStyle = textStyle,
                             cursorBrush = SolidColor(colors.primary),
@@ -417,7 +466,8 @@ internal fun DevToolCodeField(
                                 // 没有意义。不撑满则按文字自然宽度排版，横向滚动才有内容可滚。
                                 .then(if (softWrap) Modifier.fillMaxWidth() else Modifier)
                                 .onFocusChanged { focused = it.isFocused }
-                                .focusRequester(focusRequester),
+                                .focusRequester(focusRequester)
+                                .then(filePasteModifier()),
                         )
                         // 折叠处的 `…`：叠在字形上，点它展开。
                         for (pair in folded) {

@@ -57,6 +57,7 @@ import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
 import com.qcmian.clipper.devtools.ui.components.code.rememberCodeColors
 import com.qcmian.clipper.devtools.ui.components.code.scanPlain
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
+import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -344,6 +345,7 @@ internal object Base64DevTool : DevTool {
                     } else {
                         "在此粘贴 Base64；也认 data:image/png;base64,… 这样的 Data URL"
                     },
+                    filePaste = rememberFilePaste(host),
                     // Base64 是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
                     // 折行只改显示，`value` 仍是那一整行，复制 / 保存拿到的还是原样。
                     softWrap = true,

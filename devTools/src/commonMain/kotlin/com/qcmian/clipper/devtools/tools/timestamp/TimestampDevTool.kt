@@ -63,6 +63,7 @@ import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
 import com.qcmian.clipper.devtools.ui.components.code.rememberCodeColors
 import com.qcmian.clipper.devtools.ui.components.code.scanPlain
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
+import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -275,6 +276,7 @@ internal object TimestampDevTool : DevTool {
                     } else {
                         "按「输入格式」填，例如 2026-10-03 14:30:00"
                     },
+                    filePaste = rememberFilePaste(host),
                     // 时间戳与日期时间都是短文本，折行比横向滚出去好读；既没有行号可数、也没有块可折。
                     softWrap = true,
                     lineNumbers = false,

@@ -251,6 +251,7 @@ fun ApplicationScope.ClipperDevToolsWindow(
                 onPickFileToOpen = { pickFileToOpen(window) },
                 onPickFileToSave = { suggestedName -> pickFileToSave(window, suggestedName) },
                 onDroppedFilePaths = ::droppedFilePaths,
+                onClipboardFilePaths = ::clipboardFilePaths,
                 titleBarDragModifier = dragTitleBar,
             )
         }

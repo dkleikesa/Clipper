@@ -106,6 +106,15 @@ interface DevToolHost {
      * 细节；工具只该拿到一串路径。
      */
     fun droppedFilePaths(event: DragAndDropEvent): List<String>
+
+    /**
+     * 剪贴板里若放着**文件**（Finder / 资源管理器里复制的那种），返回它们的路径；没有文件时为空表。
+     *
+     * 只给「粘贴文件内容」用。系统对复制的文件只提供**文件名**这一种文本表示（实测见
+     * `FinderCopyTest`），所以想知道用户想粘的是那个文件**本身**，只能去读粘贴板上的文件 URL——
+     * 同 [droppedFilePaths]，属于平台细节，工具只该拿到路径。
+     */
+    fun clipboardFilePaths(): List<String> = emptyList()
 }
 
 /**
