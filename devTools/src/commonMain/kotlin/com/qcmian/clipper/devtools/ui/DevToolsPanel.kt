@@ -151,7 +151,14 @@ fun DevToolsPanel(
     }
 
     val tools = registry.tools
-    val effectiveSelectedId = selectedId ?: recommendedId ?: tools.firstOrNull()?.metadata?.id
+    // 探测没回来之前**什么都不选**。此时还不知道该用哪个工具，先挑第一个画出来、过一会儿再换掉，
+    // 等于白付一次「首次渲染」的账——而冷启动时那正是最贵的一笔（字体、文本排版、Skia 都要现初始
+    // 化）。空等一两帧，远比把错的那个工具整个渲染一遍划算。
+    val effectiveSelectedId = if (detected == null) {
+        null
+    } else {
+        selectedId ?: recommendedId ?: tools.firstOrNull()?.metadata?.id
+    }
     val groups = remember(tools) { groupTools(tools) }
     val selectedTool = effectiveSelectedId?.let(registry::tool)
 
@@ -283,10 +290,11 @@ fun DevToolsPanel(
 
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
-                    if (selectedTool == null) {
-                        EmptyTools()
-                    } else {
-                        ToolContent(tool = selectedTool, item = item, host = host)
+                    when {
+                        // 还在认这段内容是什么：先不画工具（见上面 `effectiveSelectedId` 的说明）。
+                        detected == null && tools.isNotEmpty() -> Identifying()
+                        selectedTool == null -> EmptyTools()
+                        else -> ToolContent(tool = selectedTool, item = item, host = host)
                     }
                 }
                 // 只采信**当前工具**报的值：别的工具留下的（即便还在）不关这一件的事。
@@ -608,6 +616,14 @@ private fun sourceLabel(item: ClipItem?, openedFiles: List<String>, reported: St
 private fun EmptyTools() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text("还没有可用的开发者工具", fontSize = 12.sp, color = MaterialTheme.hintColor)
+    }
+}
+
+/** 类型探测还没回来时的占位。它顶多闪一两帧，绝大多数情况下快到看不见。 */
+@Composable
+private fun Identifying() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text("正在识别内容类型…", fontSize = 12.sp, color = MaterialTheme.hintColor)
     }
 }
 
