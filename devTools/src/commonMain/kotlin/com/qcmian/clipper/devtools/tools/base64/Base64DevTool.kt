@@ -1,0 +1,763 @@
+package com.qcmian.clipper.devtools.tools.base64
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.decodeToImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.ui.icons.ClipperIconKind
+import com.qcmian.clipper.core.ui.theme.hintColor
+import com.qcmian.clipper.devtools.api.DevTool
+import com.qcmian.clipper.devtools.api.DevToolGroup
+import com.qcmian.clipper.devtools.api.DevToolHost
+import com.qcmian.clipper.devtools.api.DevToolMetadata
+import com.qcmian.clipper.devtools.api.devToolText
+import com.qcmian.clipper.devtools.api.readBytesOrNull
+import com.qcmian.clipper.devtools.api.readTextFileOrNull
+import com.qcmian.clipper.devtools.api.writeBytesFile
+import com.qcmian.clipper.devtools.api.writeTextFile
+import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
+import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
+import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
+import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
+import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
+import com.qcmian.clipper.devtools.ui.components.DevToolToggle
+import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
+import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
+import com.qcmian.clipper.devtools.ui.components.code.rememberCodeColors
+import com.qcmian.clipper.devtools.ui.components.code.scanPlain
+import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+
+/** 正文停下来多久才重算。与 JSON / XML / 数学工具取同一个值。 */
+private const val EvaluateDebounceMillis = 150L
+
+/** 输入区高度：比时间戳工具高一些，编码多行文本时一屏能看个大概。 */
+private val InputFieldHeight = 120.dp
+
+/**
+ * 编码时一次读入的文件上限；与 `readBytesOrNull` 的默认值一致，超过就提示而不是硬读。
+ *
+ * 结果**不设**长度上限：编出来的 Base64 一律照原样铺进结果框，多大都铺。代价是超大结果会让文本
+ * 排版变慢——代码框走 `BasicTextField`，整段要一次性排版。真在实机上卡到不能用，再回来收。
+ */
+private val MaxInputFileBytes = 16L * 1024 * 1024
+
+private enum class Base64Mode(val title: String) {
+    Encode("编码"),
+    Decode("解码"),
+}
+
+/**
+ * 编码时从「非文本」来的输入：打开 / 拖入的文件、剪贴板里的图片。
+ *
+ * 刻意用普通类而不是 `data class`：它的相等性按**引用**算，重算的键一眼就能认出「换了份输入」
+ * ——`ByteArray` 放进数据类本来也是按引用比较，那样写只是让人误以为在比值。
+ */
+private class Base64Source(val name: String, val bytes: ByteArray) {
+    val imageKind: ImageKind? = Base64Format.imageKindOf(bytes)
+}
+
+/** 一次计算的结果。 */
+private sealed interface Base64Outcome {
+    /** 编码成功。[sourceBytes] 是原文 / 原文件的字节数，用于体积对比。 */
+    class Encoded(val base64: String, val sourceBytes: Int) : Base64Outcome
+
+    class DecodedText(val text: String, val bytes: Int, val sourceChars: Int) : Base64Outcome
+
+    class DecodedImage(val kind: ImageKind, val bytes: ByteArray, val bitmap: ImageBitmap) :
+        Base64Outcome
+
+    class DecodedBinary(val bytes: ByteArray) : Base64Outcome
+
+    class Failed(val message: String) : Base64Outcome
+}
+
+/** 读一个文件的结果。 */
+private sealed interface Loaded {
+    class Text(val value: String) : Loaded
+    class Binary(val source: Base64Source) : Loaded
+    class Failure(val message: String) : Loaded
+}
+
+/**
+ * Base64 编解码：文本、图片与任意文件互转。
+ *
+ * 方向是**显式**的（编码 / 解码分段控件），不做「自动猜」——`test`、`abcd` 这类普通词也是合法
+ * Base64，猜错方向比多按一下更烦人（数学工具不声明数据类型，也是同一个取舍）。
+ *
+ * 输入输出都落在「字节」这一层：编码要的是字节（文本按 UTF-8 取，文件按原样取），解码给出的
+ * 也是字节，再由「它是什么」决定怎么显示——图片给预览，能当 UTF-8 看的给文本，其余给一张
+ * 「二进制文件」的摘要卡加下载。
+ */
+internal object Base64DevTool : DevTool {
+
+    override val metadata: DevToolMetadata = DevToolMetadata(
+        id = "base64",
+        name = "Base64 编解码",
+        description = "文本、图片与任意文件与 Base64 互转；可写出 Data URL，解码结果自动分辨文本与图片。",
+        group = DevToolGroup.ENCODER,
+        icon = ClipperIconKind.DOC_ARROW,
+    )
+
+    @Composable
+    override fun Content(input: ClipItem?, host: DevToolHost) {
+        var mode by remember { mutableStateOf(Base64Mode.Encode) }
+        var urlSafe by remember { mutableStateOf(false) }
+        // 编码结果要不要带 `data:<mime>;base64,` 头。默认开：编码图片 / 文件多半就是为了拿一串能
+        // 直接塞进 HTML、CSS、Markdown 的东西，裸 Base64 还得自己补头。
+        var dataUrl by remember { mutableStateOf(true) }
+        // 两个方向**各留一份输入**：编码框里装的是原文，解码框里装的是 Base64，它们不是一种东西。
+        // 共用一个会让「解码框里的 Base64」被搬进编码框再编一次，出来的是双重编码——而且换个方向
+        // 回来，原来敲的东西已经没了。
+        var encodeText by remember { mutableStateOf("") }
+        var decodeText by remember { mutableStateOf("") }
+        // 编码侧还可能来自文件（打开 / 拖入 / 剪贴板图片）。它只对编码有意义，切到解码时留着不动，
+        // 切回来还在。
+        var source by remember { mutableStateOf<Base64Source?>(null) }
+        // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
+        // 按方向各记一份：换到另一边时，状态栏该说的是那一边的情况。
+        var encodeTyped by remember { mutableStateOf(false) }
+        var decodeTyped by remember { mutableStateOf(false) }
+        var outcome by remember { mutableStateOf<Base64Outcome?>(null) }
+        // 正在算（防抖的安静窗口里，或后台还没回来）。它决定「复制 / 保存」能不能点：那时候框里
+        // 留着的是**上一份**结果，拷出去是错的。
+        var computing by remember { mutableStateOf(false) }
+        // 上一次真正算过的正文。只有它变了才值得等防抖；换方向 / 换选项都是点一下就定的事。
+        var computedText by remember { mutableStateOf<String?>(null) }
+
+        // 眼前这个方向正在用哪一份输入。
+        val text = if (mode == Base64Mode.Encode) encodeText else decodeText
+        val typed = if (mode == Base64Mode.Encode) encodeTyped else decodeTyped
+
+        // 改**当前方向**那一份输入。`fromUser` 区分「手打的」与「从文件 / 剪贴板搬进来的」——
+        // 状态栏只对前者说「文本输入」。
+        fun updateText(value: String, fromUser: Boolean) {
+            if (mode == Base64Mode.Encode) {
+                encodeText = value
+                encodeTyped = fromUser
+            } else {
+                decodeText = value
+                decodeTyped = fromUser
+            }
+        }
+
+        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
+
+        // 读一个文件并按当前方向安置它：编码要字节（二进制正是内容），解码要文本（Base64 本身是文本）。
+        fun applyPath(path: String) {
+            when (val loaded = loadFile(path, mode)) {
+                is Loaded.Text -> {
+                    updateText(loaded.value, fromUser = false)
+                    source = null
+                }
+
+                is Loaded.Binary -> {
+                    // 二进制只可能出现在编码方向（`loadFile` 就是这么分的）：让输入框空着、
+                    // 由文件卡片顶上，顺带把手打标记清掉，免得状态栏说「文本输入」却挂着个文件。
+                    updateText("", fromUser = false)
+                    source = loaded.source
+                }
+
+                is Loaded.Failure -> host.showStatus(loaded.message)
+            }
+        }
+
+        // 从剪贴板条目打开：图片直接当图片来编码，文件按路径读，其余按文本灌进**当前方向**那一个框。
+        LaunchedEffect(input) {
+            val item = input ?: return@LaunchedEffect
+            val image = item.image
+            if (image != null && item.files.isEmpty()) {
+                mode = Base64Mode.Encode
+                source = Base64Source("剪贴板图片", image.toByteArray())
+                encodeText = ""
+                encodeTyped = false
+                return@LaunchedEffect
+            }
+            if (item.files.isNotEmpty()) {
+                applyPath(item.files.first())
+                return@LaunchedEffect
+            }
+            updateText(withContext(Dispatchers.Default) { item.devToolText() }, fromUser = false)
+            source = null
+        }
+
+        // 实时求值：输入一变就重新计时，停下来才算一次。取消由 `LaunchedEffect` 负责——正在算的
+        // 那一份即使算完也自然作废。
+        LaunchedEffect(mode, urlSafe, dataUrl, text, source) {
+            // 文件只喂编码方向；解码方向看的是它自己那个框里的 Base64。
+            val file = if (mode == Base64Mode.Encode) source else null
+            if (file == null && text.isBlank()) {
+                outcome = null
+                computing = false
+                computedText = null
+                return@LaunchedEffect
+            }
+            computing = true
+            // 只有手敲正文才等防抖；载入文件、换方向、换选项都是「点一下就定」，立刻重算。
+            if (file == null && text != computedText) delay(EvaluateDebounceMillis)
+            val result =
+                withContext(Dispatchers.Default) { computeOutcome(mode, urlSafe, dataUrl, text, file) }
+            computedText = if (file == null) text else null
+            outcome = result
+            computing = false
+        }
+
+        // 体积对比报到窗口底部的状态栏，不占内容区那一行（与其它工具同一分工）。
+        LaunchedEffect(mode, outcome, computing, text.length, source) {
+            val current = outcome
+            host.reportStatus(
+                when {
+                    computing -> "计算中…"
+                    current is Base64Outcome.Encoded ->
+                        "输入 ${Base64Format.humanSize(current.sourceBytes.toLong())}" +
+                            " → Base64 ${Base64Format.humanSize(current.base64.length.toLong())}"
+
+                    current is Base64Outcome.DecodedText ->
+                        "Base64 ${Base64Format.humanSize(current.sourceChars.toLong())}" +
+                            " → 文本 ${Base64Format.humanSize(current.bytes.toLong())}"
+
+                    current is Base64Outcome.DecodedImage ->
+                        "${current.kind.label} · ${Base64Format.humanSize(current.bytes.size.toLong())}"
+
+                    current is Base64Outcome.DecodedBinary ->
+                        "二进制文件 · ${Base64Format.humanSize(current.bytes.size.toLong())}"
+
+                    else -> null
+                }
+            )
+        }
+
+        Column(Modifier.fillMaxSize()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                DevToolSegmentedControl(
+                    options = Base64Mode.entries,
+                    selected = mode,
+                    optionLabel = { it.title },
+                    // 只换方向，不动两边的输入：编码框与解码框各存各的，切来切去都不丢。
+                    onSelect = { mode = it },
+                )
+
+                DevToolGroupDivider()
+
+                DevToolToggle(
+                    title = "URL 安全",
+                    checked = urlSafe,
+                    onCheckedChange = { urlSafe = it },
+                )
+
+                DevToolActionSpacer()
+
+                DevToolToggle(
+                    title = "Data URL",
+                    checked = dataUrl,
+                    onCheckedChange = { dataUrl = it },
+                )
+
+                Spacer(Modifier.weight(1f))
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            val loadedFile = source
+            if (mode == Base64Mode.Encode && loadedFile != null) {
+                FileSourceCard(
+                    source = loadedFile,
+                    onReplace = {
+                        val path = host.pickFileToOpen()
+                        if (path != null) applyPath(path)
+                    },
+                    onClear = { source = null },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(InputFieldHeight)
+                        // 卡片替掉了文本框，就得把拖放接收器也接过来：否则载入第一个文件之后，
+                        // 输入区再拖什么都不会有反应（它已经不是那个挂接收器的节点了）。
+                        .devToolFileDrop(host) { paths ->
+                            paths.firstOrNull()?.let { path -> applyPath(path) }
+                        },
+                )
+            } else {
+                DevToolCodeField(
+                    label = if (mode == Base64Mode.Encode) "输入 · 文本" else "输入 · Base64",
+                    value = text,
+                    onValueChange = { updateText(it, fromUser = true) },
+                    placeholder = if (mode == Base64Mode.Encode) {
+                        "在此粘贴文本；或拖入 / 打开一个文件（图片、任意二进制）"
+                    } else {
+                        "在此粘贴 Base64；也认 data:image/png;base64,… 这样的 Data URL"
+                    },
+                    // Base64 是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
+                    // 折行只改显示，`value` 仍是那一整行，复制 / 保存拿到的还是原样。
+                    softWrap = true,
+                    lineNumbers = false,
+                    folding = false,
+                    scan = ::scanPlain,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(InputFieldHeight)
+                        .devToolFileDrop(host) { paths ->
+                            paths.firstOrNull()?.let { path -> applyPath(path) }
+                        },
+                    actions = {
+                        DevToolFieldAction(
+                            kind = ClipperIconKind.FOLDER,
+                            tooltip = "打开文件",
+                            onClick = {
+                                val path = host.pickFileToOpen()
+                                if (path != null) applyPath(path)
+                            },
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        DevToolFieldAction(
+                            kind = ClipperIconKind.TRASH,
+                            tooltip = "清空",
+                            enabled = text.isNotEmpty(),
+                            // 清空不是「手打」，但也别留着上一档的手打标记。
+                            onClick = { updateText("", fromUser = false) },
+                        )
+                    },
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            ResultArea(
+                outcome = outcome,
+                mode = mode,
+                computing = computing,
+                host = host,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+            )
+        }
+    }
+}
+
+/** 在后台算出这一次的结果。编解码本身是纯函数，这里只负责接上与排版无关的字节。 */
+private fun computeOutcome(
+    mode: Base64Mode,
+    urlSafe: Boolean,
+    dataUrl: Boolean,
+    text: String,
+    file: Base64Source?,
+): Base64Outcome = when (mode) {
+    Base64Mode.Encode -> {
+        val bytes = file?.bytes ?: text.encodeToByteArray()
+        // Data URL 头只在**有类型可写**的时候才加：文件有 MIME，而一段手敲的文本没有「文件类型」
+        // 可言，给它套一个 `text/plain` 只是往结果前面塞噪音。开关关掉则永远不加。
+        val encoded = Base64Format.encode(bytes, urlSafe)
+        val output = if (dataUrl && file != null) {
+            "data:${Base64Format.mimeTypeOf(file.name, file.imageKind)};base64,$encoded"
+        } else {
+            encoded
+        }
+        Base64Outcome.Encoded(output, bytes.size)
+    }
+
+    Base64Mode.Decode -> Base64Format.decode(text).fold(
+        onSuccess = { describe(it, text.length) },
+        // 失败是 `Result` 里的 `Base64Error`；真出了别的异常也不该把窗口炸掉。
+        onFailure = { error ->
+            Base64Outcome.Failed(
+                (error as? Base64Error)?.let { base64ErrorMessage(text, it) } ?: "解码失败"
+            )
+        },
+    )
+}
+
+/** 根据解出来的字节决定怎么显示：图片 → 预览，能当 UTF-8 看 → 文本，否则 → 二进制。 */
+private fun describe(bytes: ByteArray, sourceChars: Int): Base64Outcome {
+    Base64Format.imageKindOf(bytes)?.let { kind ->
+        val bitmap = runCatching { bytes.decodeToImageBitmap() }.getOrNull()
+        if (bitmap != null) return Base64Outcome.DecodedImage(kind, bytes, bitmap)
+    }
+    Base64Format.utf8OrNull(bytes)?.let {
+        return Base64Outcome.DecodedText(it, bytes.size, sourceChars)
+    }
+    return Base64Outcome.DecodedBinary(bytes)
+}
+
+/**
+ * 读一个文件并包成 [Loaded]。
+ *
+ * 两个方向要的东西不一样：**解码**读文本（Base64 就是文本），走 `readTextFileOrNull`；**编码**
+ * 读原始字节，走 `readBytesOrNull`——后者才认二进制文件（`readTextFileOrNull` 会把图片当二进制
+ * 拒掉，而图片正是这里的主要用法）。
+ */
+private fun loadFile(path: String, mode: Base64Mode): Loaded {
+    val name = path.substringAfterLast('/').ifBlank { path }
+    if (mode == Base64Mode.Decode) {
+        val value = readTextFileOrNull(path)
+            ?: return Loaded.Failure("读不了这个文件（不是文本，或超过大小上限）：$path")
+        return Loaded.Text(value)
+    }
+    val bytes = readBytesOrNull(path, MaxInputFileBytes)
+        ?: return Loaded.Failure(
+            "读不了这个文件（超过 ${Base64Format.humanSize(MaxInputFileBytes)}，或不是普通文件）：$path"
+        )
+    return Loaded.Binary(Base64Source(name, bytes))
+}
+
+private fun saveText(host: DevToolHost, value: String, suggestedName: String) {
+    val path = host.pickFileToSave(suggestedName) ?: return
+    host.showStatus(if (writeTextFile(path, value)) "已保存到 $path" else "写不进这个位置：$path")
+}
+
+private fun saveBytes(host: DevToolHost, bytes: ByteArray, suggestedName: String) {
+    val path = host.pickFileToSave(suggestedName) ?: return
+    host.showStatus(if (writeBytesFile(path, bytes)) "已保存到 $path" else "写不进这个位置：$path")
+}
+
+@Composable
+private fun ResultArea(
+    outcome: Base64Outcome?,
+    mode: Base64Mode,
+    computing: Boolean,
+    host: DevToolHost,
+    modifier: Modifier,
+) {
+    // 正在算的时候框里留着的是上一份结果：能看，但不能拷出去。
+    val canAct = !computing
+    when (outcome) {
+        null -> PlaceholderResult(mode, computing, modifier)
+
+        is Base64Outcome.Failed -> ResultTextField(
+            label = "结果",
+            value = outcome.message,
+            isError = true,
+            softWrap = true,
+            onCopy = null,
+            onSave = null,
+            canAct = false,
+            modifier = modifier,
+        )
+
+        is Base64Outcome.Encoded -> {
+            val base64 = outcome.base64
+            ResultTextField(
+                label = "结果 · Base64",
+                value = base64,
+                isError = false,
+                softWrap = true,
+                onCopy = { host.copyToClipboard(base64) },
+                onSave = { saveText(host, base64, "encoded.txt") },
+                canAct = canAct,
+                modifier = modifier,
+            )
+        }
+
+        is Base64Outcome.DecodedText -> {
+            val decoded = outcome.text
+            ResultTextField(
+                label = "结果 · 文本",
+                value = decoded,
+                isError = false,
+                softWrap = true,
+                onCopy = { host.copyToClipboard(decoded) },
+                onSave = { saveText(host, decoded, "decoded.txt") },
+                canAct = canAct,
+                modifier = modifier,
+            )
+        }
+
+        is Base64Outcome.DecodedImage -> ImageResult(
+            outcome = outcome,
+            onSave = { saveBytes(host, outcome.bytes, "decoded.${outcome.kind.extension}") },
+            canAct = canAct,
+            modifier = modifier,
+        )
+
+        is Base64Outcome.DecodedBinary -> ResultSummaryCard(
+            label = "结果 · 文件",
+            message = "解出的是二进制内容，不能当文本显示",
+            detail = "二进制文件 · ${Base64Format.humanSize(outcome.bytes.size.toLong())}",
+            onCopy = null,
+            onSave = { saveBytes(host, outcome.bytes, "decoded.bin") },
+            canAct = canAct,
+            modifier = modifier,
+        )
+    }
+}
+
+@Composable
+private fun ResultTextField(
+    label: String,
+    value: String,
+    isError: Boolean,
+    softWrap: Boolean,
+    onCopy: (() -> Unit)?,
+    onSave: (() -> Unit)?,
+    canAct: Boolean,
+    modifier: Modifier,
+) {
+    DevToolCodeField(
+        label = label,
+        value = value,
+        onValueChange = {},
+        readOnly = true,
+        isError = isError,
+        softWrap = softWrap,
+        lineNumbers = false,
+        folding = false,
+        scan = ::scanPlain,
+        modifier = modifier,
+        actions = {
+            if (onSave != null) {
+                DevToolFieldAction(
+                    kind = ClipperIconKind.SAVE,
+                    tooltip = "保存为文件",
+                    enabled = canAct,
+                    onClick = onSave,
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            if (onCopy != null) {
+                DevToolFieldAction(
+                    kind = ClipperIconKind.COPY,
+                    tooltip = "复制",
+                    enabled = canAct,
+                    onClick = onCopy,
+                )
+            }
+        },
+    )
+}
+
+/** 不是文本的结果（解码出二进制）：一句说明 + 体积，动作照旧挂着。 */
+@Composable
+private fun ResultSummaryCard(
+    label: String,
+    message: String,
+    detail: String,
+    onCopy: (() -> Unit)?,
+    onSave: (() -> Unit)?,
+    canAct: Boolean,
+    modifier: Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(6.dp)
+    Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 13.sp, color = MaterialTheme.hintColor)
+            Spacer(Modifier.weight(1f))
+            if (onSave != null) {
+                DevToolFieldAction(
+                    kind = ClipperIconKind.SAVE,
+                    tooltip = "保存为文件",
+                    enabled = canAct,
+                    onClick = onSave,
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            if (onCopy != null) {
+                DevToolFieldAction(
+                    kind = ClipperIconKind.COPY,
+                    tooltip = "复制",
+                    enabled = canAct,
+                    onClick = onCopy,
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(shape)
+                .background(colors.onSurface.copy(alpha = 0.04f))
+                .border(1.dp, colors.outline.copy(alpha = 0.6f), shape)
+                .padding(16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(message, fontSize = 13.sp, color = colors.onSurface)
+                Spacer(Modifier.height(4.dp))
+                Text(detail, fontSize = 12.sp, color = MaterialTheme.hintColor)
+            }
+        }
+    }
+}
+
+/** 解码结果是图片：给预览，动作只剩「保存为图片」。 */
+@Composable
+private fun ImageResult(
+    outcome: Base64Outcome.DecodedImage,
+    onSave: () -> Unit,
+    canAct: Boolean,
+    modifier: Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(6.dp)
+    val codeColors = rememberCodeColors()
+    Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("结果 · 图片", fontSize = 13.sp, color = MaterialTheme.hintColor)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "${outcome.kind.label} · ${outcome.bitmap.width}×${outcome.bitmap.height}" +
+                    " · ${Base64Format.humanSize(outcome.bytes.size.toLong())}",
+                fontSize = 12.sp,
+                color = MaterialTheme.hintColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            DevToolFieldAction(
+                kind = ClipperIconKind.SAVE,
+                tooltip = "保存为图片",
+                enabled = canAct,
+                onClick = onSave,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(shape)
+                // 与编辑框同一块底色：图片贴上去像「印在纸上」，而不是浮在面板上。
+                .background(codeColors.editorBackground)
+                .border(1.dp, colors.outline.copy(alpha = 0.6f), shape)
+                .padding(8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                bitmap = outcome.bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+}
+
+/**
+ * 编码侧载入了文件：用一张卡片替掉输入框，说清楚「这次编的是这个文件」。
+ *
+ * 卡片上必须留着**换文件**与**回到文本**这两条路：它一旦替掉文本框，用户就没有别的入口了——
+ * 「换一个文件」靠 [onReplace]（再拖一个文件进来也走它，见调用处的 `devToolFileDrop`），
+ * 「回去打字」靠 [onClear]。
+ */
+@Composable
+private fun FileSourceCard(
+    source: Base64Source,
+    onReplace: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(6.dp)
+    val codeColors = rememberCodeColors()
+    val thumbnail = rememberThumbnail(source)
+
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(codeColors.editorBackground)
+            .border(1.dp, colors.outline.copy(alpha = 0.6f), shape)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("输入 · 文件", fontSize = 13.sp, color = MaterialTheme.hintColor)
+            Spacer(Modifier.weight(1f))
+            DevToolFieldAction(
+                kind = ClipperIconKind.FOLDER,
+                tooltip = "更换文件（也可以直接把文件拖进来）",
+                onClick = onReplace,
+            )
+            Spacer(Modifier.width(4.dp))
+            DevToolFieldAction(
+                kind = ClipperIconKind.TRASH,
+                tooltip = "清除文件，回到文本输入",
+                onClick = onClear,
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (thumbnail != null) {
+                Image(
+                    bitmap = thumbnail,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(52.dp).clip(RoundedCornerShape(4.dp)),
+                )
+                Spacer(Modifier.width(10.dp))
+            }
+            Column {
+                Text(
+                    text = source.name,
+                    fontSize = 13.sp,
+                    color = colors.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = listOfNotNull(
+                        source.imageKind?.label,
+                        Base64Format.humanSize(source.bytes.size.toLong()),
+                    ).joinToString(" · "),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.hintColor,
+                )
+            }
+        }
+    }
+}
+
+/** 图片文件的缩略图。解码挪到后台：几兆的图在组合里同步解会让窗口顿一下。 */
+@Composable
+private fun rememberThumbnail(source: Base64Source): ImageBitmap? {
+    if (source.imageKind == null) return null
+    val bitmap by produceState<ImageBitmap?>(null, source) {
+        value = withContext(Dispatchers.Default) {
+            runCatching { source.bytes.decodeToImageBitmap() }.getOrNull()
+        }
+    }
+    return bitmap
+}
+
+@Composable
+private fun PlaceholderResult(mode: Base64Mode, computing: Boolean, modifier: Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Text(
+            text = when {
+                computing -> "计算中…"
+                mode == Base64Mode.Encode -> "输入文本或载入文件后，这里显示 Base64"
+                else -> "粘贴 Base64 后，这里显示原文 / 图片 / 文件"
+            },
+            fontSize = 12.sp,
+            color = MaterialTheme.hintColor,
+        )
+    }
+}

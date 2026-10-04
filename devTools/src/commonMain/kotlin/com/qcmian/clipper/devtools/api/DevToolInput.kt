@@ -5,6 +5,7 @@ import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readByteArray
+import kotlinx.io.write
 import kotlinx.io.writeString
 
 /**
@@ -63,6 +64,37 @@ internal fun writeTextFile(path: String, text: String): Boolean = runCatching {
     SystemFileSystem.sink(Path(path)).buffered().use { it.writeString(text) }
     true
 }.getOrDefault(false)
+
+/**
+ * 把一个文件的**原始字节**读进内存；读不了时返回 `null`。
+ *
+ * 与 [readTextFileOrNull] 的分工：那个给「要当文本用」的工具（JSON / XML / 数学），会拒掉二进制；
+ * 这个给「字节本身就是内容」的工具（Base64 编码图片 / 任意文件），二进制正是它要的。
+ *
+ * [maxBytes] 是硬上限：整块读进内存再编码，没有上限就等于让用户用一个超大文件把窗口拖死。
+ * 超限与读不到都返回 `null`，由调用方给一句提示——两者对用户是同一件事（这个文件现在用不了）。
+ */
+internal fun readBytesOrNull(path: String, maxBytes: Long = MAX_BINARY_FILE_BYTES): ByteArray? =
+    runCatching {
+        val file = Path(path)
+        val metadata = SystemFileSystem.metadataOrNull(file) ?: return@runCatching null
+        if (!metadata.isRegularFile || metadata.size > maxBytes) return@runCatching null
+        val source = SystemFileSystem.source(file).buffered()
+        try {
+            source.readByteArray()
+        } finally {
+            source.close()
+        }
+    }.getOrNull()
+
+/** 把 [bytes] 原样写到 [path]；写成返回 `true`。与 [writeTextFile] 同一套错误约定。 */
+internal fun writeBytesFile(path: String, bytes: ByteArray): Boolean = runCatching {
+    SystemFileSystem.sink(Path(path)).buffered().use { it.write(bytes) }
+    true
+}.getOrDefault(false)
+
+/** 二进制文件读入内存的默认上限（见 [readBytesOrNull]）。 */
+private const val MAX_BINARY_FILE_BYTES = 16L * 1024 * 1024
 
 private fun looksBinary(bytes: ByteArray): Boolean {
     val limit = minOf(bytes.size, BINARY_SNIFF_BYTES)
