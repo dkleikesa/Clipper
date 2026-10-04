@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -18,7 +18,7 @@ import androidx.compose.ui.Modifier
  * 字段含义写在这里；**实现怎么落地**写在各自的实现文件里，不在这。字段的顺序即
  * `DevToolCodeField` 的参数顺序，两边对照着看不费劲。
  */
-internal class CodeFieldSpec(
+class CodeFieldSpec(
     /** 标题行左侧的框名；[showLabel] 为假时不用。 */
     val label: String,
     /** 真实文档。折叠与高亮只改显示，这个值始终是原样。 */
@@ -26,8 +26,16 @@ internal class CodeFieldSpec(
     /** 用户编辑之后的正文。 */
     val onValueChange: (String) -> Unit,
     val modifier: Modifier = Modifier,
-    /** 只读结果框：不接收编辑。 */
-    val readOnly: Boolean = false,
+    /**
+     * 这一格能不能编辑。**一个开关管到底**：焦点、插入光标、文字输入、点击落点、拖选，
+     * 四件事都由它决定，不存在「只读但还有光标」这种半开状态。
+     *
+     * 为 `false` 时它是一个**纯展示件**（预览面板、各种结果框）：画面上没有插入点、拖不出选区、
+     * 键盘输入不进去，只有滚动照常。两套引擎都必须完整遵守——KodeMirror 侧落到 `editable`
+     * facet（光标 / 输入 / 手势 / 选区绘制四处都读它），原生侧落到 `BasicTextField.readOnly`
+     * 与透明光标刷。
+     */
+    val editable: Boolean = true,
     /** 空内容时的占位提示。 */
     val placeholder: String = "",
     /**

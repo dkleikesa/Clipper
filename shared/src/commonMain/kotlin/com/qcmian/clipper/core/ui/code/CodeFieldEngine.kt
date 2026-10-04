@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
@@ -10,7 +10,7 @@ import androidx.compose.runtime.compositionLocalOf
  * 于是 [DevToolCodeField] 里那个 `when` 就不需要了——多一个实现只是多一个枚举项，而编译器会强制
  * 它把 [Content] 实现出来（漏了编不过，不是运行时才发现）。
  */
-internal enum class CodeFieldEngine(val label: String) {
+enum class CodeFieldEngine(val label: String) {
     /**
      * 原生 `BasicTextField` + 自绘装订线 / 高亮 / 折叠。光标、选区、输入法全在平台控件那一层，
      * 行为最稳；本项目的自绘滚动条挂在它的滚动状态上。
@@ -40,7 +40,7 @@ internal enum class CodeFieldEngine(val label: String) {
 }
 
 /** 下一种实现（循环）。与侧边栏那个开关同一个手感：点一下就换一档。 */
-internal fun CodeFieldEngine.next(): CodeFieldEngine =
+fun CodeFieldEngine.next(): CodeFieldEngine =
     CodeFieldEngine.entries[(ordinal + 1) % CodeFieldEngine.entries.size]
 
 /**
@@ -51,7 +51,7 @@ internal fun CodeFieldEngine.next(): CodeFieldEngine =
  * （见 `:kodemirror` 的 README），几处已知差别都写在 `KodemirrorCodeField` 的注释里；验收期间
  * 想回到原实现对照，点面板状态栏右下角那枚开关即可，不必改代码。
  */
-internal val DefaultCodeFieldEngine = CodeFieldEngine.Kodemirror
+val DefaultCodeFieldEngine = CodeFieldEngine.Kodemirror
 
 /**
  * 当前生效的实现。由 `DevToolsPanel` 在面板顶层提供，面板里那枚引擎开关改的就是它。
@@ -59,4 +59,4 @@ internal val DefaultCodeFieldEngine = CodeFieldEngine.Kodemirror
  * 默认取 [DefaultCodeFieldEngine]：没人提供时也渲染出与面板一致的实现，测试与预览因此不会
  * 「面板里看到的是一套、单独渲染时是另一套」。
  */
-internal val LocalCodeFieldEngine = compositionLocalOf { DefaultCodeFieldEngine }
+val LocalCodeFieldEngine = compositionLocalOf { DefaultCodeFieldEngine }

@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -13,7 +13,7 @@ import androidx.compose.ui.graphics.luminance
  * `codeHighlight`）。所以它放在这个独立文件里，而不是挂在任何一个实现名下——
  * 「两套实现看起来是同一个框」，靠的就是这里只有一份色值。
  */
-internal data class CodeColors(
+data class CodeColors(
     val editorBackground: Color,
     val key: Color,
     val string: Color,
@@ -96,7 +96,7 @@ private val AppDarkCodeColors = CodeColors(
  * 即可，不必自己再挑一个「差不多的灰」。
  */
 @Composable
-internal fun rememberCodeColors(): CodeColors =
+fun rememberCodeColors(): CodeColors =
     if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
         AppDarkCodeColors
     } else {

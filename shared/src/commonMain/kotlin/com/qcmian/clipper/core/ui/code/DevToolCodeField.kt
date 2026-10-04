@@ -1,4 +1,13 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
+
+/*
+ * 这一包**刻意是 public**，尽管它只服务本项目内部两个调用方：预览面板（`:shared`）与开发者
+ * 工具（`:devTools`）。原因是 Kotlin 的 `internal` 是**按模块**可见的：代码框搬进 `:shared`
+ * 之后，`:devTools` 就成了「另一个模块」，`internal` 会把整套 API 挡在外面。
+ *
+ * 换句话说：这一包的边界不是「模块」，而是「本项目的界面层」。库外没有消费者，不存在 API
+ * 稳定性负担；写在这里是为了让后来人不必再猜一次「为什么它没标 internal」。
+ */
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -18,12 +27,12 @@ import androidx.compose.ui.Modifier
  * 早晚与那边对不上。
  */
 @Composable
-internal fun DevToolCodeField(
+fun DevToolCodeField(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    readOnly: Boolean = false,
+    editable: Boolean = true,
     placeholder: String = "",
     isError: Boolean = false,
     softWrap: Boolean = false,
@@ -40,7 +49,7 @@ internal fun DevToolCodeField(
             value = value,
             onValueChange = onValueChange,
             modifier = modifier,
-            readOnly = readOnly,
+            editable = editable,
             placeholder = placeholder,
             isError = isError,
             softWrap = softWrap,

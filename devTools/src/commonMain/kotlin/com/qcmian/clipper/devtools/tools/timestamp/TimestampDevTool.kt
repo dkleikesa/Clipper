@@ -59,9 +59,9 @@ import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
-import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
-import com.qcmian.clipper.devtools.ui.components.code.rememberCodeColors
-import com.qcmian.clipper.devtools.ui.components.code.scanPlain
+import com.qcmian.clipper.core.ui.code.DevToolCodeField
+import com.qcmian.clipper.core.ui.code.rememberCodeColors
+import com.qcmian.clipper.core.ui.code.scanPlain
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
 import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import kotlin.time.Instant

@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -8,7 +8,7 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 
 /** 折叠区间被替换成的那个字符。 */
-internal const val FoldPlaceholder = "\u2026"
+const val FoldPlaceholder = "\u2026"
 
 /**
  * 一个制表符在屏幕上占几列。
@@ -22,7 +22,7 @@ internal const val FoldPlaceholder = "\u2026"
  *
  * 只按显示算，`value` 里仍是那一个 `\t`。
  */
-internal const val TabDisplayWidth = 4
+const val TabDisplayWidth = 4
 
 /**
  * 把高亮与折叠做成**纯显示层**的变换。
@@ -35,7 +35,7 @@ internal const val TabDisplayWidth = 4
  * @param tokens 高亮片段，来自扫描器（JSON 的 [scanJson] 或 XML 的 `scanXml`）
  * @param folded 当前折叠的括号对；嵌套时只取最外层
  */
-internal class CodeVisualTransformation(
+class CodeVisualTransformation(
     private val tokens: List<CodeToken>,
     private val folded: List<BracketPair>,
     private val colors: CodeColors
@@ -123,7 +123,7 @@ internal class CodeVisualTransformation(
  * 放在文件级而不是某个类里：原生框这条显示变换与 KodeMirror 那侧的装饰器都要用它，两处各写一份
  * 早晚会漂——「两套实现看起来是同一个框」，配色必须只有一处出处。
  */
-internal fun CodeKind.colorIn(colors: CodeColors): Color = when (this) {
+fun CodeKind.colorIn(colors: CodeColors): Color = when (this) {
     CodeKind.Key -> colors.key
     CodeKind.StringLiteral -> colors.string
     CodeKind.Number -> colors.number

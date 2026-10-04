@@ -22,6 +22,10 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.ui.code.CodeFieldEngine
+import com.qcmian.clipper.core.ui.code.DevToolCodeField
+import com.qcmian.clipper.core.ui.code.LocalCodeFieldEngine
+import com.qcmian.clipper.core.ui.code.scanXml
 import com.qcmian.clipper.devtools.registry.DevToolsRegistry
 import com.qcmian.clipper.devtools.ui.DevToolsPanel
 import kotlin.test.Test
@@ -65,7 +69,7 @@ class KodemirrorCodeFieldTest {
 
     @Test
     fun `只读结果框照样画行号`() = runComposeUiTest {
-        field(value = THREE_LINES, readOnly = true)
+        field(value = THREE_LINES, editable = false)
 
         onNodeWithText("3").assertIsDisplayed()
     }
@@ -383,7 +387,7 @@ class KodemirrorCodeFieldTest {
         value: String,
         onValueChange: (String) -> Unit = {},
         lineNumbers: Boolean = true,
-        readOnly: Boolean = false,
+        editable: Boolean = true,
     ) {
         underTest({ CodeFieldEngine.Kodemirror }) {
             DevToolCodeField(
@@ -391,7 +395,7 @@ class KodemirrorCodeFieldTest {
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.fillMaxSize(),
-                readOnly = readOnly,
+                editable = editable,
                 lineNumbers = lineNumbers,
             )
         }

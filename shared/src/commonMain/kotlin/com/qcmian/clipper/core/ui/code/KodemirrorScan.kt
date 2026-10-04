@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.ui.text.SpanStyle
 import com.monkopedia.kodemirror.language.FoldRange
@@ -25,7 +25,7 @@ import com.monkopedia.kodemirror.view.ViewUpdate
  * 高亮与折叠都从这一份数据出：两者都要「整篇扫一遍」的结果，各扫一遍等于每次输入付两次扫描的账
  * （文档一大就是实打实的双倍）。所以扫一次存进状态里：装订线问折叠、装饰器问着色，都只是读它。
  */
-internal class CodeScanResult(
+class CodeScanResult(
     val tokens: List<CodeToken>,
     /** 行首偏移 → 那一行可折的区间。 */
     private val folds: Map<Int, FoldRange>,
@@ -49,7 +49,7 @@ internal class CodeScanResult(
  * **刻意不引入 KodeMirror 的语言包**（`lang-json` / `lang-xml`）：那会换掉整套 token 语义与配色，
  * 而本项目已经有自己的扫描器与配色——两套实现并排对比时，这一点尤其重要。
  */
-internal class KodemirrorScan(scan: (String) -> CodeStructure) {
+class KodemirrorScan(scan: (String) -> CodeStructure) {
 
     val field: StateField<CodeScanResult> = StateField.define(
         StateFieldSpec(
@@ -98,7 +98,7 @@ private fun scanInto(text: String, scan: (String) -> CodeStructure): CodeScanRes
  * 区间、不是语法树；直接转成装饰器既省一层适配，也保住了原配色——`CodeKind` → [CodeColors] 用的
  * 是与原生框同一个函数（[colorIn]）。
  */
-internal fun codeHighlight(scan: KodemirrorScan, colors: CodeColors): Extension =
+fun codeHighlight(scan: KodemirrorScan, colors: CodeColors): Extension =
     ViewPlugin.define(
         create = { session -> CodeHighlightPlugin(session, scan, colors) },
         configure = {

@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString

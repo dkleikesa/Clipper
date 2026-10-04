@@ -57,10 +57,10 @@ import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.registry.DevToolsRegistry
-import com.qcmian.clipper.devtools.ui.components.code.CodeFieldEngine
-import com.qcmian.clipper.devtools.ui.components.code.DefaultCodeFieldEngine
-import com.qcmian.clipper.devtools.ui.components.code.LocalCodeFieldEngine
-import com.qcmian.clipper.devtools.ui.components.code.next
+import com.qcmian.clipper.core.ui.code.CodeFieldEngine
+import com.qcmian.clipper.core.ui.code.DefaultCodeFieldEngine
+import com.qcmian.clipper.core.ui.code.LocalCodeFieldEngine
+import com.qcmian.clipper.core.ui.code.next
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext

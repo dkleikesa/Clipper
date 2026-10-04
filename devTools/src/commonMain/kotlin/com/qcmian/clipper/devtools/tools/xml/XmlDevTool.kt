@@ -35,8 +35,8 @@ import com.qcmian.clipper.devtools.ui.components.FormatMode
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
 import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import com.qcmian.clipper.devtools.ui.components.rememberFormattedText
-import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
-import com.qcmian.clipper.devtools.ui.components.code.scanXml
+import com.qcmian.clipper.core.ui.code.DevToolCodeField
+import com.qcmian.clipper.core.ui.code.scanXml
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -168,7 +168,7 @@ internal object XmlDevTool : DevTool {
                     // 失败时错误就显示在结果框里（用错误色）：它是这次解析的产出，与结果同一个位置。
                     value = formatted.error ?: formatted.output,
                     isError = formatted.error != null,
-                    readOnly = true,
+                    editable = false,
                     onValueChange = {},
                     placeholder = "美化 / 压缩的结果会显示在这里",
                     scan = ::scanXml,

@@ -55,8 +55,8 @@ import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
-import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
-import com.qcmian.clipper.devtools.ui.components.code.scanPlain
+import com.qcmian.clipper.core.ui.code.DevToolCodeField
+import com.qcmian.clipper.core.ui.code.scanPlain
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext

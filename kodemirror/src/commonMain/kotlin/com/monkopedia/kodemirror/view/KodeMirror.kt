@@ -673,6 +673,13 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                         // separate tap/drag coroutines competed for the DOWN
                         // event and focus could be skipped.
                         awaitEachGesture {
+                            // <本仓库补丁> 只读时正文不接手势：不落光标、不拖选、不抢焦点、
+                            // 不推输入法（见 `editable` facet）。滚动由父级 `LazyColumn` 负责，
+                            // 这里让开不影响它。
+                            if (!session.editable) {
+                                awaitFirstDown(requireUnconsumed = false)
+                                return@awaitEachGesture
+                            }
                             // Consume the down, as detectTapAndPress does for a
                             // text field. On wasmJs that is what makes Compose
                             // call preventDefault() on the browser event;
@@ -1081,6 +1088,12 @@ private fun EditorContent(
     // that same text; dropping it is what keeps the character from doubling.
     BasicTextField(
         value = hiddenTextValue,
+        // <本仓库补丁> 只读时这个隐藏输入框不再收音。
+        //
+        // `onValueChange` 里本来就有 `if (!session.editable) return` 的兜底，但那是**收到之后
+        // 才丢**：I 形光标、输入法候选、系统输入反馈都还在，看起来仍是个可编辑的框。这里直接
+        // 从输入源头关掉；焦点**故意留着**——滚动、快捷键、点一下选中都还要它。
+        readOnly = !session.editable,
         cursorBrush = SolidColor(Color.Transparent),
         onValueChange = { newValue ->
             if (newValue.text == pendingEcho[0]) {
@@ -1353,7 +1366,10 @@ private fun EditorContent(
                                         theme,
                                         textLayout,
                                         item.tabOffsetMap,
-                                        caretVisible
+                                        // <本仓库补丁> 只读时不画选区与光标（见 `editable` facet）：
+                                        // 预览这类纯展示框不该看起来「能选、能编辑」。把判断做进
+                                        // 取值函数，绘制链因此一个字都不用动。
+                                        { session.editable && caretVisible() }
                                     )
                                     .onGloballyPositioned { contentCoords ->
                                         val layout = textLayout

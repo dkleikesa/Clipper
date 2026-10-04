@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 /**
  * 一个高亮片段：文档偏移 [start]..[end) 属于某类语法单元。
@@ -6,9 +6,9 @@ package com.qcmian.clipper.devtools.ui.components.code
  * 不是语法树，只是一遍扫描出来的「着色区间」——原生 `BasicTextField` 只有一个
  * `VisualTransformation` 能插手显示，够用就好。
  */
-internal data class CodeToken(val start: Int, val end: Int, val kind: CodeKind)
+data class CodeToken(val start: Int, val end: Int, val kind: CodeKind)
 
-internal enum class CodeKind { Key, StringLiteral, Number, Constant, Punctuation, Comment }
+enum class CodeKind { Key, StringLiteral, Number, Constant, Punctuation, Comment }
 
 /**
  * 一对配对的括号。
@@ -16,7 +16,7 @@ internal enum class CodeKind { Key, StringLiteral, Number, Constant, Punctuation
  * @param open  开括号自己的位置（`{` 或 `[`）
  * @param close 闭括号自己的位置（`}` 或 `]`）
  */
-internal data class BracketPair(val open: Int, val close: Int) {
+data class BracketPair(val open: Int, val close: Int) {
     /** 可折叠区间从这里开始：开括号之后。 */
     val foldStart: Int get() = open + 1
 
@@ -32,7 +32,7 @@ internal data class BracketPair(val open: Int, val close: Int) {
  *
  * 三样东西都要，而且都只需要一次遍历，所以合成一个函数返回，避免在同一段文本上扫三遍。
  */
-internal class CodeStructure(
+class CodeStructure(
     val tokens: List<CodeToken>,
     val brackets: List<BracketPair>,
     private val lineStarts: IntArray
@@ -77,7 +77,7 @@ internal class CodeStructure(
  * 给「不是代码的输入」用（数学表达式）：它既没有需要着色的语法单元，也没有块可折，但共用的代码框
  * 仍要靠行起点支撑「当前行底纹」等按行的工作。
  */
-internal fun scanPlain(text: String): CodeStructure {
+fun scanPlain(text: String): CodeStructure {
     val lineStarts = ArrayList<Int>()
     lineStarts.add(0)
     text.forEachIndexed { index, c -> if (c == '\n') lineStarts.add(index + 1) }
@@ -91,7 +91,7 @@ internal fun scanPlain(text: String): CodeStructure {
  * 这里只回答显示层的两个问题——「这个 token 该上什么色」「哪对括号之间可以折叠」。因此它对
  * 非法输入照样工作（边打边有高亮），也不会与 `JsonFormat` 的判断出现分歧。
  */
-internal fun scanJson(text: String): CodeStructure {
+fun scanJson(text: String): CodeStructure {
     val tokens = ArrayList<CodeToken>()
     val brackets = ArrayList<BracketPair>()
     val lineStarts = ArrayList<Int>()
@@ -206,7 +206,7 @@ private fun scanNumber(text: String, from: Int, tokens: MutableList<CodeToken>):
  * [BracketPair]，中间那段就是元素内容。于是 `<a>…</a>` 折叠成 `<a>…</a>` 里的一个省略号，
  * 与 [scanJson] 把 `{…}` 折起来是同一套机制。
  */
-internal fun scanXml(text: String): CodeStructure {
+fun scanXml(text: String): CodeStructure {
     val tokens = ArrayList<CodeToken>()
     val brackets = ArrayList<BracketPair>()
     val lineStarts = ArrayList<Int>()

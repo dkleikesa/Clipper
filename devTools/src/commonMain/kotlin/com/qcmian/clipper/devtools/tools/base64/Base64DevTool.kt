@@ -53,9 +53,9 @@ import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
-import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
-import com.qcmian.clipper.devtools.ui.components.code.rememberCodeColors
-import com.qcmian.clipper.devtools.ui.components.code.scanPlain
+import com.qcmian.clipper.core.ui.code.DevToolCodeField
+import com.qcmian.clipper.core.ui.code.rememberCodeColors
+import com.qcmian.clipper.core.ui.code.scanPlain
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
 import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import kotlinx.coroutines.Dispatchers
@@ -575,7 +575,7 @@ private fun ResultTextField(
         label = label,
         value = value,
         onValueChange = {},
-        readOnly = true,
+        editable = false,
         isError = isError,
         softWrap = softWrap,
         folding = false,

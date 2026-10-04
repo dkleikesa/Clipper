@@ -7,16 +7,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,9 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.Popup
+import com.qcmian.clipper.core.ui.code.DevToolCodeField
+import com.qcmian.clipper.core.ui.code.scanPlain
 import com.qcmian.clipper.core.ui.components.HoverTooltip
-import com.qcmian.clipper.core.ui.components.VerticalScrollbar
-import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
 import com.qcmian.clipper.core.ui.components.rememberImage
 import com.qcmian.clipper.core.ui.components.rememberImageBitmap
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
@@ -137,29 +134,28 @@ fun PreviewPane(
                     return@Box
                 }
 
-                val textScrollState = rememberScrollState()
-                // 换了一条就该从顶部开始看：`rememberScrollState` 是跨条目复用的，不重置的话
-                // 新内容会停在上一条的滚动位置上，看起来像「内容没换」。
-                LaunchedEffect(item.id) { textScrollState.scrollTo(0) }
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        // 给右侧滚动条留出位置：文字不会被滑块压住，滚动条出现 / 消失时也不重排。
-                        .padding(end = VerticalScrollbarWidth + 4.dp)
-                        .verticalScroll(textScrollState),
-                ) {
-                    // 全文照原样铺出来，不截断：超长文本（例如一整段 Base64）也要能完整看。
-                    Text(
-                        text = text,
-                        fontSize = 13.sp,
-                        color = colors.onSurface,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                // 文本超长时出现，内容放得下时整条隐藏。
-                VerticalScrollbar(
-                    scrollState = textScrollState,
-                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                // 正文交给代码框来画，**当普通文本**：不配色、不折叠、不要行号，只折行。
+                //
+                // 为什么不是丢给一个 `Text`：`Text` 会把整篇排成一个段落节点，段落多高就报多高，
+                // 几百万字时高度越过 Compose 的单边上限（16777215px）直接抛异常崩在渲染线程上
+                // （见 `PreviewTextView` 那条注释里的崩溃栈）。代码框底下是 `LazyColumn`，只组装
+                // 可见行，高度受视口约束，因此多长都能看。
+                //
+                // 折行开着是**必需**的：一整段没有换行的长串（无空格 Base64）不折行就是一个几百万
+                // 像素宽的节点，高度问题解决了、宽度问题还在。
+                DevToolCodeField(
+                    label = "",
+                    value = text,
+                    onValueChange = {},
+                    // 只读展示：预览是「看清楚这段东西」的地方，不在这里编辑。
+                    editable = false,
+                    softWrap = true,
+                    lineNumbers = false,
+                    folding = false,
+                    showLabel = false,
+                    scan = ::scanPlain,
+                    // 换一条要从顶部开始看：滚动状态跨条目复用，不重置会停在上一条的位置。
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }

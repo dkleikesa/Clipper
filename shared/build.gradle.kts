@@ -39,6 +39,9 @@ kotlin {
             // Room：唯一持久化层。
             implementation(libs.androidx.room3.runtime)
             implementation(libs.androidx.sqlite)
+            // 代码框（预览面板与开发者工具共用同一份）跑在 KodeMirror 上。它只依赖 compose
+            // 与 kotlinx，是叶子模块，因此 `:shared -> :kodemirror` 不成环。
+            implementation(project(":kodemirror"))
         }
 
         jvmMain.dependencies {

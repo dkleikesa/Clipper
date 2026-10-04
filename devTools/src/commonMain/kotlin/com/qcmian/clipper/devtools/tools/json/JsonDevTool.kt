@@ -34,7 +34,7 @@ import com.qcmian.clipper.devtools.ui.components.FormatMode
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
 import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import com.qcmian.clipper.devtools.ui.components.rememberFormattedText
-import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
+import com.qcmian.clipper.core.ui.code.DevToolCodeField
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -155,7 +155,7 @@ internal object JsonDevTool : DevTool {
                     // 文案已经自带「第几行 第几列」，不必再前缀「解析失败」。
                     value = formatted.error ?: formatted.output,
                     isError = formatted.error != null,
-                    readOnly = true,
+                    editable = false,
                     onValueChange = {},
                     placeholder = "美化 / 压缩的结果会显示在这里",
                     modifier = Modifier.weight(1f),

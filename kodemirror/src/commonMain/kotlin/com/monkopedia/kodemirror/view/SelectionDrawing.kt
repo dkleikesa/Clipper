@@ -94,6 +94,12 @@ private fun DrawScope.drawLineSelection(
     tabOffsetMap: IntArray?,
     cursorVisible: () -> Boolean
 ) {
+    // <本仓库补丁> 只读的编辑器既不画选区、也不画光标（见 `editable` facet）。
+    //
+    // 只读结果框（预览面板）里拖不出选区，那就不该把它画出来——否则用户拖过之后看到一片
+    // 高亮，会以为「这里能选、能复制」。判断用 `editable` 而不是再看一个参数：`session.editable`
+    // 就是这件事的唯一定义（见 `EditorSessionImpl.editable`）。
+    if (!state.facet(editable)) return
     val lineLength = lineTo - lineFrom
     // Check for block cursors (vim normal/visual mode)
     val blockCursors = state.facet(blockCursorProvider)

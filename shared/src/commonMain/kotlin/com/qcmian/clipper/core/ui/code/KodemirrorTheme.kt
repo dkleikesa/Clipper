@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -29,7 +29,7 @@ import com.monkopedia.kodemirror.view.EditorTheme
  *    **不上色**的（见 `matchBracketPair`——它只认已配对的那部分），这里同样留成透明。
  */
 @Composable
-internal fun rememberKodemirrorTheme(colors: CodeColors): EditorTheme {
+fun rememberKodemirrorTheme(colors: CodeColors): EditorTheme {
     val scheme = MaterialTheme.colorScheme
     val hint = MaterialTheme.hintColor
     val dark = colors.editorBackground.luminance() < 0.5f
@@ -83,7 +83,7 @@ internal fun rememberKodemirrorTheme(colors: CodeColors): EditorTheme {
  *
  * KodeMirror 把这一份同时用在正文、行号与折叠箭头上，因此两套实现的行高是对齐的。
  */
-internal fun kodemirrorContentStyle(scheme: ColorScheme, isError: Boolean): TextStyle =
+fun kodemirrorContentStyle(scheme: ColorScheme, isError: Boolean): TextStyle =
     TextStyle(
         fontFamily = FontFamily.Monospace,
         fontSize = 12.sp,

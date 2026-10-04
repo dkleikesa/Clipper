@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -82,7 +82,6 @@ import com.qcmian.clipper.core.ui.components.HorizontalScrollbarHeight
 import com.qcmian.clipper.core.ui.components.VerticalScrollbar
 import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
 import com.qcmian.clipper.core.ui.theme.hintColor
-import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import kotlin.math.roundToInt
 
 /** 折叠箭头所在列的宽度（够放 [ChevronLong] 的箭头，两侧还留得出余量）。 */
@@ -120,7 +119,7 @@ private val ChevronStroke = 1.5.dp
  * 所以这里既不新增参数、也不改调用面：业务层只认 `DevToolCodeField`（见 `CodeFieldEngine`）。
  */
 @Composable
-internal fun NativeCodeField(spec: CodeFieldSpec) {
+fun NativeCodeField(spec: CodeFieldSpec) {
     // 把契约摊成局部名：下面这一整段实现与「契约化」之前逐字相同——重构只换了参数的来源，
     // 没有碰它的逻辑。新增参数时，这里按需取用即可（用不到就不取：那是一个有意的决定，
     // 而 `CodeFieldSpec` 保证两边看到的是同一个集合）。
@@ -128,7 +127,7 @@ internal fun NativeCodeField(spec: CodeFieldSpec) {
     val value = spec.value
     val onValueChange = spec.onValueChange
     val modifier = spec.modifier
-    val readOnly = spec.readOnly
+    val editable = spec.editable
     val placeholder = spec.placeholder
     val isError = spec.isError
     val softWrap = spec.softWrap
@@ -206,9 +205,9 @@ internal fun NativeCodeField(spec: CodeFieldSpec) {
     // 所以这里改用排版结果现算：它只依赖 layout，与正文内容无关，光标动一下代价几乎为零。
     // 折行时一条逻辑行会占多个可视行，但光标只在其中一行，取它自己那一行的范围正合适。
     val caret = fieldValue.selection.end
-    val currentLineBand: Pair<Float, Float>? = remember(layout, mapping, caret, focused, readOnly) {
+    val currentLineBand: Pair<Float, Float>? = remember(layout, mapping, caret, focused, editable) {
         // 右侧只读结果框不画：那里没有「正在编辑的行」，一条底色只会与左侧争注意力。
-        if (readOnly || !focused) return@remember null
+        if (!editable || !focused) return@remember null
         val l = layout ?: return@remember null
         val transformed = mapping.originalToTransformed(caret)
         if (transformed !in 0..l.layoutInput.text.length) return@remember null
@@ -262,7 +261,7 @@ internal fun NativeCodeField(spec: CodeFieldSpec) {
      */
     fun filePasteModifier(): Modifier {
         val paste = filePaste
-        if (paste == null || readOnly) return Modifier
+        if (paste == null || !editable) return Modifier
         return Modifier.onPreviewKeyEvent { event ->
             if (event.type != KeyEventType.KeyDown || event.key != Key.V) {
                 return@onPreviewKeyEvent false
@@ -350,9 +349,9 @@ internal fun NativeCodeField(spec: CodeFieldSpec) {
                         // 有装订线时它自己占着左缘，正文从它右边开始；没有装订线时直接给正文留出边距。
                         start = if (showGutter) 2.dp else 8.dp,
                         top = 4.dp,
-                        end = VerticalScrollbarWidth + DevToolScrollbarGap,
+                        end = VerticalScrollbarWidth + CodeScrollbarGap,
                         bottom = if (softWrap) 4.dp
-                        else 4.dp + DevToolScrollbarGap + HorizontalScrollbarHeight,
+                        else 4.dp + CodeScrollbarGap + HorizontalScrollbarHeight,
                     )
                     .verticalScroll(scrollState)
             ) {
@@ -426,9 +425,12 @@ internal fun NativeCodeField(spec: CodeFieldSpec) {
                         BasicTextField(
                             value = fieldValue,
                             onValueChange = { new -> accept(new) },
-                            readOnly = readOnly,
+                            readOnly = !editable,
                             textStyle = textStyle,
-                            cursorBrush = SolidColor(colors.primary),
+                            // 只读时连光标刷一起透明：`readOnly` 只挡输入，不挡插入点。
+                            cursorBrush = SolidColor(
+                                if (editable) colors.primary else androidx.compose.ui.graphics.Color.Transparent
+                            ),
                             visualTransformation = transformation,
                             onTextLayout = { layout = it },
                             modifier = Modifier
@@ -537,6 +539,14 @@ private fun visualLines(
  * 262143 往下留两千出头的余量，免得 `Dp` → 像素取整刚好踩线。
  */
 private const val MaxGutterHeightPx = 260_000f
+
+/**
+ * 正文与自绘滚动条之间留的间隙。
+ *
+ * 与 `:devTools` 别处用的是同一个视觉值 5dp，但**刻意各留一份**：代码框已经搬进 `:shared`，
+ * 不能再反向依赖 `:devTools`；这个间隙是代码框自己的排版参数，不是工具箱的公共常量。
+ */
+private val CodeScrollbarGap = 5.dp
 
 /**
  * 行号 + 折叠箭头那一列。
@@ -760,7 +770,7 @@ private fun unfoldAroundCaret(
  * 一次线性扫过括号表。这在本项目的量级上可忽略——装订线每画一行就做一次同样的扫描
  * （见 `foldableOnLine`），它比这个热得多。
  */
-internal fun matchBracketPair(structure: CodeStructure, caret: Int): Pair<Int, Int>? {
+fun matchBracketPair(structure: CodeStructure, caret: Int): Pair<Int, Int>? {
     // 先只记「左边的那个括号」，整表扫完还没有「右边」的才用它——右边优先级更高，因此不能
     // 边扫边采用：内层 `]` 先入表，若当场采用，`]}` 之间就会错认成内层那一对。
     var onLeft: Pair<Int, Int>? = null

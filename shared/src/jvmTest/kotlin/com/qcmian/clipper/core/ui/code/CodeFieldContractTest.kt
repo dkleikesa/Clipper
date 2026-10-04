@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalTestApi::class)
 
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme

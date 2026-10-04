@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.ui.components.code
+package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -74,7 +74,7 @@ import com.monkopedia.kodemirror.view.placeholder as kodemirrorPlaceholder
  * |---|---|
  * | [label] / [actions] / [showLabel] | 与原生实现逐行相同地画一行标题（标题在左、动作在右） |
  * | [value] / [onValueChange] | 会话只建一次，外部换内容走 `setDoc`；变更回调只有**非回灌**的那次才出去 |
- * | [readOnly] | `editable` facet 关掉——KodeMirror 的输入管线会读它 |
+ * | [editable] | `editable` facet——管住输入、插入光标、点击落点与选区绘制 |
  * | [placeholder] | `placeholder { }` 占位组件，用与正文同一套度量 |
  * | [isError] | 正文整篇改用 `error` 色（与原生框一样，错误说明照样交给同一个框显示） |
  * | [softWrap] | `lineWrapping`；关掉时由 KodeMirror 自己横向滚动 |
@@ -101,17 +101,17 @@ import com.monkopedia.kodemirror.view.placeholder as kodemirrorPlaceholder
  *  2. **装订线宽度**：KodeMirror 的装订线是「左边距 + 行号列 + 右边距」，没有原生框那个
  *     行号与折叠列之间的固定间距，宽度因此不是像素级相同。
  *
- * 另外，[readOnly] / [lineNumbers] / [folding] / [softWrap] 在这一侧会随参数变化**重配扩展**
+ * 另外，[editable] / [lineNumbers] / [folding] / [softWrap] 在这一侧会随参数变化**重配扩展**
  * （原生框是组合期直接生效），所以调用方即使动态改这些开关也能对上。
  */
 @Composable
-internal fun KodemirrorCodeField(spec: CodeFieldSpec) {
+fun KodemirrorCodeField(spec: CodeFieldSpec) {
     // 与原生实现同一个写法：把契约摊成局部名，参数含义见 `CodeFieldSpec`。
     val label = spec.label
     val value = spec.value
     val onValueChange = spec.onValueChange
     val modifier = spec.modifier
-    val readOnly = spec.readOnly
+    val editable = spec.editable
     val placeholder = spec.placeholder
     val isError = spec.isError
     val softWrap = spec.softWrap
@@ -169,7 +169,7 @@ internal fun KodemirrorCodeField(spec: CodeFieldSpec) {
                         colors = codeColors,
                         theme = theme,
                         contentStyle = contentStyle,
-                        readOnly = readOnly,
+                        editable = editable,
                         softWrap = softWrap,
                         lineNumbers = lineNumbers,
                         folding = folding,
@@ -195,7 +195,7 @@ internal fun KodemirrorCodeField(spec: CodeFieldSpec) {
     }
 
     // 开关或主题变了就重配。用一个新对象当 key，免得依赖一长串参数的 equals。
-    val switchKey = remember(softWrap, lineNumbers, folding, readOnly, theme, contentStyle, codeColors) {
+    val switchKey = remember(softWrap, lineNumbers, folding, editable, theme, contentStyle, codeColors) {
         Any()
     }
     var appliedSwitch by remember { mutableStateOf<Any?>(null) }
@@ -215,7 +215,7 @@ internal fun KodemirrorCodeField(spec: CodeFieldSpec) {
                             colors = codeColors,
                             theme = theme,
                             contentStyle = contentStyle,
-                            readOnly = readOnly,
+                            editable = editable,
                             softWrap = softWrap,
                             lineNumbers = lineNumbers,
                             folding = folding,
@@ -243,7 +243,7 @@ internal fun KodemirrorCodeField(spec: CodeFieldSpec) {
                 .clip(shape)
                 .background(codeColors.editorBackground)
                 .border(1.dp, scheme.outline.copy(alpha = 0.6f), shape)
-                .then(filePasteInterceptor(session, filePaste, readOnly)),
+                .then(filePasteInterceptor(session, filePaste, editable)),
         ) {
             // **必须有有界高度**：KodeMirror 自己滚，拿到无界约束时它会按整篇文档的高度铺开。
             // 横竖两条滚动条都由 KodeMirror 自己画在正文之上（竖向那条是本仓库内联时补的，
@@ -264,7 +264,7 @@ private fun switchableExtensions(
     colors: CodeColors,
     theme: EditorTheme,
     contentStyle: TextStyle,
-    readOnly: Boolean,
+    editable: Boolean,
     softWrap: Boolean,
     lineNumbers: Boolean,
     folding: Boolean,
@@ -273,11 +273,13 @@ private fun switchableExtensions(
     parts += editorTheme.of(theme)
     parts += editorContentStyle.of(contentStyle)
     parts += codeHighlight(scanner, colors)
-    // 只读：KodeMirror 的输入管线会读这个 facet（见上游 `InputHandling`）。
-    parts += editable.of(!readOnly)
+    // 这一位就是 [CodeFieldSpec.editable] 落到 KodeMirror 的形态：输入管线、插入光标、正文
+    // 手势、选区绘制四处都读它（后三处在本仓库补丁里，见 `KodeMirror` 与 `SelectionDrawing`）。
+    // 这里必须写全限定名：参数就叫 `editable`，同名 facet 会被它遮住。
+    parts += com.monkopedia.kodemirror.view.editable.of(editable)
     // 只读结果框不画当前行底纹——原生框也是这么定的：那里没有「正在编辑的行」，一条底色只会与
     // 左侧输入框争注意力。
-    if (!readOnly) parts += highlightActiveLine
+    if (editable) parts += highlightActiveLine
     // 行号与折叠箭头各占一列：关掉就不占，与原生框「两个开关各自决定自己占不占宽」一致。
     if (lineNumbers) parts += gutterLineNumbers
     if (folding) parts += foldGutter()
@@ -295,9 +297,9 @@ private fun switchableExtensions(
 private fun filePasteInterceptor(
     session: EditorSession,
     filePaste: (() -> String?)?,
-    readOnly: Boolean,
+    editable: Boolean,
 ): Modifier {
-    if (filePaste == null || readOnly) return Modifier
+    if (filePaste == null || !editable) return Modifier
     return Modifier.onPreviewKeyEvent { event ->
         if (event.type != KeyEventType.KeyDown || event.key != Key.V) return@onPreviewKeyEvent false
         if (!event.isMetaPressed && !event.isCtrlPressed) return@onPreviewKeyEvent false
