@@ -160,6 +160,31 @@ class AcceptancePreviewTest {
     }
 
     @Test
+    fun `置顶之后预览拿到的是更新过的那一条`() = runBlocking<Unit> {
+        val cluster = InProcessCluster()
+        try {
+            cluster.start()
+            startCapture(cluster)
+            cluster.clipboard.emit(textSnapshot("普通项"))
+            cluster.awaitHistorySize(1)
+
+            val viewModel = ClipboardViewModel(cluster.repository, cluster.repository, cluster.useCases)
+            viewModel.onAction(ClipboardUiAction.SelectOnly(0))
+            await { viewModel.uiState.value.previewItem != null }
+            assertEquals(false, viewModel.uiState.value.previewItem?.isPinned, "刚进来还没置顶")
+
+            viewModel.onAction(ClipboardUiAction.TogglePinSelected)
+            await { cluster.repository.pinned.value.size == 1 }
+
+            // 预览工具栏那个按钮读的就是 `previewItem`：它不跟着翻，用户看到的就是「pin 和
+            // unpin 永远是同一个图标」（见 `syncPreview`）。
+            await { viewModel.uiState.value.previewItem?.isPinned == true }
+        } finally {
+            cluster.close()
+        }
+    }
+
+    @Test
     fun `没有识别能力的平台不会给图片造标题`() = runBlocking<Unit> {
         val cluster = InProcessCluster()
         try {
@@ -200,6 +225,15 @@ class AcceptancePreviewTest {
             image = ClipImage(bytes),
             types = listOf(PNG_CONTENT_TYPE),
             contents = listOf(ClipboardContent(PNG_CONTENT_TYPE, bytes)),
+        )
+    }
+
+    private fun textSnapshot(text: String): ClipboardSnapshot {
+        val bytes = text.encodeToByteArray()
+        return ClipboardSnapshot(
+            text = text,
+            types = listOf("public.utf8-plain-text"),
+            contents = listOf(ClipboardContent("public.utf8-plain-text", bytes)),
         )
     }
 

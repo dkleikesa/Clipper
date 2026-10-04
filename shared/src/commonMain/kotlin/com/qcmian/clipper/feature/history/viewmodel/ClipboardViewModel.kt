@@ -110,8 +110,15 @@ class ClipboardViewModel(
 
     private var statusJob: Job? = null
 
-    /** 当前 [ClipboardUiState.previewItem] 对应的条目 id，避免同一条目被反复加载。 */
-    private var previewId: String? = null
+    /**
+     * 当前 [ClipboardUiState.previewItem] 是按哪一份元数据取回来的，用来判断要不要重取。
+     *
+     * 判据是**整份元数据**而不是 id：同一条被置顶、被识别补上原文、又被复制一次，id 都不变，
+     * 但预览面板上读元数据的那些地方（置顶按钮的 `pin` / `pin.slash`、复制次数、时间）都得跟着
+     * 变。只比 id 的话它们会一直停在打开预览那一刻的样子——「pin 和 unpin 是同一个图标」就是
+     * 这么来的。
+     */
+    private var previewMeta: ClipMeta? = null
     private var previewJob: Job? = null
 
     /** 正在跑的结果重算；新的一次会取消旧的，因此连续输入只有最后一次会落地。 */
@@ -151,8 +158,14 @@ class ClipboardViewModel(
      *
      * 预览是来回看的操作（`A → B → A`），单槽会让每次回头都重新读库；命中它就直接投影进
      * [ClipboardUiState.previewItem]，连防抖都不用等。上限见 [PREVIEW_CACHE_ITEMS]。
+     *
+     * 每项连**取它时的那份元数据**一起存：条目被改写过（置顶、识别补上原文、又复制一次），
+     * 元数据就与缓存里那份对不上了，这一项随之作废（见 [cachedPreview]）。
      */
-    private val previewCache = LinkedHashMap<String, ClipItem>()
+    private val previewCache = LinkedHashMap<String, PreviewEntry>()
+
+    /** [previewCache] 的一项：完整条目 + 它是按哪份元数据取的。 */
+    private class PreviewEntry(val meta: ClipMeta, val item: ClipItem)
 
     /** [previewCache] 占用的近似字节数（见 `ClipItem.approximateSizeBytes`），与它同步增减。 */
     private var previewBytes = 0L
@@ -473,17 +486,18 @@ class ClipboardViewModel(
     private fun syncPreview(meta: ClipMeta?) {
         if (meta == null) {
             previewJob?.cancel()
-            previewId = null
+            previewMeta = null
             _uiState.update { if (it.previewItem != null) it.copy(previewItem = null) else it }
             return
         }
-        if (meta.id == previewId) return
+        // 整份元数据没变才跳过：只是同一条还不够，置顶 / 识别 / 再复制都要重取一次。
+        if (meta == previewMeta) return
 
-        previewId = meta.id
+        previewMeta = meta
         previewJob?.cancel()
         previewJob = viewModelScope.launch {
             delay(PREVIEW_DEBOUNCE_MILLIS)
-            val item = cachedPreview(meta) ?: repository.item(meta.id)?.also(::cachePreview)
+            val item = cachedPreview(meta) ?: repository.item(meta.id)?.also { cachePreview(meta, it) }
             // 加载期间选中项可能又变了：只在仍然是同一条时落地。
             _uiState.update { if (it.selectedMeta?.id == meta.id) it.copy(previewItem = item) else it }
         }
@@ -491,16 +505,16 @@ class ClipboardViewModel(
 
     /** 缓存里那一份还能用就返回它（顺带挪到最新端）；不可用时返回 `null`，由调用方去读库。 */
     private fun cachedPreview(meta: ClipMeta): ClipItem? {
-        val cached = previewCache.remove(meta.id) ?: return null
-        // 库里的条目被改写过时缓存已过期——典型是图片识别刚补上原文，而缓存里还是那份
-        // 「没有识别文字」的旧快照（界面会少一个「复制图片文字」按钮）。
-        if (cached.hasRecognizedText != meta.hasRecognizedText) return null
-        previewCache[meta.id] = cached
-        return cached
+        val entry = previewCache.remove(meta.id) ?: return null
+        // 库里的条目被改写过时缓存已过期——识别刚补上原文、或刚被置顶 / 取消置顶，缓存里都还是
+        // 改写之前那份快照（界面会少一个「复制图片文字」按钮、置顶按钮也不翻面）。
+        if (entry.meta != meta) return null
+        previewCache[meta.id] = entry
+        return entry.item
     }
 
-    private fun cachePreview(item: ClipItem) {
-        previewCache[item.id] = item
+    private fun cachePreview(meta: ClipMeta, item: ClipItem) {
+        previewCache[item.id] = PreviewEntry(meta, item)
         previewBytes += item.approximateSizeBytes
         trimPreviewCache()
     }
@@ -516,7 +530,7 @@ class ClipboardViewModel(
             (previewBytes > PREVIEW_CACHE_BYTES && previewCache.size > 1)
         ) {
             val oldest = previewCache.keys.firstOrNull() ?: break
-            previewCache.remove(oldest)?.let { previewBytes -= it.approximateSizeBytes }
+            previewCache.remove(oldest)?.let { previewBytes -= it.item.approximateSizeBytes }
         }
     }
 
@@ -615,7 +629,7 @@ class ClipboardViewModel(
             return
         }
         viewModelScope.launch {
-            val item = cachedPreview(meta) ?: repository.item(meta.id)?.also(::cachePreview)
+            val item = cachedPreview(meta) ?: repository.item(meta.id)?.also { cachePreview(meta, it) }
             _uiState.update { it.copy(devToolsOpen = true, devToolsItem = item) }
         }
     }
