@@ -43,12 +43,6 @@ import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.util.formatDateTime
 
 /**
- * 是 1 000 个字符；Compose 无法只布局字符串的
- * 可见部分，因此本复刻版额外限制了超长条目实际渲染的长度。
- */
-private const val LARGE_TEXT_LIMIT = 20_000
-
-/**
  * + `PreviewItemView`：带置顶与删除操作的工具栏、
  * 内容本身，然后是元信息区块。
  */
@@ -143,10 +137,6 @@ fun PreviewPane(
                     return@Box
                 }
 
-                // 超过 `largeTextThreshold`
-                // 个字符时原生实现会改用专门的文本视图。Compose 没有只布局可视区域的文本
-                // 能力，因此这里直接截断尾部，而不是每帧去布局一个数兆字节的字符串。
-                val truncated = text.length > LARGE_TEXT_LIMIT
                 val textScrollState = rememberScrollState()
                 // 换了一条就该从顶部开始看：`rememberScrollState` 是跨条目复用的，不重置的话
                 // 新内容会停在上一条的滚动位置上，看起来像「内容没换」。
@@ -158,20 +148,13 @@ fun PreviewPane(
                         .padding(end = VerticalScrollbarWidth + 4.dp)
                         .verticalScroll(textScrollState),
                 ) {
+                    // 全文照原样铺出来，不截断：超长文本（例如一整段 Base64）也要能完整看。
                     Text(
-                        text = if (truncated) text.take(LARGE_TEXT_LIMIT) else text,
+                        text = text,
                         fontSize = 13.sp,
                         color = colors.onSurface,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    if (truncated) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = "内容过长，仅显示前 $LARGE_TEXT_LIMIT 个字符。",
-                            fontSize = 11.sp,
-                            color = colors.onSurfaceVariant,
-                        )
-                    }
                 }
                 // 文本超长时出现，内容放得下时整条隐藏。
                 VerticalScrollbar(
