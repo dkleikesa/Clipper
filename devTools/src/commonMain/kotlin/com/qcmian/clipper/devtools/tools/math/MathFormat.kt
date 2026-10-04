@@ -1,5 +1,6 @@
 package com.qcmian.clipper.devtools.tools.math
 
+import androidx.compose.ui.text.toUpperCase
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.log10
@@ -55,21 +56,26 @@ internal object MathFormat {
     }
 
     /**
-     * 整数结果顺带列出的其它进制（十六 / 二 / 八）；非整数或超出安全整数范围时返回 `null`。
+     * 整数结果顺带列出的其它进制（十六 / 二 / 八，按这个顺序）；非整数或超出安全整数范围时返回 `null`。
      *
      * 做成「三个一起给」而不是让用户在进制之间切：开发者多数时候想要的是「十六进制长什么样」，
      * 三个并排比来回切换更省事，也省掉一个容易忘掉当前选中的下拉。
+     *
+     * 返回**分开的三条**而不是拼成一串：界面上每一条各是一个可点击复制的目标，用户要的是
+     * 某一个进制本身，而不是「三个连在一起」的一行字。
      */
-    fun integerBases(value: Double): String? {
+    fun integerBases(value: Double): List<String>? {
         if (!value.isFinite() || value != floor(value) || abs(value) > 9.0e15) return null
         val number = value.toLong()
         if (number == 0L) return null
         val sign = if (number < 0) "-" else ""
         val magnitude = if (number < 0) -number else number
-        // 符号分别写在每个前缀前：`-0xff · -0b…` 比只在前头写一个负号清楚。
-        return "$sign" + "0x${magnitude.toString(16)} · " +
-            "$sign" + "0b${magnitude.toString(2)} · " +
-            "$sign" + "0o${magnitude.toString(8)}"
+        // 符号分别写在每个前缀前：`-0xff`、`-0b…` 比只在前头写一个负号清楚。
+        return listOf(
+            "$sign" + "0x${magnitude.toString(16).uppercase()}",
+            "$sign" + "0b${magnitude.toString(2).uppercase()}",
+            "$sign" + "0o${magnitude.toString(8).uppercase()}",
+        )
     }
 
     /** `1.2345E15` 这样的表示，转成 `1.2345e15`：小写的 e 更像数学写法，也更省一列。 */

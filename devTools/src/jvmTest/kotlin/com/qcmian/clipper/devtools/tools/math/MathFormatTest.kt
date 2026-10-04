@@ -44,8 +44,8 @@ class MathFormatTest {
 
     @Test
     fun `integer results also list the other bases`() {
-        assertEquals("0xff · 0b11111111 · 0o377", MathFormat.integerBases(255.0))
-        assertEquals("-0x1 · -0b1 · -0o1", MathFormat.integerBases(-1.0))
+        assertEquals(listOf("0xff", "0b11111111", "0o377"), MathFormat.integerBases(255.0))
+        assertEquals(listOf("-0x1", "-0b1", "-0o1"), MathFormat.integerBases(-1.0))
     }
 
     @Test

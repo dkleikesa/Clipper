@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.components.VerticalScrollbar
 import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
+import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.devtools.api.DevTool
@@ -167,7 +169,12 @@ internal object MathDevTool : DevTool {
 
             Spacer(Modifier.height(10.dp))
 
-            ResultCard(outcome = outcome, source = source)
+            ResultCard(
+                outcome = outcome,
+                source = source,
+                // 结果里的进制写法点了就复制它自己，宿主顺带弹一句「已复制到剪贴板」。
+                onCopy = { host.copyToClipboard(it) },
+            )
 
             Spacer(Modifier.height(10.dp))
 
@@ -230,7 +237,7 @@ internal object MathDevTool : DevTool {
 
 /** 结果卡：主值是十进制结果，另附整数结果的其它进制；失败时这里显示带位置的报错。 */
 @Composable
-private fun ResultCard(outcome: Result<Double>?, source: String) {
+private fun ResultCard(outcome: Result<Double>?, source: String, onCopy: (String) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(6.dp)
 
@@ -262,14 +269,21 @@ private fun ResultCard(outcome: Result<Double>?, source: String) {
                     fontSize = 22.sp,
                     color = colors.onSurface,
                 )
-                MathFormat.integerBases(number)?.let {
+                MathFormat.integerBases(number)?.let { bases ->
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = it,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.hintColor,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        bases.forEachIndexed { index, base ->
+                            if (index > 0) {
+                                Text(
+                                    text = "·",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.hintColor,
+                                    modifier = Modifier.padding(horizontal = 2.dp),
+                                )
+                            }
+                            BaseChip(value = base, onCopy = onCopy)
+                        }
+                    }
                 }
             }
 
@@ -280,6 +294,39 @@ private fun ResultCard(outcome: Result<Double>?, source: String) {
                 fontSize = 13.sp,
                 color = colors.error,
             )
+        }
+    }
+}
+
+/**
+ * 一种进制写法。点了就把**它自己**复制走——三个进制并排显示，用户要的是其中的某一个，
+ * 复制「三个连成一行」没有意义。悬停时给底纹并亮出复制图标，提示这里可以点。
+ */
+@Composable
+private fun BaseChip(value: String, onCopy: (String) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val shape = RoundedCornerShape(3.dp)
+
+    Row(
+        modifier = Modifier
+            .clip(shape)
+            .background(if (hovered) colors.onSurface.copy(alpha = 0.08f) else Color.Transparent)
+            .hoverable(interaction)
+            .clickable(interactionSource = interaction, indication = null) { onCopy(value) }
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = value,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            color = MaterialTheme.hintColor,
+        )
+        if (hovered) {
+            Spacer(Modifier.width(4.dp))
+            ClipperIcon(ClipperIconKind.COPY, size = 12.dp, tint = colors.onSurfaceVariant)
         }
     }
 }
