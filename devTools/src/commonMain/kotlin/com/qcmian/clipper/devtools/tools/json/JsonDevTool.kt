@@ -34,6 +34,8 @@ import com.qcmian.clipper.devtools.ui.components.FormatMode
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
 import com.qcmian.clipper.devtools.ui.components.rememberFormattedText
 import com.qcmian.clipper.devtools.ui.components.code.DevToolCodeField
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * JSON 格式化 / 压缩工具，也是插件接口的参考实现。
@@ -85,7 +87,9 @@ internal object JsonDevTool : DevTool {
         // 每次主面板交进来一份新的剪贴板内容就整块替换：结果与提示都属于「上一份内容」，
         // 留着会让用户以为结果是对新内容算出来的。先灌正文再 `reset()`——它会按新正文重排一遍。
         LaunchedEffect(input) {
-            val text = input?.devToolText() ?: return@LaunchedEffect
+            val item = input ?: return@LaunchedEffect
+            // 取文本可能要读文件、也可能要解析富文本——放到后台算，别让主线程在打开面板时先卡一下。
+            val text = withContext(Dispatchers.Default) { item.devToolText() }
             source = text
             typed = false
             formatted.reset()

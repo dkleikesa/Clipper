@@ -106,7 +106,9 @@ internal object MathDevTool : DevTool {
 
         // 从剪贴板条目打开时灌入正文——复制一个式子再按快捷键，是这里最顺手的用法。
         LaunchedEffect(input) {
-            val text = input?.devToolText() ?: return@LaunchedEffect
+            val item = input ?: return@LaunchedEffect
+            // 取文本可能要读文件、也可能要解析富文本——放到后台算，别让主线程在打开面板时先卡一下。
+            val text = withContext(Dispatchers.Default) { item.devToolText() }
             source = text
             typed = false
         }

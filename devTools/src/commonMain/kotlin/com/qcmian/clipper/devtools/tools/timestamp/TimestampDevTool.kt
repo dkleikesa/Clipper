@@ -64,6 +64,8 @@ import com.qcmian.clipper.devtools.ui.components.code.rememberCodeColors
 import com.qcmian.clipper.devtools.ui.components.code.scanPlain
 import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
 import kotlin.time.Instant
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** 输入区高度：大约四行，够显示一个时间戳或一条日期时间，也给结果区留出地方。 */
 private val InputFieldHeight = 84.dp
@@ -200,7 +202,9 @@ internal object TimestampDevTool : DevTool {
 
         // 从剪贴板条目打开时灌入正文——复制一个时间戳再按快捷键，是这里最顺手的用法。
         LaunchedEffect(input) {
-            val text = input?.devToolText() ?: return@LaunchedEffect
+            val item = input ?: return@LaunchedEffect
+            // 取文本可能要读文件、也可能要解析富文本——放到后台算，别让主线程在打开面板时先卡一下。
+            val text = withContext(Dispatchers.Default) { item.devToolText() }
             source = text
             origin = SourceOrigin.Clipboard
         }

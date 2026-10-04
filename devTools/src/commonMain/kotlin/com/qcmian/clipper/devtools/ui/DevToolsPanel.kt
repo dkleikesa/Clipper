@@ -56,7 +56,9 @@ import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.registry.DevToolsRegistry
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /** 够放下一行工具名。 */
 private val SidebarWidth = 216.dp
@@ -111,20 +113,38 @@ fun DevToolsPanel(
     // 类型探测在这里做，而不是在剪贴板那边：只有面板关心结果——它决定默认打开哪个工具、状态栏
     // 写什么类型。剪贴板只管把记录交过来，因此完全不必知道工具的存在。
     //
+    // **它必须跑在后台线程上。** 探测要先把内容取成文本（文件类条目要**读文件**），再把整段喂给
+    // JSON / XML 解析器——那些都是整篇全量解析。放在组合里做，等于让主线程去啃一条几兆的记录，
+    // 窗口一打开就是死的。这与具体哪个工具无关，所以表现是「打开开发者工具就卡死」而不是某个
+    // 工具卡死（`devToolText` 只负责取到文本，真正的大头是 `detectTypes` 里那两个解析器）。
+    //
     // 探测结果**不进状态、也不交给工具**：它是面板对「这条内容是什么」的判断，只有渲染用得着；
     // 工具能不能吃某段内容由它自己声明的 `acceptedDataTypes` 决定，不需要别人告诉它。
     // 探测的是「工具实际会看到的文本」而不是 `previewText`：文件类条目要读文件内容再判类型，
     // 否则一个 .json 文件只会因为路径被判成纯文本、推不出 JSON 工具（见 `devToolText`）。
-    val detected = remember(item) { registry.detectTypes(item?.devToolText().orEmpty()) }
+    //
+    // `null` 表示**还没探完**：这期间不自动选工具（先按声明顺序显示第一个），切换到推荐工具发生在
+    // 结果回来之后——通常快到看不见，内容很大时也只是一个可用的窗口等一下，而不是整个卡住。
+    var detected by remember(item) { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(item) {
+        detected = null
+        val text = withContext(Dispatchers.Default) { item?.devToolText().orEmpty() }
+        detected = withContext(Dispatchers.Default) { registry.detectTypes(text) }
+    }
 
     var selectedId by remember { mutableStateOf<String?>(null) }
+    // 用户自己点过工具没有（换一条记录就重置）。探测挪到后台之后结果可能晚到，那时用户说不定
+    // 早就在用了——不能让它把用户点好的选择顶掉。换一条记录时重新允许自动推荐。
+    var pickedByUser by remember(item) { mutableStateOf(false) }
 
     val recommended = remember(registry, detected) {
-        registry.rankedTools(detected).filter { tool -> detected.any { it in tool.acceptedDataTypes } }
+        val types = detected.orEmpty()
+        registry.rankedTools(types).filter { tool -> types.any { it in tool.acceptedDataTypes } }
     }
     val recommendedId = recommended.firstOrNull()?.metadata?.id
 
-    LaunchedEffect(item) {
+    LaunchedEffect(item, detected, pickedByUser) {
+        if (detected == null || pickedByUser) return@LaunchedEffect
         selectedId = recommendedId
             ?: selectedId?.takeIf { registry.tool(it) != null }
             ?: registry.tools.firstOrNull()?.metadata?.id
@@ -237,7 +257,10 @@ fun DevToolsPanel(
                         groups = groups,
                         selectedId = effectiveSelectedId,
                         recommendedId = recommendedId,
-                        onSelect = { selectedId = it },
+                        onSelect = {
+                            pickedByUser = true
+                            selectedId = it
+                        },
                         modifier = Modifier.width(SidebarWidth).fillMaxHeight(),
                     )
                     VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
@@ -248,7 +271,10 @@ fun DevToolsPanel(
                         tools = tools,
                         selectedId = effectiveSelectedId,
                         recommendedId = recommendedId,
-                        onSelect = { selectedId = it },
+                        onSelect = {
+                            pickedByUser = true
+                            selectedId = it
+                        },
                         modifier = Modifier.width(RailWidth).fillMaxHeight(),
                     )
                     VerticalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
@@ -267,7 +293,7 @@ fun DevToolsPanel(
                 val toolStatus = reportedStatus.value?.takeIf { it.first == effectiveSelectedId }?.second
                 val toolSource = reportedSource.value?.takeIf { it.first == effectiveSelectedId }?.second
                 ToolStatusBar(
-                    type = detected.firstOrNull(),
+                    type = detected?.firstOrNull(),
                     source = sourceLabel(item, openedFiles.value, toolSource),
                     message = status.value,
                     toolStatus = toolStatus,
