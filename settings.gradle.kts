@@ -99,3 +99,8 @@ include(":cli")
 // 跨模块共享的测试夹具（假剪贴板 / 假原生能力 / 造数助手）。
 // 只被 :shared 与 :cli 的测试源集依赖，不进任何分发包——见模块内的 build.gradle.kts。
 include(":testing")
+
+// 代码编辑框的候选实现：CodeMirror 6 的 Compose 移植，**按源码内联**在这里（不是 Maven 依赖），
+// 因为桌面端上游只到「单测通过、视觉轻度验证」，撞到问题时要能就地改。见模块内 README.md。
+// 只被 :devTools 使用，且其中的任何类型都不出现在 :devTools 的公开 API 上。
+include(":kodemirror")

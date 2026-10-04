@@ -1,0 +1,121 @@
+Kodemirror
+Copyright 2026 Jason Monk
+
+This product includes software derived from CodeMirror 6,
+originally authored by Marijn Haverbeke and contributors.
+
+CodeMirror 6 is licensed under the MIT License:
+
+  Copyright (C) 2018-2024 by Marijn Haverbeke <marijn@haverbeke.berlin>
+  and others
+
+  Permission is hereby granted, free of charge, to any person obtaining
+  a copy of this software and associated documentation files (the
+  "Software"), to deal in the Software without restriction, including
+  without limitation the rights to use, copy, modify, merge, publish,
+  distribute, sublicense, and/or sell copies of the Software, and to
+  permit persons to whom the Software is furnished to do so, subject to
+  the following conditions:
+
+  The above copyright notice and this permission notice shall be
+  included in all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+CodeMirror 6 repositories:
+  https://github.com/codemirror/state
+  https://github.com/codemirror/view
+  https://github.com/codemirror/commands
+  https://github.com/codemirror/language
+  https://github.com/codemirror/autocomplete
+  https://github.com/codemirror/search
+  https://github.com/codemirror/lint
+  https://github.com/codemirror/collab
+  https://github.com/codemirror/merge
+
+---
+
+The :vim module includes software derived from @replit/codemirror-vim,
+originally authored by Marijn Haverbeke and others, with contributions
+by Yunchi Luo (Replit).
+
+@replit/codemirror-vim is licensed under the MIT License:
+
+  Copyright (C) 2018-2021 by Marijn Haverbeke <marijnh@gmail.com>
+  and others
+
+  Permission is hereby granted, free of charge, to any person obtaining
+  a copy of this software and associated documentation files (the
+  "Software"), to deal in the Software without restriction, including
+  without limitation the rights to use, copy, modify, merge, publish,
+  distribute, sublicense, and/or sell copies of the Software, and to
+  permit persons to whom the Software is furnished to do so, subject to
+  the following conditions:
+
+  The above copyright notice and this permission notice shall be
+  included in all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+  LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+  WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Repository: https://github.com/replit/codemirror-vim
+
+---
+
+The :theme-amy, :theme-ayu-light, :theme-barf, :theme-bespin, :theme-birds-of-paradise,
+:theme-boys-and-girls, :theme-clouds, :theme-cobalt, :theme-cool-glow, :theme-dracula,
+:theme-espresso, :theme-noctis-lilac, :theme-rose-pine-dawn, :theme-smoothy,
+:theme-solarized-light, and :theme-tomorrow modules include software derived from thememirror,
+authored by Vadim Demedes and contributors.
+
+thememirror is licensed under the MIT License:
+
+  MIT License
+
+  Copyright (c) Vadim Demedes <vdemedes@gmail.com> (https://vadimdemedes.com)
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+Repository: https://github.com/vadimdemedes/thememirror
+
+Individual theme credits:
+  - Amy: William D. Neumann
+  - Ayu Light: Konstantin Pschera
+  - Bespin: Michael Diolosa
+  - Birds of Paradise: Joe Bergantine
+  - Clouds: Fred LeBlanc
+  - Cobalt: Jacob Rus
+  - Dracula: Zeno Rocha
+  - Espresso: TextMate
+  - Noctis Lilac: Liviu Schera
+  - Rose Pine Dawn: Rosé Pine
+  - Smoothy: Kenneth Reitz
+  - Solarized Light: Ethan Schoonover
+  - Tomorrow: Chris Kempson
