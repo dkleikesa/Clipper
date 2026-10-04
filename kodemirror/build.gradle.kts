@@ -26,10 +26,14 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
         }
 
-        // 本仓库补丁（多击选择）的行为测试：只喂位置与连击数、只读最终选区，用不上 Compose 的
-        // 测试设施。**上游的测试没有拷进来**（见 README.md），这是本仓库自己那一个。
+        // 本仓库补丁的行为测试：多击选择只喂位置与连击数、只读最终选区；选区高亮（`SelectionRowRectsTest`）
+        // 要用 `TextMeasurer` 真量一遍折行排版。两者都不起组合环境。**上游的测试没有拷进来**
+        // （见 README.md），这些是本仓库自己的。
         jvmTest.dependencies {
             implementation(kotlin("test"))
+            // `TextMeasurer` 背后是 skiko 的 `FontCollection`：公共的 `compose.ui` 只有跨平台部分，
+            // 少了这个原生库会在取字体解析器时抛 `LibraryLoadException`，报错完全不提「依赖缺失」。
+            implementation(compose.desktop.currentOs)
         }
     }
 }

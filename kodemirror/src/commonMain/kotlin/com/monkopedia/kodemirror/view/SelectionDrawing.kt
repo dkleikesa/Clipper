@@ -253,6 +253,96 @@ private fun DrawScope.drawLineCursor(
     }
 }
 
+/** <本仓库补丁> 一个视觉行上的选区高亮块，坐标是本行这一层自己的本地坐标。 */
+internal data class SelectionRowRect(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float
+)
+
+/**
+ * <本仓库补丁> 一个文档行里的选区，落在每个**视觉行**上的高亮块。
+ *
+ * 上游把「一个文档行 = 一块矩形」写死了：左端取 `from` 的横坐标、右端取 `to` 的横坐标。不开
+ * 折行时两者同处一个视觉行，看不出问题；开了折行（`lineWrapping`）之后，一条超长行在排版里
+ * 是好几行，而 `getHorizontalPosition` 给的是**那个字符所在视觉行**的行内横坐标——夹在中间的
+ * 整行整行因此被漏掉。全选一条超长行时，右端会取到**最后一个视觉行**行内那个横坐标，画出来
+ * 就是左侧一条窄带：看着像没选上，其实选区是全的（复制出来是全的）。
+ *
+ * 这里按视觉行逐行算：起点行从 `from` 起，终点行到 `to` 止，中间那些行（以及选区延续到下一个
+ * 文档行的最后一个视觉行）铺到容器右边缘；纵向取排版结果给的行顶 / 行底——只落在中间某个视觉
+ * 行上的选区，因此也不会再按整条文档行的高度画成一大块（画布高度是这条折行行的总高）。
+ * 不折行时 `lineCount` 为 1，结果与上游那块矩形逐像素一致。
+ */
+internal fun lineSelectionRowRects(
+    layout: TextLayoutResult?,
+    fromOffset: Int,
+    toOffset: Int,
+    lineLength: Int,
+    containerWidth: Float,
+    containerHeight: Float,
+    extendsToNextLine: Boolean
+): List<SelectionRowRect> {
+    if (layout == null) {
+        // Fallback: fraction-based (inaccurate but better than nothing)
+        val startFraction = if (lineLength > 0) fromOffset.toFloat() / lineLength else 0f
+        val endFraction = if (lineLength > 0) toOffset.toFloat() / lineLength else 1f
+        val x = startFraction * containerWidth
+        val endX = if (extendsToNextLine) containerWidth else endFraction * containerWidth
+        return listOf(
+            SelectionRowRect(x, 0f, maxOf(endX, x + 1f), containerHeight)
+        )
+    }
+
+    // 上界取**排版结果里的**文本长度：打字后一帧内文档已经变了、排版还没跟上（见
+    // `cursorLayoutOffset` 那段说明），这期间偏移会比排版里的文本长。
+    val textLen = layout.layoutInput.text.length
+    val from = fromOffset.coerceIn(0, textLen)
+    val to = toOffset.coerceIn(0, textLen)
+    val rowCount = layout.lineCount
+
+    val startRow = layout.getLineForOffset(from)
+    // 终点行按**最后一个被选中的字符**取：`to` 是开区间端点，正好停在折行处时它已经属于下一个
+    // 视觉行了，照它取会多画一行（行首那一像素）。
+    val endRow = if (to > from) layout.getLineForOffset(to - 1) else startRow
+    val singleRow = rowCount <= 1
+
+    return (startRow..endRow).map { row ->
+        val top: Float
+        val height: Float
+        if (singleRow) {
+            // 不折行：纵向仍铺满这一层（层高可能大于排版行高），与上游画法一致。
+            top = 0f
+            height = containerHeight
+        } else {
+            top = layout.getLineTop(row)
+            height = (layout.getLineBottom(row) - top).coerceAtLeast(1f)
+        }
+        val left = if (row == startRow) {
+            layout.getHorizontalPosition(from, true)
+        } else {
+            layout.getLineLeft(row)
+        }
+        // 这一行在文档偏移里的上界：下一个视觉行的起点；最后一个视觉行就是本行文本的末尾。
+        val rowLimit = if (row + 1 < rowCount) layout.getLineStart(row + 1) else textLen
+        val right = when {
+            // 选区还接着往下走，这一行整行都是选中态。
+            row < endRow -> containerWidth
+            // 正好选到折行前的最后一个字符：铺到容器右边缘。本行末尾这一处只在选区还延续到
+            // 下一个文档行时才铺满——否则高亮不该越过文本末端。
+            to == rowLimit && (row + 1 < rowCount || extendsToNextLine) -> containerWidth
+            else -> layout.getHorizontalPosition(to, true)
+        }
+        SelectionRowRect(
+            left = left,
+            top = top,
+            right = maxOf(right, left + 1f),
+            bottom = top + height
+        )
+    }
+}
+
 private fun DrawScope.drawLineSelectionRange(
     fromOffset: Int,
     toOffset: Int,
@@ -261,38 +351,20 @@ private fun DrawScope.drawLineSelectionRange(
     textLayoutResult: TextLayoutResult?,
     extendsToNextLine: Boolean
 ) {
-    val lineHeight = size.height
-    val textLen = textLayoutResult?.layoutInput?.text?.length ?: lineLength
-
-    val x: Float
-    val endX: Float
-
-    if (textLayoutResult != null) {
-        x = textLayoutResult.getHorizontalPosition(
-            fromOffset.coerceAtMost(textLen),
-            true
-        )
-        endX = if (extendsToNextLine) {
-            // Selection continues to next line — extend to full container width
-            size.width
-        } else {
-            textLayoutResult.getHorizontalPosition(
-                toOffset.coerceAtMost(textLen),
-                true
-            )
-        }
-    } else {
-        // Fallback: fraction-based (inaccurate but better than nothing)
-        val startFraction = if (lineLength > 0) fromOffset.toFloat() / lineLength else 0f
-        val endFraction = if (lineLength > 0) toOffset.toFloat() / lineLength else 1f
-        x = startFraction * size.width
-        endX = if (extendsToNextLine) size.width else endFraction * size.width
-    }
-
-    val w = endX - x
-    drawRect(
-        color = selectionColor,
-        topLeft = Offset(x, 0f),
-        size = Size(w.coerceAtLeast(1f), lineHeight)
+    val rects = lineSelectionRowRects(
+        layout = textLayoutResult,
+        fromOffset = fromOffset,
+        toOffset = toOffset,
+        lineLength = lineLength,
+        containerWidth = size.width,
+        containerHeight = size.height,
+        extendsToNextLine = extendsToNextLine
     )
+    for (rect in rects) {
+        drawRect(
+            color = selectionColor,
+            topLeft = Offset(rect.left, rect.top),
+            size = Size(rect.right - rect.left, rect.bottom - rect.top)
+        )
+    }
 }
