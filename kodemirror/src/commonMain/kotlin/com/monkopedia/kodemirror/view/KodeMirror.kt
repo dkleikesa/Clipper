@@ -85,6 +85,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -105,6 +106,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.monkopedia.kodemirror.state.ChangeSpec
 import com.monkopedia.kodemirror.state.DocPos
+import com.monkopedia.kodemirror.state.EditorSelection
 import com.monkopedia.kodemirror.state.EditorState
 import com.monkopedia.kodemirror.state.EditorStateConfig
 import com.monkopedia.kodemirror.state.Extension
@@ -115,6 +117,7 @@ import com.monkopedia.kodemirror.state.asDoc
 import com.monkopedia.kodemirror.state.asInsert
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -248,6 +251,23 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
     // gutter (rendered outside the scroll region) stays fixed.
     val horizontalScrollState = remember(session) { ScrollState(0) }
 
+    // <本仓库补丁> 光标闪烁。上游画的是**静态**光标，这里给它一个明灭节奏。
+    //
+    // 往下传的是**取值函数**（`caretVisible`）而不是 Boolean：传 Boolean 的话，每半秒翻转一次
+    // 就要重组所有可见行；取值函数在绘制里才被调用，翻转只让这些行**重绘**。
+    // 键里带 `state.selection`：光标一动就重新计时——先亮满半周期再开始闪，与系统输入框一致
+    // （打字时光标是常亮的，停手后才闪）。
+    var caretOn by remember(session) { mutableStateOf(true) }
+    val caretVisible = remember(session) { { caretOn } }
+    LaunchedEffect(session, state.selection) {
+        while (true) {
+            caretOn = true
+            delay(CaretBlinkHalfPeriodMillis)
+            caretOn = false
+            delay(CaretBlinkHalfPeriodMillis)
+        }
+    }
+
     val currentColumnItems = rememberUpdatedState(columnItems)
 
     // Track Alt key state for rectangular selection
@@ -255,6 +275,14 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
 
     // Track editor layout coordinates for position mapping
     var editorCoordinates: LayoutCoordinates? by remember { mutableStateOf(null) }
+
+    // <本仓库补丁> 上一次**点击**的抬手时刻（`uptimeMillis`；0 = 还没点过）。
+    //
+    // 双击的间隔按系统语义量的是「上一击抬手 → 这一击按下」（见 `ViewConfiguration`
+    // .doubleTapTimeoutMillis 的注释），而抬手那个事件在 `awaitTouchSlopOrCancellation` 里被丢掉了
+    // ——未超过 slop 时它直接 return null。所以另起一路旁听来记（下面那个 observer）。
+    // 用长整型数组而不是 `mutableStateOf`：它只在指针事件里读写、不进组合。
+    val lastTapUpMillis = remember { longArrayOf(0L) }
 
     // Focus management
     val focusRequester = remember { FocusRequester() }
@@ -591,6 +619,51 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                         false
                     }
                     .pointerInput(session) {
+                        // <本仓库补丁> 旁听每一次**抬手**，只记「刚才是点击还是拖拽/长按」。
+                        //
+                        // 只看不消费：同一节点上的每个 handler 都会收到同一份事件，这里不改变任何
+                        // 别人的行为。判定「是不是点击」用的是与手势那侧同一条 slop——而且是**过程中
+                        // 的最大位移**，不是抬手时的位置：拖出去再拖回原位松手同样不算点击（手势那侧
+                        // 一旦超过 slop 就已经改判成拖拽了）。拖选、长按选完再抬手也都不该成为双击
+                        // 窗口的起点，系统那套也是这么定的。
+                        awaitPointerEventScope {
+                            var downPosition: Offset? = null
+                            var maxExcursion = 0f
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                for (change in event.changes) {
+                                    if (change.changedToDownIgnoreConsumed()) {
+                                        downPosition = change.position
+                                        maxExcursion = 0f
+                                    } else if (change.changedToUpIgnoreConsumed()) {
+                                        val from = downPosition
+                                        if (from != null &&
+                                            maxExcursion <= viewConfiguration.touchSlop
+                                        ) {
+                                            // 时间取这个 up change 自己的（`PointerEvent` 上没有
+                                            // `uptimeMillis`），与手势那侧读的 `down.uptimeMillis`
+                                            // 是同一个时钟。
+                                            lastTapUpMillis[0] = change.uptimeMillis
+                                        }
+                                        downPosition = null
+                                    } else if (change.pressed) {
+                                        val from = downPosition
+                                        if (from != null) {
+                                            maxExcursion = maxOf(
+                                                maxExcursion,
+                                                (change.position - from).getDistance()
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .pointerInput(session) {
+                        // <本仓库补丁> 连击计数（双击选词 / 三击选行）。它要跨手势存活，所以声明
+                        // 在 `awaitEachGesture` 之外、同一次 `pointerInput` 调用里。
+                        var clickCount = 0
+                        var lastClickPosition = Offset.Zero
                         // Unified tap/drag handler: always request focus on
                         // pointer down BEFORE deciding if it's a tap or drag.
                         // This fixes the race condition (issue #2) where
@@ -758,12 +831,23 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                                 // treat as a tap for cursor positioning.
                                 val pos = currentResolvePos(downPosition)
                                     ?: return@awaitEachGesture
-                                session.dispatch(
-                                    TransactionSpec(
-                                        selection = SelectionSpec
-                                            .CursorSpec(DocPos(pos))
-                                    )
-                                )
+                                // <本仓库补丁> 连击判定与**系统同一套**：间隔量的是「上一击抬手 →
+                                // 这一击按下」（抬手时刻由上面那路旁听记下，见 `lastTapUpMillis`），
+                                // 带一个最小间隔防「极快两下」，落点相距不超过 slop。到三击为止，
+                                // 第四下重新从单击开始。窗口取 [TapRepeatIntervalMillis]。
+                                val sinceUp = down.uptimeMillis - lastTapUpMillis[0]
+                                val repeated = lastTapUpMillis[0] != 0L &&
+                                    sinceUp >= viewConfiguration.doubleTapMinTimeMillis &&
+                                    sinceUp <= TapRepeatIntervalMillis &&
+                                    (downPosition - lastClickPosition).getDistance() <=
+                                    viewConfiguration.touchSlop
+                                clickCount = if (repeated && clickCount < MaxClickCount) {
+                                    clickCount + 1
+                                } else {
+                                    1
+                                }
+                                lastClickPosition = downPosition
+                                dispatchTapSelection(session, pos, clickCount)
                             } else {
                                 // Drag cancelled
                                 session.plugin(dropCursorViewPlugin)
@@ -857,6 +941,10 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(end = ScrollbarThickness)
+                        // <本仓库补丁> 正文给回 I 形光标。上游一处都没设，鼠标移到正文上仍是箭头，
+                        // 看不出「这里能点字」。只加在这个 Box 上：两条滚动条是它的**兄弟节点**，
+                        // 各自的箭头形状不受影响（横向那条另见 `HorizontalScrollbar`）。
+                        .pointerHoverIcon(PointerIcon.Text)
                 ) {
                     EditorContent(
                         lazyState = lazyState,
@@ -872,7 +960,9 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                         editorCoordinates = editorCoordinates,
                         textLayoutResults = textLayoutResults,
                         keyProcessedByCallback = keyProcessedByCallback,
-                        pendingEcho = pendingEcho
+                        pendingEcho = pendingEcho,
+                        // <本仓库补丁> 光标闪烁的取值函数（见上面 `caretOn`）。
+                        caretVisible = caretVisible
                     )
                 }
                 // Visible horizontal scrollbar for no-wrap mode (#65). Only
@@ -952,7 +1042,9 @@ private fun EditorContent(
     editorCoordinates: LayoutCoordinates?,
     textLayoutResults: MutableMap<Int, TextLayoutResult>,
     keyProcessedByCallback: BooleanArray,
-    pendingEcho: Array<String?>
+    pendingEcho: Array<String?>,
+    /** <本仓库补丁> 光标此刻该不该画（闪烁）。只在绘制里调用，见 [drawSelectionOverlay]。 */
+    caretVisible: () -> Boolean
 ) {
     val session = LocalEditorSession.current
     val impl = session as EditorSessionImpl
@@ -1230,7 +1322,8 @@ private fun EditorContent(
                                         item.to.value,
                                         theme,
                                         textLayout,
-                                        item.tabOffsetMap
+                                        item.tabOffsetMap,
+                                        caretVisible
                                     )
                                     .onGloballyPositioned { contentCoords ->
                                         val layout = textLayout
@@ -1336,6 +1429,74 @@ private fun EditorContent(
 
     // Tooltip layer
     TooltipLayer(session = session)
+}
+
+/** <本仓库补丁> 光标闪烁的半周期：一明一灭共 1 秒，与 Compose 原生输入框同节奏。 */
+private const val CaretBlinkHalfPeriodMillis = 500L
+
+/** <本仓库补丁> 连击上限：单击 / 双击 / 三击三档，第四下重新从单击开始。 */
+private const val MaxClickCount = 3
+
+/**
+ * <本仓库补丁> 连击的间隔窗口。
+ *
+ * 系统那个值是 300ms（桌面 skiko 的 `ViewConfiguration.doubleTapTimeoutMillis` 是个常量，不读
+ * 系统设置），本项目按需求放宽到 500ms——三击要连着落在窗口里，宽一点更跟手。
+ *
+ * 量法（上一击抬手 → 这一击按下）、最小间隔（`doubleTapMinTimeMillis`，40ms）与落点容差
+ * （slop）都照系统那套，见手势里那一处。
+ */
+private const val TapRepeatIntervalMillis = 500L
+
+/**
+ * <本仓库补丁> 一次点击该落成什么选区：单击落光标，双击选中该处的词，三击选中该行。
+ *
+ * 上游只落光标（`selectWord` / `selectLine` 是键位命令，要先落光标再扩展，**两步**）。这里在
+ * **一个事务**里直接算出最终选区：分两步会占掉两次撤销，用户按一下撤销只退掉一半。
+ *
+ * 取词用上游的 `EditorState.wordAt`；取行到**换行之前**为止，与平台（原生框的段落选择）一致——
+ * 平台算段落末尾给的就是换行符的下标（`findParagraphEnd`），光标因此落在**本行行尾**，不会甩到
+ * 下一行首。上游那个键盘命令 `selectLine` 反而带上换行（「整行拿去粘贴」的语义），三击不沿用它。
+ * 取不到词时退回光标，与系统输入框一致。
+ *
+ * 注意 `wordAt` 有一处**不对称**（上游如此，浏览器里的 CodeMirror 6 也一样）：它按 `pos` **左侧**
+ * 的字符类别向前扩、按 `pos` **处**的字符类别向后扩。于是「双击落在词的右侧空白上」选中的是**左边
+ * 那个词**，只有在两侧都不是词字符的位置（如 `=`、连续空白中间）才取不到词。想改就得改 `wordAt`，
+ * 那会连带影响 `selectNextOccurrence` 等命令，因此这里照抄上游，只由 `TapSelectionTest` 钉住。
+ *
+ * `internal` 是为了让 `TapSelectionTest` 直接喂位置与连击数（手势那一层喂不进真实节奏）。
+ */
+internal fun dispatchTapSelection(session: EditorSession, pos: Int, clickCount: Int) {
+    val state = session.state
+    val range = when (clickCount) {
+        2 -> state.wordAt(DocPos(pos))?.let { EditorSelection.single(it.from, it.to) }
+        3 -> {
+            val line = state.doc.lineAt(DocPos(pos))
+            // 到**换行之前**为止（不是 `line.to + 1`）：整行被选中时，光标只能落在选区两端之一，
+            // 而平台那个落点是段落末尾。带上换行的话，光标就画到下一行首去了。
+            // `single` 的 head 就是光标那一端，所以这里 head = `line.to`。
+            //
+            // 用 `single` 而不是 `range`：后者造的是 `SelectionRange`（上游 `selectLine` 里
+            // 还要再套一层 `EditorSelection.create`），这里直接要一个单区间选区。
+            EditorSelection.single(line.from, line.to)
+        }
+        else -> null
+    }
+    if (range == null) {
+        // 单击：与上游那条逐字相同（连 `userEvent` 都没有），保持既有行为不变。
+        session.dispatch(
+            TransactionSpec(
+                selection = SelectionSpec.CursorSpec(DocPos(pos))
+            )
+        )
+        return
+    }
+    session.dispatch(
+        TransactionSpec(
+            selection = SelectionSpec.EditorSelectionSpec(range),
+            userEvent = "select"
+        )
+    )
 }
 
 /**
@@ -1601,6 +1762,10 @@ private fun HorizontalScrollbar(scrollState: ScrollState, modifier: Modifier = M
             .testTag("KodeMirror_hscroll")
             .height(ScrollbarThickness)
             .background(trackColor)
+            // <本仓库补丁> 滚动条上是箭头光标（I 形只在正文里）。正文那一层现在设了 I 形，这条
+            // 本是它的兄弟、不受影响，写在这里是为了「两条滚动条形状一致」这件事有个明确出处
+            // （竖向那条见 `VerticalScrollbar`）。
+            .pointerHoverIcon(PointerIcon.Default)
             .onSizeChanged { trackWidthPx = it.width }
     ) {
         val maxValue = scrollState.maxValue

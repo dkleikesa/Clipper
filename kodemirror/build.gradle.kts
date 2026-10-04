@@ -25,5 +25,11 @@ kotlin {
             // 编辑器状态（`EditorState` / `Facet`）的序列化：`StateSerialization.kt` 直接用它。
             implementation(libs.kotlinx.serialization.json)
         }
+
+        // 本仓库补丁（多击选择）的行为测试：只喂位置与连击数、只读最终选区，用不上 Compose 的
+        // 测试设施。**上游的测试没有拷进来**（见 README.md），这是本仓库自己那一个。
+        jvmTest.dependencies {
+            implementation(kotlin("test"))
+        }
     }
 }

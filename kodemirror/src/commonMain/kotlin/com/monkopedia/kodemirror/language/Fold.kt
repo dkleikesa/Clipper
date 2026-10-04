@@ -18,14 +18,22 @@
  */
 package com.monkopedia.kodemirror.language
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.monkopedia.kodemirror.lezer.common.NodeProp
 import com.monkopedia.kodemirror.lezer.common.SyntaxNode
@@ -424,16 +432,54 @@ fun foldGutter(): Extension = extensionListOf(
 private class FoldGutterMarker(val folded: Boolean) : GutterMarker() {
     @Composable
     override fun Content(theme: EditorTheme) {
-        val contentStyle = LocalContentTextStyle.current
-        BasicText(
-            text = if (folded) "\u203A" else "\u2304",
-            style = contentStyle.copy(
-                color = theme.gutterForeground
-            )
-        )
+        FoldChevron(folded = folded, color = theme.gutterForeground)
     }
 
     override fun equals(other: Any?): Boolean = other is FoldGutterMarker && folded == other.folded
 
     override fun hashCode(): Int = folded.hashCode()
+}
+
+/** <本仓库补丁> 折叠箭头：展开时的长边（横向）与短边（纵向）。两条边等长，尖端因此是 90°。 */
+private val FoldChevronLong = 8.dp
+private val FoldChevronShort = 4.dp
+private val FoldChevronStroke = 1.5.dp
+
+/**
+ * <本仓库补丁> 折叠箭头：**画**出来的圆头 chevron，展开指下、折叠指右。
+ *
+ * 上游用的是两个字符（U+2304 展开 / U+203A 折叠）：角度全看字体，实际渲染出来又窄又尖。
+ * 改成按几何画之后角度是确定的——长边 8dp、短边 4dp、线宽 1.5dp，尖端 90°，展开与折叠只差
+ * 一个方向；尺寸与原生实现的 `FoldChevron` 取同一套，两个引擎看起来才是同一个标记。
+ *
+ * 用 `Canvas` 而不是换一个更「开」的字符：字符给不了角度，换字体、换字号还会跟着变。
+ */
+@Composable
+private fun FoldChevron(folded: Boolean, color: Color) {
+    val width = if (folded) FoldChevronShort else FoldChevronLong
+    val height = if (folded) FoldChevronLong else FoldChevronShort
+    Canvas(modifier = Modifier.width(width).height(height)) {
+        val stroke = FoldChevronStroke.toPx()
+        val inset = stroke / 2f
+        val left = inset
+        val right = size.width - inset
+        val top = inset
+        val bottom = size.height - inset
+        val path = Path().apply {
+            if (folded) {
+                moveTo(left, top)
+                lineTo(right, (top + bottom) / 2f)
+                lineTo(left, bottom)
+            } else {
+                moveTo(left, top)
+                lineTo((left + right) / 2f, bottom)
+                lineTo(right, top)
+            }
+        }
+        drawPath(
+            path = path,
+            color = color,
+            style = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+    }
 }

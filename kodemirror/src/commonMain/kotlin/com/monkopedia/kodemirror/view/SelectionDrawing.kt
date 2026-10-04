@@ -45,6 +45,9 @@ val drawSelection: Extension =
  * @param lineTo  Document offset of the end of this line.
  * @param theme  Editor theme for colors.
  * @param textLayoutResult Layout result for accurate character positioning.
+ * @param cursorVisible <本仓库补丁> 光标此刻该不该画。做成**取值函数**而不是 Boolean：本仓库用
+ *   它接闪烁，传 Boolean 会每半秒重组一次所有可见行，取值函数则只让这些行重绘（它在绘制里被
+ *   调用，快照读取因此落在绘制阶段）。
  */
 @Composable
 fun Modifier.drawSelectionOverlay(
@@ -53,7 +56,8 @@ fun Modifier.drawSelectionOverlay(
     lineTo: Int,
     theme: EditorTheme,
     textLayoutResult: TextLayoutResult? = null,
-    tabOffsetMap: IntArray? = null
+    tabOffsetMap: IntArray? = null,
+    cursorVisible: () -> Boolean = { true }
 ): Modifier = this.drawWithContent {
     drawLineSelection(
         state,
@@ -61,7 +65,8 @@ fun Modifier.drawSelectionOverlay(
         lineTo,
         theme,
         textLayoutResult,
-        tabOffsetMap
+        tabOffsetMap,
+        cursorVisible
     )
     drawContent()
 }
@@ -86,7 +91,8 @@ private fun DrawScope.drawLineSelection(
     lineTo: Int,
     theme: EditorTheme,
     textLayoutResult: TextLayoutResult?,
-    tabOffsetMap: IntArray?
+    tabOffsetMap: IntArray?,
+    cursorVisible: () -> Boolean
 ) {
     val lineLength = lineTo - lineFrom
     // Check for block cursors (vim normal/visual mode)
@@ -129,8 +135,9 @@ private fun DrawScope.drawLineSelection(
                 )
             }
         }
-        // Draw thin cursor only when block cursors are NOT active
-        if (!hasBlockCursors && rangeHead in lineFrom..lineTo) {
+        // Draw thin cursor only when block cursors are NOT active.
+        // <本仓库补丁> 且只在 `cursorVisible()` 说该亮的时候画（上游画的是静态光标）。
+        if (!hasBlockCursors && cursorVisible() && rangeHead in lineFrom..lineTo) {
             drawLineCursor(
                 mapOffset(
                     rangeHead - lineFrom,

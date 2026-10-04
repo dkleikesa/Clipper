@@ -374,16 +374,42 @@ internal fun buildColumnItems(
                 decorationSets,
                 tabSize
             )
-            val content = if (replaceOnLine.widget != null) {
-                AnnotatedString.Builder().apply {
-                    append(result.content)
+            // <本仓库补丁> 替换区间**结束那一行**的剩余部分接在同一行上。
+            //
+            // 被替换掉的那一段里含换行，所以它后面的正文在文档意义上已经与本行同属一行了。
+            // 上游只把本行截断到替换起点，然后跳到结束那一行**整行**渲染——于是折叠出来是两行
+            // （`{…` 一行、闭括号一行），而且嵌套时行尾那个逗号还会被留到下一行去。
+            //
+            // 这里按 CM6 的模型把结尾接上：折叠起来的块显示成 `{…}` 一行（与原生实现一致——它用
+            // 显示变换把换行删掉，走的是同一个道理），`"a": {…},` 那个逗号也因此保得住。
+            val endLine = doc.lineAt(
+                DocPos(replaceOnLine.to.coerceAtMost(doc.length))
+            )
+            val tailStart = replaceOnLine.to.coerceIn(
+                endLine.from.value,
+                endLine.to.value
+            )
+            val tailText = endLine.text.substring(tailStart - endLine.from.value)
+            val tail = if (tailText.isEmpty()) {
+                null
+            } else {
+                buildLineContentWithTabs(
+                    DocPos(tailStart),
+                    endLine.to,
+                    tailText,
+                    decorationSets,
+                    tabSize
+                )
+            }
+            val content = AnnotatedString.Builder().apply {
+                append(result.content)
+                if (replaceOnLine.widget != null) {
                     pushStyle(SpanStyle(color = Color.Gray))
                     append("\u2026")
                     pop()
-                }.toAnnotatedString()
-            } else {
-                result.content
-            }
+                }
+                if (tail != null) append(tail.content)
+            }.toAnnotatedString()
             val lineDecos = lineDecsByLine[lineNum] ?: emptyList()
             val inlineWidgets =
                 inlineWidgetsByLine[lineNum] ?: emptyList()
@@ -399,12 +425,10 @@ internal fun buildColumnItems(
                 )
             )
 
-            // Skip ahead past the replace range to the line
-            // containing the end
-            val endLine = doc.lineAt(
-                DocPos(replaceOnLine.to.coerceAtMost(doc.length))
-            )
-            lineNum = endLine.number
+            // Skip ahead past the replace range **and its end line**: that line's remainder has
+            // already been appended to this row (see above), so rendering it again would double
+            // both the text and the row.
+            lineNum = endLine.number + 1
         } else {
             // Normal line
             val result = buildLineContentWithTabs(
