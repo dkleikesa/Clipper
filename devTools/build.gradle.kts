@@ -23,6 +23,10 @@ kotlin {
             // 它只把一条 `ClipItem` 放进状态里（见 `ClipboardUiState.devToolsItem`）。
             api(project(":shared"))
 
+            // 编辑框的第二种实现（见 `CodeFieldEngine`）。用 `implementation` 而不是 `api`：
+            // 它只出现在 `ui/components/code/` 的内部实现里，工程对外暴露的类型上没有它。
+            implementation(project(":kodemirror"))
+
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
@@ -45,6 +49,9 @@ kotlin {
         // 折叠与高亮的正确性全在这几个纯函数上，靠眼看界面是测不出来的。
         jvmTest.dependencies {
             implementation(kotlin("test"))
+            // 代码框的两种实现都只有「真跑一遍组合」才验得了渲染（见 `KodemirrorCodeFieldTest`），
+            // 因此测试源集要带上 Compose 的 UI 测试设施。
+            implementation(libs.compose.ui.test)
             // 离屏渲染用的 harness（`PanelRenderHarness` 等）要把 Compose 画进图片，因此需要
             // skiko 的原生库；公共的 `compose.ui` 只有跨平台部分，缺了它会在初始化
             // `org.jetbrains.skia.Surface` 时失败，报错完全不提「依赖缺失」。

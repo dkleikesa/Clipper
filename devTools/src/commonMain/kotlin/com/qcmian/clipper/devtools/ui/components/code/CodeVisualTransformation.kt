@@ -7,25 +7,6 @@ import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 
-/** 代码区的配色（见 `rememberCodeColors`）。 */
-internal data class CodeColors(
-    val editorBackground: Color,
-    val key: Color,
-    val string: Color,
-    val number: Color,
-    val constant: Color,
-    val punctuation: Color,
-    /** 注释与 XML 的注释 / CDATA / 声明。 */
-    val comment: Color,
-    val foldPlaceholder: Color,
-    val foldPlaceholderBackground: Color,
-    val gutterDivider: Color,
-    /** 光标所在那一行的整行底纹。 */
-    val currentLineBackground: Color,
-    /** 光标停在某个括号上时，与它配对的那两个括号的底纹。 */
-    val bracketBackground: Color
-)
-
 /** 折叠区间被替换成的那个字符。 */
 internal const val FoldPlaceholder = "\u2026"
 
@@ -108,7 +89,7 @@ internal class CodeVisualTransformation(
             val kind = if (token != null && i >= token.start) token.kind else null
             if (kind != activeKind) {
                 if (activeKind != null) builder.pop()
-                if (kind != null) builder.pushStyle(SpanStyle(color = colorOf(kind)))
+                if (kind != null) builder.pushStyle(SpanStyle(color = kind.colorIn(colors)))
                 activeKind = kind
             }
 
@@ -134,14 +115,21 @@ internal class CodeVisualTransformation(
         )
     }
 
-    private fun colorOf(kind: CodeKind): Color = when (kind) {
-        CodeKind.Key -> colors.key
-        CodeKind.StringLiteral -> colors.string
-        CodeKind.Number -> colors.number
-        CodeKind.Constant -> colors.constant
-        CodeKind.Punctuation -> colors.punctuation
-        CodeKind.Comment -> colors.comment
-    }
+}
+
+/**
+ * [CodeKind] 该用哪一个色值。
+ *
+ * 放在文件级而不是某个类里：原生框这条显示变换与 KodeMirror 那侧的装饰器都要用它，两处各写一份
+ * 早晚会漂——「两套实现看起来是同一个框」，配色必须只有一处出处。
+ */
+internal fun CodeKind.colorIn(colors: CodeColors): Color = when (this) {
+    CodeKind.Key -> colors.key
+    CodeKind.StringLiteral -> colors.string
+    CodeKind.Number -> colors.number
+    CodeKind.Constant -> colors.constant
+    CodeKind.Punctuation -> colors.punctuation
+    CodeKind.Comment -> colors.comment
 }
 
 /** 嵌套折叠时只保留最外层：内层的内容已经被外层盖住了。 */
