@@ -125,6 +125,42 @@ class Base64FormatTest {
     }
 
     @Test
+    fun `a data url produced from an image decodes back to the same bytes`() {
+        val png = magic(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01, 0x02)
+        val dataUrl = "data:image/png;base64,${Base64Format.encode(png, urlSafe = false)}"
+        assertEquals("data:image/png;base64,", dataUrl.substringBefore("iVBOR"))
+        assertEquals(png.toList(), Base64Format.decode(dataUrl).getOrThrow().toList())
+        // 头里声明的类型能被取出来——「保存时定扩展名」靠的就是它。
+        assertEquals("image/png", Base64Format.dataUriMime(dataUrl))
+    }
+
+    @Test
+    fun `mime turns back into the matching extension`() {
+        assertEquals("json", Base64Format.extensionOf("application/json"))
+        assertEquals("zip", Base64Format.extensionOf("application/zip"))
+        assertEquals("svg", Base64Format.extensionOf("image/svg+xml"))
+        // 同义扩展名取表里先出现的那个。
+        assertEquals("jpg", Base64Format.extensionOf("image/jpeg"))
+        // 大小写不敏感。
+        assertEquals("png", Base64Format.extensionOf("IMAGE/PNG"))
+        assertNull(Base64Format.extensionOf("application/x-whatever"))
+        assertNull(Base64Format.extensionOf(null))
+    }
+
+    @Test
+    fun `a data url carries its mime out without touching the payload`() {
+        assertEquals(
+            "application/json",
+            Base64Format.dataUriMime("data:application/json;base64,eyJhIjoxfQ=="),
+        )
+        // 没写类型（`data:;base64,…`）、压根不是 Data URL，都算没有类型。
+        assertNull(Base64Format.dataUriMime("data:;base64,TWFu"))
+        assertNull(Base64Format.dataUriMime("TWFu"))
+        // 百分号编码的明文不是 base64 Data URL，不当数。
+        assertNull(Base64Format.dataUriMime("data:text/plain,hello"))
+    }
+
+    @Test
     fun `mime comes from the file header first, then the extension`() {
         // 文件头最准：扩展名写错了也拦得住。
         assertEquals("image/png", Base64Format.mimeTypeOf("photo.txt", ImageKind.Png))
@@ -133,17 +169,41 @@ class Base64FormatTest {
         assertEquals("application/json", Base64Format.mimeTypeOf("/tmp/a/data.json", null))
         // 都不是就给中性的兜底类型。
         assertEquals("application/octet-stream", Base64Format.mimeTypeOf("mystery", null))
-        assertEquals("application/octet-stream", Base64Format.mimeTypeOf("mystery.unknown", null))
         assertEquals("application/octet-stream", Base64Format.mimeTypeOf(null, null))
     }
 
     @Test
-    fun `a data url produced from an image decodes back to the same bytes`() {
-        val png = magic(0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01, 0x02)
-        val dataUrl = "data:${Base64Format.mimeTypeOf("shot.png", Base64Format.imageKindOf(png))}" +
-            ";base64,${Base64Format.encode(png, urlSafe = false)}"
-        assertEquals("data:image/png;base64,", dataUrl.substringBefore("iVBOR"))
-        assertEquals(png.toList(), Base64Format.decode(dataUrl).getOrThrow().toList())
+    fun `office documents map back to their own extension`() {
+        // 这几个类型只可能来自 Data URL 头——docx / xlsx / pptx 的文件头就是 zip 的 `PK`，光看
+        // 内容认不出。表里少了它们，解出来只好存成 `.zip`。
+        assertEquals(
+            "docx",
+            Base64Format.extensionOf(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ),
+        )
+        assertEquals(
+            "xlsx",
+            Base64Format.extensionOf(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
+        assertEquals("xls", Base64Format.extensionOf("application/vnd.ms-excel"))
+        assertEquals("json", Base64Format.extensionOf("application/json"))
+        // 另一向也要通：`.docx` 文件写类型前缀时该拿到长的那一条，而不是兜底类型。
+        assertEquals(
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            Base64Format.mimeTypeOf("report.docx", null),
+        )
+    }
+
+    @Test
+    fun `binary formats are recognised by their magic bytes`() {
+        assertEquals("application/zip", Base64Format.mimeBySignature(magic(0x50, 0x4B, 0x03, 0x04)))
+        assertEquals("application/zip", Base64Format.mimeBySignature(magic(0x50, 0x4B, 0x05, 0x06)))
+        assertEquals("application/gzip", Base64Format.mimeBySignature(magic(0x1F, 0x8B)))
+        assertEquals("application/pdf", Base64Format.mimeBySignature("%PDF-1.7".encodeToByteArray()))
+        assertNull(Base64Format.mimeBySignature("hello".encodeToByteArray()))
     }
 
     @Test

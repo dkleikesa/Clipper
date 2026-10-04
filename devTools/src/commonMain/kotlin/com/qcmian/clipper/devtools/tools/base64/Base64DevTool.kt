@@ -93,12 +93,22 @@ private sealed interface Base64Outcome {
     /** 编码成功。[sourceBytes] 是原文 / 原文件的字节数，用于体积对比。 */
     class Encoded(val base64: String, val sourceBytes: Int) : Base64Outcome
 
-    class DecodedText(val text: String, val bytes: Int, val sourceChars: Int) : Base64Outcome
+    /** [extension] 是「保存」时该用的后缀，见 [describe]。 */
+    class DecodedText(
+        val text: String,
+        val bytes: Int,
+        val sourceChars: Int,
+        val extension: String,
+    ) : Base64Outcome
 
-    class DecodedImage(val kind: ImageKind, val bytes: ByteArray, val bitmap: ImageBitmap) :
-        Base64Outcome
+    class DecodedImage(
+        val kind: ImageKind,
+        val bytes: ByteArray,
+        val bitmap: ImageBitmap,
+        val extension: String,
+    ) : Base64Outcome
 
-    class DecodedBinary(val bytes: ByteArray) : Base64Outcome
+    class DecodedBinary(val bytes: ByteArray, val extension: String) : Base64Outcome
 
     class Failed(val message: String) : Base64Outcome
 }
@@ -125,7 +135,7 @@ internal object Base64DevTool : DevTool {
     override val metadata: DevToolMetadata = DevToolMetadata(
         id = "base64",
         name = "Base64 编解码",
-        description = "文本、图片与任意文件与 Base64 互转；可写出 Data URL，解码结果自动分辨文本与图片。",
+        description = "文本、图片与任意文件与 Base64 互转；解码结果自动分辨文本、图片与二进制。",
         group = DevToolGroup.ENCODER,
         icon = ClipperIconKind.DOC_ARROW,
     )
@@ -134,9 +144,9 @@ internal object Base64DevTool : DevTool {
     override fun Content(input: ClipItem?, host: DevToolHost) {
         var mode by remember { mutableStateOf(Base64Mode.Encode) }
         var urlSafe by remember { mutableStateOf(false) }
-        // 编码结果要不要带 `data:<mime>;base64,` 头。默认开：编码图片 / 文件多半就是为了拿一串能
-        // 直接塞进 HTML、CSS、Markdown 的东西，裸 Base64 还得自己补头。
-        var dataUrl by remember { mutableStateOf(true) }
+        // 编码结果前面要不要写 `data:<类型>;base64,`。只对**文件 / 图片**来源生效：手敲的一段文本
+        // 没有「文件类型」可言，给它套个 `text/plain` 只是往结果前面塞噪音。
+        var withPrefix by remember { mutableStateOf(true) }
         // 两个方向**各留一份输入**：编码框里装的是原文，解码框里装的是 Base64，它们不是一种东西。
         // 共用一个会让「解码框里的 Base64」被搬进编码框再编一次，出来的是双重编码——而且换个方向
         // 回来，原来敲的东西已经没了。
@@ -214,7 +224,7 @@ internal object Base64DevTool : DevTool {
 
         // 实时求值：输入一变就重新计时，停下来才算一次。取消由 `LaunchedEffect` 负责——正在算的
         // 那一份即使算完也自然作废。
-        LaunchedEffect(mode, urlSafe, dataUrl, text, source) {
+        LaunchedEffect(mode, urlSafe, withPrefix, text, source) {
             // 文件只喂编码方向；解码方向看的是它自己那个框里的 Base64。
             val file = if (mode == Base64Mode.Encode) source else null
             if (file == null && text.isBlank()) {
@@ -226,8 +236,9 @@ internal object Base64DevTool : DevTool {
             computing = true
             // 只有手敲正文才等防抖；载入文件、换方向、换选项都是「点一下就定」，立刻重算。
             if (file == null && text != computedText) delay(EvaluateDebounceMillis)
-            val result =
-                withContext(Dispatchers.Default) { computeOutcome(mode, urlSafe, dataUrl, text, file) }
+            val result = withContext(Dispatchers.Default) {
+                computeOutcome(mode, urlSafe, withPrefix, text, file)
+            }
             computedText = if (file == null) text else null
             outcome = result
             computing = false
@@ -279,9 +290,9 @@ internal object Base64DevTool : DevTool {
                 DevToolActionSpacer()
 
                 DevToolToggle(
-                    title = "Data URL",
-                    checked = dataUrl,
-                    onCheckedChange = { dataUrl = it },
+                    title = "类型前缀",
+                    checked = withPrefix,
+                    onCheckedChange = { withPrefix = it },
                 )
 
                 Spacer(Modifier.weight(1f))
@@ -367,16 +378,15 @@ internal object Base64DevTool : DevTool {
 private fun computeOutcome(
     mode: Base64Mode,
     urlSafe: Boolean,
-    dataUrl: Boolean,
+    withPrefix: Boolean,
     text: String,
     file: Base64Source?,
 ): Base64Outcome = when (mode) {
     Base64Mode.Encode -> {
         val bytes = file?.bytes ?: text.encodeToByteArray()
-        // Data URL 头只在**有类型可写**的时候才加：文件有 MIME，而一段手敲的文本没有「文件类型」
-        // 可言，给它套一个 `text/plain` 只是往结果前面塞噪音。开关关掉则永远不加。
         val encoded = Base64Format.encode(bytes, urlSafe)
-        val output = if (dataUrl && file != null) {
+        // 前缀只在**有类型可写**时才加：文件 / 图片有 MIME，一段手敲的文本没有。
+        val output = if (withPrefix && file != null) {
             "data:${Base64Format.mimeTypeOf(file.name, file.imageKind)};base64,$encoded"
         } else {
             encoded
@@ -384,27 +394,45 @@ private fun computeOutcome(
         Base64Outcome.Encoded(output, bytes.size)
     }
 
-    Base64Mode.Decode -> Base64Format.decode(text).fold(
-        onSuccess = { describe(it, text.length) },
-        // 失败是 `Result` 里的 `Base64Error`；真出了别的异常也不该把窗口炸掉。
-        onFailure = { error ->
-            Base64Outcome.Failed(
-                (error as? Base64Error)?.let { base64ErrorMessage(text, it) } ?: "解码失败"
-            )
-        },
-    )
+    Base64Mode.Decode -> {
+        // 输入若是 Data URL，它声明的类型就是最可信的一手信息——`data:application/zip;base64,…`
+        // 解出来当然该存成 `.zip`。先取下来，再连同字节一起交给 `describe`。
+        val mime = Base64Format.dataUriMime(text)
+        Base64Format.decode(text).fold(
+            onSuccess = { describe(it, text.length, mime) },
+            // 失败是 `Result` 里的 `Base64Error`；真出了别的异常也不该把窗口炸掉。
+            onFailure = { error ->
+                Base64Outcome.Failed(
+                    (error as? Base64Error)?.let { base64ErrorMessage(text, it) } ?: "解码失败"
+                )
+            },
+        )
+    }
 }
 
-/** 根据解出来的字节决定怎么显示：图片 → 预览，能当 UTF-8 看 → 文本，否则 → 二进制。 */
-private fun describe(bytes: ByteArray, sourceChars: Int): Base64Outcome {
+/**
+ * 根据解出来的字节决定怎么显示：图片 → 预览，能当 UTF-8 看 → 文本，否则 → 二进制；同时定下
+ * 「保存」该用什么扩展名。
+ *
+ * 扩展名按可靠程度取：**Data URL 声明的 MIME** → **文件头认出的格式** → 兜底的 `txt` / `bin`。
+ * 光看内容认不出 `json`（它就是一段文本），所以 Data URL 那一手信息不能丢——丢了用户存下来就是
+ * 个 `.txt`，还得自己改名。
+ */
+private fun describe(bytes: ByteArray, sourceChars: Int, mime: String?): Base64Outcome {
+    val declared = Base64Format.extensionOf(mime)
     Base64Format.imageKindOf(bytes)?.let { kind ->
         val bitmap = runCatching { bytes.decodeToImageBitmap() }.getOrNull()
-        if (bitmap != null) return Base64Outcome.DecodedImage(kind, bytes, bitmap)
+        if (bitmap != null) {
+            return Base64Outcome.DecodedImage(kind, bytes, bitmap, declared ?: kind.extension)
+        }
     }
     Base64Format.utf8OrNull(bytes)?.let {
-        return Base64Outcome.DecodedText(it, bytes.size, sourceChars)
+        return Base64Outcome.DecodedText(it, bytes.size, sourceChars, declared ?: "txt")
     }
-    return Base64Outcome.DecodedBinary(bytes)
+    val extension = declared
+        ?: Base64Format.extensionOf(Base64Format.mimeBySignature(bytes))
+        ?: "bin"
+    return Base64Outcome.DecodedBinary(bytes, extension)
 }
 
 /**
@@ -484,7 +512,7 @@ private fun ResultArea(
                 isError = false,
                 softWrap = true,
                 onCopy = { host.copyToClipboard(decoded) },
-                onSave = { saveText(host, decoded, "decoded.txt") },
+                onSave = { saveText(host, decoded, "decoded.${outcome.extension}") },
                 canAct = canAct,
                 modifier = modifier,
             )
@@ -492,20 +520,26 @@ private fun ResultArea(
 
         is Base64Outcome.DecodedImage -> ImageResult(
             outcome = outcome,
-            onSave = { saveBytes(host, outcome.bytes, "decoded.${outcome.kind.extension}") },
+            onSave = { saveBytes(host, outcome.bytes, "decoded.${outcome.extension}") },
             canAct = canAct,
             modifier = modifier,
         )
 
-        is Base64Outcome.DecodedBinary -> ResultSummaryCard(
-            label = "结果 · 文件",
-            message = "解出的是二进制内容，不能当文本显示",
-            detail = "二进制文件 · ${Base64Format.humanSize(outcome.bytes.size.toLong())}",
-            onCopy = null,
-            onSave = { saveBytes(host, outcome.bytes, "decoded.bin") },
-            canAct = canAct,
-            modifier = modifier,
-        )
+        is Base64Outcome.DecodedBinary -> {
+            val size = Base64Format.humanSize(outcome.bytes.size.toLong())
+            // 认出类型就写在卡上：用户看到 `.zip` 才敢确认「存下来的东西是对的」。
+            val detail = if (outcome.extension == "bin") "二进制文件 · $size"
+            else "二进制文件 · $size · 建议存为 .${outcome.extension}"
+            ResultSummaryCard(
+                label = "结果 · 文件",
+                message = "解出的是二进制内容，不能当文本显示",
+                detail = detail,
+                onCopy = null,
+                onSave = { saveBytes(host, outcome.bytes, "decoded.${outcome.extension}") },
+                canAct = canAct,
+                modifier = modifier,
+            )
+        }
     }
 }
 
