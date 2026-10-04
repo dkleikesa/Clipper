@@ -35,9 +35,9 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 
 ## 本仓库补丁
 
-**八处**，都用 `// <本仓库补丁>` 标出（`grep -rn "本仓库补丁" kodemirror/src` 可一次找全）。
-除了源码，本仓库还在这个目录里加了**自己的四个测试**（`src/jvmTest`，见最后一节）——上游的测试
-没拷进来，这四个不是上游的。
+**九处**，都用 `// <本仓库补丁>` 标出（`grep -rn "本仓库补丁" kodemirror/src` 可一次找全）。
+除了源码，本仓库还在这个目录里加了**自己的五个测试**（`src/jvmTest`，见最后一节）——上游的测试
+没拷进来，这五个不是上游的。
 
 ### 1. 竖向滚动条（`view/KodeMirror.kt`）
 
@@ -178,9 +178,25 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 它已经属于下一个视觉行了；不折行（`lineCount == 1`）时纵向仍按**这一层的高度**画，与上游逐像素
 一致（层高可能大于排版行高）。
 
+### 9. 只读会话改不动正文（`view/EditorSessionImpl.kt` + `view/EditorSession.kt`）
+
+`editable` facet 的本意是「只读框改不动，但照样有光标、点得动、拖得出选区、复制得走」（见
+`CodeFieldSpec.editable`）。上游只把**打字**挡在输入法那一层（`InputHandling` 里的插入兜底 +
+`onValueChange`），而键位命令是直接派发事务的：只读框里按一下退格 / 删除 / ⌘X / ⌘V / ⌘Z，
+正文真会被改掉——光标与选区一旦恢复可用，这条洞就是用户随手按得出来的。
+
+补法是在 `EditorSessionImpl.dispatchTransaction` 这个**唯一落点**上加一条闸门：`editable` 为假
+时，**改文档**的事务直接丢掉；选区事务与效果事务照常放行。不去给每条命令打补丁，是因为命令有
+几十条（`commands/`），漏一条就是一个用户按得出来的洞，而这个落点漏不掉——`EditorSessionImpl.state`
+也只在这里被写。
+
+宿主换内容走 `EditorSession.setDoc`：那是**喂数据**，不是用户在改字，所以由它临时把
+`programmaticDocChange` 打开（`try/finally` 恢复），只读框因此照样显示得出内容。`ReadOnlySessionTest`
+钉住这几条：退格 / 剪切 / 插入改不动、选区照常、`setDoc` 照常、可编辑会话不受影响。
+
 ### 本仓库自己的测试
 
-`src/jvmTest`（配 `build.gradle.kts` 里的 `jvmTest` 依赖）里有四个：
+`src/jvmTest`（配 `build.gradle.kts` 里的 `jvmTest` 依赖）里有五个：
 
 - `TapSelectionTest` 覆盖上面第 3 处：喂位置与连击数、读最终选区；
 - `FoldClickTest` 覆盖第 5 处：折一段再点它，读「还剩没剩折叠区间」（箭头那一路给区间、正文那一路
@@ -188,7 +204,9 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 - `FoldRowCollapseTest` 覆盖第 6 处：喂一条替换装饰、读渲染出来的行（行数 + 每行文本）；
 - `SelectionRowRectsTest` 覆盖第 8 处：喂 `TextMeasurer` 真量出来的折行排版，读每个视觉行的高亮
   矩形。测试源集因此要带 `compose.desktop.currentOs`——`TextMeasurer` 背后是 skiko 的
-  `FontCollection`，缺了它取字体解析器时抛 `LibraryLoadException`，报错完全不提「依赖缺失」。
+  `FontCollection`，缺了它取字体解析器时抛 `LibraryLoadException`，报错完全不提「依赖缺失」；
+- `ReadOnlySessionTest` 覆盖第 9 处：喂**真的命令**（`deleteCharBackward` 就是 Backspace 那一条、
+  `clipboardCut` 就是 ⌘X 那一条）与事务，读「正文动没动、选区进没进状态」。
 
 **光标闪烁、指针形状、箭头角度、手势判定都测不了**——前三个是画出来的（`FoldRowCollapseTest`
 只验到「收成一行」，验不到画成什么样；`FoldClickTest` 只验到「点下去展开了」，验不到点得到多大），

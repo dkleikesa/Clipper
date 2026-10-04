@@ -127,17 +127,28 @@ fun EditorSession.dispatch(block: TransactionSpecBuilder.() -> Unit) {
 
 /**
  * Replace the entire document content with [text].
+ *
+ * <本仓库补丁> 这是**宿主**在换内容（换条目、点了格式化、首次挂上内容），不是用户在改字：只读
+ * 会话因此也放行（见 `EditorSessionImpl.programmaticDocChange`）。用户在只读框里按出来的那些
+ * 事务（退格、⌘X、⌘V…）走的是别的入口，照旧被拦。
  */
 fun EditorSession.setDoc(text: String) {
-    dispatch(
-        TransactionSpec(
-            changes = ChangeSpec.Single(
-                from = DocPos.ZERO,
-                to = state.doc.endPos,
-                insert = text.asInsert()
+    val impl = this as? EditorSessionImpl
+    val previous = impl?.programmaticDocChange ?: false
+    impl?.programmaticDocChange = true
+    try {
+        dispatch(
+            TransactionSpec(
+                changes = ChangeSpec.Single(
+                    from = DocPos.ZERO,
+                    to = state.doc.endPos,
+                    insert = text.asInsert()
+                )
             )
         )
-    )
+    } finally {
+        impl?.programmaticDocChange = previous
+    }
 }
 
 /**

@@ -110,6 +110,22 @@ internal class EditorSessionImpl(
 
     private var scrollRequestToken: Long = 0
 
+    /**
+     * <本仓库补丁> 只读会话（`editable` facet 为假）不放行**改文档**的事务。
+     *
+     * 只读框照样有插入光标、点得动、拖得出选区、复制得走（见 `CodeFieldSpec.editable`），但它
+     * **改不动**：键盘上的退格 / 删除 / ⌘X / ⌘V / ⌘Z 一条都不该落到正文上。上游只把「打字」
+     * 一路挡在输入法那一层，键位命令（几十条，见 `commands/`）是直接派发事务的，退格因此在只读
+     * 框里真能删字。
+     *
+     * 拦在 [dispatchTransaction] 这个**唯一落点**上，而不是去给每条命令打补丁——命令有几十条，
+     * 漏一条就是一个用户按得出来的洞，而这里漏不掉：`EditorSessionImpl.state` 也只在这里被写。
+     *
+     * 选区事务与效果事务照常放行（那样才是「能选、能复制」）。宿主换内容走 `EditorSession.setDoc`：
+     * 那是**喂数据**，不是用户在改，由它临时把这个开关打开。
+     */
+    internal var programmaticDocChange: Boolean = false
+
     /** Dispatch one or more transaction specs against the current state. */
     override fun dispatch(vararg specs: TransactionSpec) {
         val tr = state.update(*specs)
@@ -118,6 +134,14 @@ internal class EditorSessionImpl(
 
     /** Dispatch a fully-built transaction. */
     override fun dispatchTransaction(tr: Transaction) {
+        // <本仓库补丁> 只读会话只挡改文档的事务，见 [programmaticDocChange]。
+        // 必须写全限定名：本类的 `editable` 属性（Boolean）会遮住同名 facet。
+        if (tr.docChanged &&
+            !tr.state.facet(com.monkopedia.kodemirror.view.editable) &&
+            !programmaticDocChange
+        ) {
+            return
+        }
         val focusChanged = hasFocus != lastHasFocus
         lastHasFocus = hasFocus
         val oldState = state
