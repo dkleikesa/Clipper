@@ -35,11 +35,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -82,6 +84,7 @@ import com.qcmian.clipper.core.ui.components.HorizontalScrollbarHeight
 import com.qcmian.clipper.core.ui.components.VerticalScrollbar
 import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
 import com.qcmian.clipper.core.ui.theme.hintColor
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 /** 折叠箭头所在列的宽度（够放 [ChevronLong] 的箭头，两侧还留得出余量）。 */
@@ -100,6 +103,12 @@ private val GutterTextGap = 5.dp
 private val ChevronLong = 8.dp
 private val ChevronShort = 4.dp
 private val ChevronStroke = 1.5.dp
+
+/** 只读框里自绘的插入光标：宽度与 KodeMirror 那条（`SelectionDrawing` 画光标用 2f）一致。 */
+private val CaretWidth = 2.dp
+
+/** 光标明灭的半周期。与 KodeMirror 那个 `delay(500)` 同一个数，两套引擎看起来才是同一件事。 */
+private const val CaretBlinkMillis = 500L
 
 /**
  * 代码框的实现之一：**原生 `BasicTextField` + 叠在它上面的自绘装饰**。
@@ -218,6 +227,28 @@ fun NativeCodeField(spec: CodeFieldSpec) {
     // 光标紧挨着的那个括号，以及它的配对。
     val bracketPair: Pair<Int, Int>? = remember(structure, caret, focused) {
         if (focused) matchBracketPair(structure, caret) else null
+    }
+
+    // <本仓库补丁> 只读框也要有插入光标。Compose 的 `BasicTextField` 在 `readOnly` 时**从根上**
+    // 不画光标（`CoreTextField.kt`：`showCursor = enabled && !readOnly && …`），光标刷给什么颜色都
+    // 没用——平台那一路因此补不回来，只能自己画一条。做法与 KodeMirror 自绘的那条对齐：位置取
+    // 排版结果里的光标矩形（折行时它自带正确的那一可视行），明灭半周期也取同一个数。
+    val caretRect: Rect? = remember(layout, mapping, caret, editable) {
+        if (editable) return@remember null
+        val l = layout ?: return@remember null
+        val transformed = mapping.originalToTransformed(caret)
+        if (transformed !in 0..l.layoutInput.text.length) return@remember null
+        l.getCursorRect(transformed)
+    }
+    // 没聚焦就不画——平台文本框自己就是这条规矩（`showCursor` 里也看着焦点）。
+    var caretOn by remember { mutableStateOf(true) }
+    LaunchedEffect(editable, focused) {
+        if (editable || !focused) return@LaunchedEffect
+        caretOn = true
+        while (true) {
+            delay(CaretBlinkMillis)
+            caretOn = !caretOn
+        }
     }
 
     val density = LocalDensity.current
@@ -427,10 +458,10 @@ fun NativeCodeField(spec: CodeFieldSpec) {
                             onValueChange = { new -> accept(new) },
                             readOnly = !editable,
                             textStyle = textStyle,
-                            // 只读时连光标刷一起透明：`readOnly` 只挡输入，不挡插入点。
-                            cursorBrush = SolidColor(
-                                if (editable) colors.primary else androidx.compose.ui.graphics.Color.Transparent
-                            ),
+                            // 光标刷一直给：只读框照样有插入光标——`readOnly` 只挡改写，不挡插入点，
+                            // 也不挡选择。只读框里点一下、拖一段、复制出去都是**要的**（见
+                            // `CodeFieldSpec.editable`）。
+                            cursorBrush = SolidColor(colors.primary),
                             visualTransformation = transformation,
                             onTextLayout = { layout = it },
                             modifier = Modifier
@@ -439,7 +470,20 @@ fun NativeCodeField(spec: CodeFieldSpec) {
                                 .then(if (softWrap) Modifier.fillMaxWidth() else Modifier)
                                 .onFocusChanged { focused = it.isFocused }
                                 .focusRequester(focusRequester)
-                                .then(filePasteModifier()),
+                                .then(filePasteModifier())
+                                // <本仓库补丁> 只读框的插入光标由我们自己画（见 `caretRect`）：
+                                // 画在正文之上，坐标与文本排版同源，横向滚动时跟着走。
+                                .drawWithContent {
+                                    drawContent()
+                                    val rect = caretRect
+                                    if (!editable && focused && caretOn && rect != null) {
+                                        drawRect(
+                                            color = colors.primary,
+                                            topLeft = Offset(rect.left, rect.top),
+                                            size = Size(CaretWidth.toPx(), rect.height),
+                                        )
+                                    }
+                                },
                         )
                         // 折叠处的 `…`：叠在字形上，点它展开。
                         for (pair in folded) {

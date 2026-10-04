@@ -74,7 +74,7 @@ import com.monkopedia.kodemirror.view.placeholder as kodemirrorPlaceholder
  * |---|---|
  * | [label] / [actions] / [showLabel] | 与原生实现逐行相同地画一行标题（标题在左、动作在右） |
  * | [value] / [onValueChange] | 会话只建一次，外部换内容走 `setDoc`；变更回调只有**非回灌**的那次才出去 |
- * | [editable] | `editable` facet——管住输入、插入光标、点击落点与选区绘制 |
+ * | [editable] | `editable` facet——**只关输入那一路**（文本输入、文件粘贴、当前行底纹） |
  * | [placeholder] | `placeholder { }` 占位组件，用与正文同一套度量 |
  * | [isError] | 正文整篇改用 `error` 色（与原生框一样，错误说明照样交给同一个框显示） |
  * | [softWrap] | `lineWrapping`；关掉时由 KodeMirror 自己横向滚动 |
@@ -273,8 +273,10 @@ private fun switchableExtensions(
     parts += editorTheme.of(theme)
     parts += editorContentStyle.of(contentStyle)
     parts += codeHighlight(scanner, colors)
-    // 这一位就是 [CodeFieldSpec.editable] 落到 KodeMirror 的形态：输入管线、插入光标、正文
-    // 手势、选区绘制四处都读它（后三处在本仓库补丁里，见 `KodeMirror` 与 `SelectionDrawing`）。
+    // 这一位就是 [CodeFieldSpec.editable] 落到 KodeMirror 的形态：**只关输入那一路**——文本输入
+    // （输入法、键位里的插入兜底）、文件粘贴，以及下面那条当前行底纹。插入光标、点击落点与选区
+    // 绘制**不看它**：只读框照样有光标、选得中、拷得走，只是改不动（见 `CodeFieldSpec.editable`
+    // 与 `EditorSessionImpl.programmaticDocChange`）。
     // 这里必须写全限定名：参数就叫 `editable`，同名 facet 会被它遮住。
     parts += com.monkopedia.kodemirror.view.editable.of(editable)
     // 只读结果框不画当前行底纹——原生框也是这么定的：那里没有「正在编辑的行」，一条底色只会与

@@ -27,13 +27,16 @@ class CodeFieldSpec(
     val onValueChange: (String) -> Unit,
     val modifier: Modifier = Modifier,
     /**
-     * 这一格能不能编辑。**一个开关管到底**：焦点、插入光标、文字输入、点击落点、拖选，
-     * 四件事都由它决定，不存在「只读但还有光标」这种半开状态。
+     * 这一格能不能**改写**。为 `false` 时是一个只读结果框（各种结果框、预览面板）：键盘输入、
+     * 粘贴、拖放文件都进不去，`onValueChange` 一次都不会响。
      *
-     * 为 `false` 时它是一个**纯展示件**（预览面板、各种结果框）：画面上没有插入点、拖不出选区、
-     * 键盘输入不进去，只有滚动照常。两套引擎都必须完整遵守——KodeMirror 侧落到 `editable`
-     * facet（光标 / 输入 / 手势 / 选区绘制四处都读它），原生侧落到 `BasicTextField.readOnly`
-     * 与透明光标刷。
+     * 但它**不是纯展示件**：插入光标照画、点得动、拖得出选区、⌘C 复制得走。结果框里挑一段复制是
+     * 常规期待，预览面板同理，所以两档的差别只有「能不能改」。
+     *
+     * 两套引擎都必须守这一条：KodeMirror 侧 `editable` facet **只**关掉输入那一路（文本输入、
+     * 文件粘贴、当前行底纹），手势与选区绘制不看它；原生侧落到 `BasicTextField.readOnly`——它挡
+     * 改写，却**连插入光标一起不画**（`CoreTextField` 的 `showCursor` 里带着 `!readOnly`），所以
+     * 那边另外自绘了一条光标。
      */
     val editable: Boolean = true,
     /** 空内容时的占位提示。 */
