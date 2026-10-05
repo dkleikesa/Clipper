@@ -2,6 +2,7 @@ package com.qcmian.clipper.devtools.tools.base64
 
 import com.qcmian.clipper.core.util.Base64Decode
 import com.qcmian.clipper.core.util.decodeBase64Detailed
+import com.qcmian.clipper.core.util.decodeUtf8OrNull
 import com.qcmian.clipper.core.util.encodeBase64
 import kotlin.math.round
 
@@ -57,14 +58,8 @@ internal object Base64Format {
         }
     }
 
-    /**
-     * 字节能不能当 UTF-8 文本看；含非法序列时返回 `null`。
-     *
-     * 必须自己严判，而不是直接用 `decodeToString()` 再检查替换字符：后者会把非法序列**静默**
-     * 换成 `�`，用户看到一坨乱码却不知道「这压根不是文本」。
-     */
-    fun utf8OrNull(bytes: ByteArray): String? =
-        if (isValidUtf8(bytes)) bytes.decodeToString() else null
+    /** 字节能不能当 UTF-8 文本看；实现见 `decodeUtf8OrNull`（与 URL 解码共用同一份严判）。 */
+    fun utf8OrNull(bytes: ByteArray): String? = decodeUtf8OrNull(bytes)
 
     /** 靠文件头认出图片格式；不是已知图片就返回 `null`。 */
     fun imageKindOf(bytes: ByteArray): ImageKind? = when {
@@ -260,78 +255,4 @@ private fun ByteArray.asciiAt(offset: Int, text: String): Boolean {
         if ((this[offset + i].toInt() and 0xFF) != text[i].code) return false
     }
     return true
-}
-
-/**
- * 严格的 UTF-8 校验（RFC 3629）：过长编码、代理区、超出 U+10FFFF 一律判非法。
- *
- * 自己写而不是找现成 API：Kotlin commonMain 里 `decodeToString()` 对非法序列默认是「替成 `�`」，
- * 而这里要的恰恰是「能不能当文本」这个布尔答案。
- */
-private fun isValidUtf8(bytes: ByteArray): Boolean {
-    var i = 0
-    while (i < bytes.size) {
-        val b = bytes[i].toInt() and 0xFF
-        when {
-            b < 0x80 -> i++
-            b in 0xC2..0xDF -> {
-                if (!continuations(bytes, i + 1, 1)) return false
-                i += 2
-            }
-
-            b == 0xE0 -> {
-                if (!inRange(bytes, i + 1, 0xA0, 0xBF) || !continuations(bytes, i + 2, 1)) return false
-                i += 3
-            }
-
-            b in 0xE1..0xEC -> {
-                if (!continuations(bytes, i + 1, 2)) return false
-                i += 3
-            }
-
-            b == 0xED -> {
-                if (!inRange(bytes, i + 1, 0x80, 0x9F) || !continuations(bytes, i + 2, 1)) return false
-                i += 3
-            }
-
-            b in 0xEE..0xEF -> {
-                if (!continuations(bytes, i + 1, 2)) return false
-                i += 3
-            }
-
-            b == 0xF0 -> {
-                if (!inRange(bytes, i + 1, 0x90, 0xBF) || !continuations(bytes, i + 2, 2)) return false
-                i += 4
-            }
-
-            b in 0xF1..0xF3 -> {
-                if (!continuations(bytes, i + 1, 3)) return false
-                i += 4
-            }
-
-            b == 0xF4 -> {
-                if (!inRange(bytes, i + 1, 0x80, 0x8F) || !continuations(bytes, i + 2, 2)) return false
-                i += 4
-            }
-
-            else -> return false
-        }
-    }
-    return true
-}
-
-/** [from] 起连续 [count] 个字节是否都是 `10xxxxxx`。 */
-private fun continuations(bytes: ByteArray, from: Int, count: Int): Boolean {
-    for (i in from until from + count) {
-        if (i >= bytes.size) return false
-        val b = bytes[i].toInt() and 0xFF
-        if (b !in 0x80..0xBF) return false
-    }
-    return true
-}
-
-private fun inRange(bytes: ByteArray, index: Int, min: Int, max: Int): Boolean {
-    if (index >= bytes.size) return false
-    val b = bytes[index].toInt() and 0xFF
-    return b in min..max
 }
