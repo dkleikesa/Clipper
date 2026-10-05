@@ -7,6 +7,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -59,6 +62,37 @@ class CodeFieldContractTest {
                 )
             }
             onNodeWithText("把内容放进来").assertIsDisplayed()
+        }
+    }
+
+    /**
+     * 占位提示要**跟着参数换**，而不是只在首帧看一眼就冻住。
+     *
+     * 各工具都在动态换它：URL 与 Base64 按编解码方向、条码按码制、时间戳按输入格式。两套实现的
+     * 机制完全不同——原生框每帧直接读参数；KodeMirror 那侧的占位是**建会话时注册的扩展**，
+     * 只在首次组合捕一次参数，于是真机上表现成「切了码制，输入框里还挂着上一句示例」。
+     * 把「动态换」写成契约，某一侧再冻回去就在这里红。
+     */
+    @Test
+    fun `每个实现的占位提示都会跟着参数换`() {
+        forEachEngine { engine ->
+            var placeholder by mutableStateOf("第一句提示")
+            underTest(engine) {
+                DevToolCodeField(
+                    label = "输入",
+                    value = "",
+                    onValueChange = {},
+                    modifier = Modifier.fillMaxSize(),
+                    placeholder = placeholder,
+                )
+            }
+            onNodeWithText("第一句提示").assertIsDisplayed()
+
+            placeholder = "第二句提示"
+            waitForIdle()
+
+            onNodeWithText("第二句提示").assertIsDisplayed()
+            onNodeWithText("第一句提示").assertDoesNotExist()
         }
     }
 

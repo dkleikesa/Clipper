@@ -141,6 +141,12 @@ fun KodemirrorCodeField(spec: CodeFieldSpec) {
     val echo = remember { EditEcho() }
     val latestOnValueChange = rememberUpdatedState(onValueChange)
 
+    // 占位提示是**会变的**：调用方按模式 / 码制 / 输入格式换它（URL 的编解码方向、条码的码制、
+    // 时间戳的输入格式）。而下面那个占位扩展只建一次、被会话长期持有——直接捕 `placeholder`
+    // 会把它**冻在首次组合那一刻**（切了码制，框里还挂着上一句提示）。经 State 读，值变了
+    // 那层 BasicText 才会重画。同 `latestOnValueChange` 的做法。
+    val latestPlaceholder = rememberUpdatedState(placeholder)
+
     val session = rememberEditorSession(
         doc = value,
         extensions = remember {
@@ -154,8 +160,9 @@ fun KodemirrorCodeField(spec: CodeFieldSpec) {
                 scanner.extensions,
                 kodemirrorPlaceholder {
                     // 与原生框同字号、同色调：占位文字比正文淡一档，但度量一致，位置因此对得上。
+                    // 文本经 [latestPlaceholder] 读，不直接捕参数——理由见它的说明。
                     BasicText(
-                        text = placeholder,
+                        text = latestPlaceholder.value,
                         style = LocalContentTextStyle.current.copy(
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                         ),
