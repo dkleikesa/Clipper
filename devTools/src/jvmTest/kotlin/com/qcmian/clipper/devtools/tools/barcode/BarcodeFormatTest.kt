@@ -3,11 +3,17 @@ package com.qcmian.clipper.devtools.tools.barcode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.decodeToImageBitmap
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.font.createFontFamilyResolver
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
@@ -204,9 +210,159 @@ class BarcodeFormatTest {
         assertFalse(fits(BarcodeFormat.UpcE, "2123456"), "UPC-E 首位必须 0 或 1")
     }
 
+    /**
+     * 输入框占位提示里的示例，必须真能编出码。
+     *
+     * 它是给用户照抄的值（占位提示写的是「例如 …」）：示例本身不合格的话，用户照着填一遍只会
+     * 撞上「文本要求」那句报错，比不给示例还糟。
+     */
+    @Test
+    fun `占位提示里的示例都编得出来`() {
+        for (format in BarcodeFormat.entries) {
+            assertTrue(
+                fits(format, format.inputExample),
+                "${format.title} 的示例「${format.inputExample}」应当编得出来",
+            )
+        }
+    }
+
+    /**
+     * 纠错档位真的传到了编码器：纠错越高，留给数据的面积越少，同一段文本就会从「装得下」变成
+     * 「装不下」。这比比对符号尺寸稳——尺寸的档位是离散的，容量才是纠错的直接后果。
+     *
+     * 取 3000 个字符是有讲究的：实测 Aztec 在这个长度上 10% 装得下、33% 与 50% 都装不下（分界在
+     * 2500~2800 之间），所以它同时能验两个档位。
+     */
+    @Test
+    fun `纠错档位影响容量`() {
+        val text = "a".repeat(3000)
+        assertTrue(
+            fits(BarcodeFormat.Aztec, text, aztecEcPercent = 10),
+            "Aztec 10% 纠错：3000 字符装得下",
+        )
+        assertFalse(
+            fits(BarcodeFormat.Aztec, text, aztecEcPercent = DefaultAztecEcPercent),
+            "Aztec 33%（默认）：同一段就装不下了",
+        )
+        assertFalse(
+            fits(BarcodeFormat.Aztec, text, aztecEcPercent = 50),
+            "Aztec 50% 纠错：更装不下",
+        )
+
+        val long = "a".repeat(900)
+        assertTrue(
+            fits(BarcodeFormat.Pdf417, long, pdf417Ec = Pdf417ErrorLevel.Level0),
+            "PDF417 0 级：900 字符装得下",
+        )
+        assertFalse(
+            fits(BarcodeFormat.Pdf417, long, pdf417Ec = Pdf417ErrorLevel.Level8),
+            "PDF417 8 级：512 个纠错码字一挤，同一段就装不下了",
+        )
+    }
+
+    /**
+     * 一维码下方印的那串字符 = **码里真正编进去的内容**。
+     *
+     * EAN / UPC 允许少写校验位，印出来时得补全：否则人照着标签敲的号与扫出来的对不上，这一行就
+     * 白印了。这里不只比长度，还把补出来的那一串**再编一次**——编码器只收校验位正确的输入，
+     * 因此这一编同时证明了补上去的那位是对的。
+     */
+    @Test
+    fun `一维码的可读文本会补全校验位`() {
+        listOf(
+            BarcodeFormat.Ean13 to "400638133393",
+            BarcodeFormat.Ean8 to "9638507",
+            BarcodeFormat.UpcA to "03600029145",
+            BarcodeFormat.UpcE to "0123456",
+        ).forEach { (format, short) ->
+            val label = assertNotNull(
+                encodeBarcode(format, short, QrErrorLevel.Medium).humanReadable,
+                "${format.title} 一维码应当有可读文本",
+            )
+            assertEquals(short.length + 1, label.length, "${format.title} 印出来的该补上校验位")
+            assertTrue(label.startsWith(short), "${format.title} 只该在末尾多一位")
+            assertTrue(fits(format, label), "${format.title}：补出来的校验位必须被编码器接受")
+        }
+
+        // 已经是全长就原样印；非 EAN / UPC 的一维码也原样印。
+        assertEquals(
+            "4006381333931",
+            encodeBarcode(BarcodeFormat.Ean13, "4006381333931", QrErrorLevel.Medium).humanReadable,
+        )
+        assertEquals(
+            "ABC-1234",
+            encodeBarcode(BarcodeFormat.Code39, "ABC-1234", QrErrorLevel.Medium).humanReadable,
+        )
+        // 二维码没有这一行：载荷印在码下面没有意义，也不是惯例。
+        assertNull(encodeBarcode(BarcodeFormat.Qr, "hello", QrErrorLevel.Medium).humanReadable)
+    }
+
+    /**
+     * 印字那一行得**真画进图里**：它本来就是印给人（以及导出的 PNG）看的，只在预览里叠个 `Text`
+     * 是不够的。这里同时钉住位置约定——文字在条的下方，而条那一行的左右静区不受影响。
+     */
+    @Test
+    fun `一维码印字会把文字画进图里`() {
+        val code = encodeBarcode(BarcodeFormat.Code39, "ABC-1234", QrErrorLevel.Medium)
+        val plain = code.painterFor(printText = false, TestMeasurer)
+        val labeled = code.painterFor(printText = true, TestMeasurer)
+
+        // 关掉时拿到的就是原来那份 painter，不多包一层。
+        assertSame(code.painter, plain, "不印字时不该套那层 painter")
+        // 开了之后整张图变高：下方给文字让出一块。
+        assertTrue(
+            labeled.intrinsicSize.height > plain.intrinsicSize.height,
+            "印字要给文字让出一块高度",
+        )
+
+        val size = exportSizeOf(labeled, 512)
+        val pixels = renderPng(labeled, size.width, size.height).decodeToImageBitmap().toPixelMap()
+        val barRow = size.height / 3
+        // 文字在下四分之一里（具体哪几行取决于字号，断言整个带子而不是某一行）。
+        val labelBand = (size.height * 0.8f).toInt() until size.height
+
+        assertTrue((0 until size.width).any { pixels[it, barRow].red < 0.5f }, "上半部分应当是条")
+        assertTrue(
+            labelBand.any { row -> (0 until size.width).any { pixels[it, row].red < 0.5f } },
+            "下半部分应当印出了文字",
+        )
+        // 静区照旧：条那一行的两端仍是白的。
+        assertEquals(Color.White, pixels[0, barRow], "左侧静区不该被文字碰到")
+        assertEquals(Color.White, pixels[size.width - 1, barRow], "右侧静区同理")
+    }
+
+    /**
+     * Aztec 纠错滑杆的**两端**都得是能用的取值。
+     *
+     * 滑杆与分段控件不同：整条轨道上每一格用户都拖得到，所以不能有「拖到某一段必然报错」的区间——
+     * 那种轨道等于摆设。这里用最短的内容钉住两端（长内容在两端的表现本来就不一样，见上一条）。
+     */
+    @Test
+    fun `Aztec 纠错滑杆两端的取值都编得出来`() {
+        val text = "clipper"
+        assertTrue(
+            fits(BarcodeFormat.Aztec, text, aztecEcPercent = AztecEcPercentRange.first),
+            "最小档（${AztecEcPercentRange.first}%）也该编得出来",
+        )
+        assertTrue(
+            fits(BarcodeFormat.Aztec, text, aztecEcPercent = AztecEcPercentRange.last),
+            "最大档（${AztecEcPercentRange.last}%）对短内容同样可用",
+        )
+    }
+
     private fun fits(
         format: BarcodeFormat,
         payload: String,
         level: QrErrorLevel = QrErrorLevel.Medium,
-    ): Boolean = runCatching { encodeBarcode(format, payload, level) }.isSuccess
+        aztecEcPercent: Int = DefaultAztecEcPercent,
+        pdf417Ec: Pdf417ErrorLevel = Pdf417ErrorLevel.Auto,
+    ): Boolean = runCatching { encodeBarcode(format, payload, level, aztecEcPercent, pdf417Ec) }.isSuccess
+
+    private companion object {
+        /**
+         * 画文字要的度量器。测试里没有组合环境，按 1:1 密度直接建一个——字号是按**绘制尺寸**算的
+         * （见 `HumanReadablePainter`），所以这里的密度取多少都不影响断言。
+         */
+        val TestMeasurer = TextMeasurer(createFontFamilyResolver(), Density(1f), LayoutDirection.Ltr)
+    }
 }

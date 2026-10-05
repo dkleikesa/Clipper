@@ -18,11 +18,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipAnchorPosition
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +49,7 @@ import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
+import kotlin.math.roundToInt
 
 /**
  * 工具界面共用的一小组控件。
@@ -477,4 +482,76 @@ internal fun DevToolSingleLineField(
             }
         },
     )
+}
+
+/**
+ * 滑杆轨道宽度。太窄则一像素好几个百分点，太宽会把工具栏那一行挤满。
+ */
+private val DevToolSliderWidth = 132.dp
+
+/**
+ * 工具栏里的滑杆：一个**连续**取值，外加当前值读数。
+ *
+ * 与设置页那个 `SliderRow`（标题一行、滑杆独占下一行）不同，这里在**工具栏**里，要与旁边的分段
+ * 控件、下拉同高同一行，所以只留「滑杆 + 读数」两件东西，标题交给调用方（见 `BarcodeDevTool` 的
+ * `ToolbarOption`）。轨道与拇指的样式跟设置页保持一致（关掉断口与首尾停点、拇指 18dp 带白边），
+ * 免得同一个应用里出现两种滑杆。
+ *
+ * 什么时候该用它：参数**真的有刻度**才配滑杆——Aztec 的纠错是百分比，连续量切成四档既够不到
+ * 23% 这种中间值，也看不出它本来是连续的。离散档位仍用 [DevToolSegmentedControl] 或
+ * [DevToolMenuButton]。
+ *
+ * @param valueLabel 当前值怎么显示（如「33%」）。拖动时它是唯一的读数。
+ */
+@Composable
+fun DevToolSlider(
+    value: Int,
+    range: IntRange,
+    onValueChange: (Int) -> Unit,
+    valueLabel: (Int) -> String,
+    modifier: Modifier = Modifier,
+    tooltip: String? = null,
+) {
+    val content: @Composable () -> Unit = {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = modifier.height(DevToolControlHeight),
+        ) {
+            Slider(
+                value = value.toFloat(),
+                onValueChange = { onValueChange(it.roundToInt()) },
+                valueRange = range.first.toFloat()..range.last.toFloat(),
+                // 逐格吸附：取值是整数量，拖动时不该出现 33.4% 这种读数。
+                steps = (range.last - range.first - 1).coerceAtLeast(0),
+                modifier = Modifier.width(DevToolSliderWidth),
+                // 轨道连续贯穿，不画断口与首尾停点（与设置页那处同一个写法）。
+                track = {
+                    SliderDefaults.Track(
+                        sliderState = it,
+                        thumbTrackGapSize = 0.dp,
+                        trackInsideCornerSize = 0.dp,
+                        drawStopIndicator = null,
+                    )
+                },
+                // 拇指缩到 18dp、去掉按下缩放：Material 默认那副动效与工具栏其余控件的静止感不合。
+                thumb = {
+                    Box(
+                        Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(SliderDefaults.colors().thumbColor)
+                            .border(2.dp, Color.White, CircleShape),
+                    )
+                },
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(text = valueLabel(value), fontSize = 12.sp, color = MaterialTheme.hintColor)
+        }
+    }
+
+    if (tooltip == null) {
+        content()
+    } else {
+        HoverTooltip(text = tooltip, positioning = TooltipAnchorPosition.Above) { content() }
+    }
 }
