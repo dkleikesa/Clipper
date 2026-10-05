@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 
@@ -294,6 +295,9 @@ fun DevToolSectionDivider(modifier: Modifier = Modifier) {
  * 挑一个、现在挑的是它」自带说明。
  *
  * 与 [DevToolToggle] 不能互换外观：那个是「开 / 关」，这个是「甲 / 乙」。
+ *
+ * @param tooltip 每一段的悬停说明。段上只有短名，铺不下「RFC 3986」「encodeURI」这类出处，
+ *   需要交代时就用它；为空（默认）时整段不挂提示，行为与从前一字不差。
  */
 @Composable
 fun <T> DevToolSegmentedControl(
@@ -302,6 +306,7 @@ fun <T> DevToolSegmentedControl(
     optionLabel: (T) -> String,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
+    tooltip: ((T) -> String)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     // 每段一份交互源：悬停高亮要各算各的。列表长度恒定，按长度记忆即可。
@@ -321,30 +326,34 @@ fun <T> DevToolSegmentedControl(
         options.forEachIndexed { index, option ->
             val isSelected = option == selected
             val hovered by interactions[index].collectIsHoveredAsState()
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(5.dp))
-                    .background(
-                        when {
-                            isSelected -> colors.primary
-                            hovered -> colors.onSurface.copy(alpha = 0.08f)
-                            else -> Color.Transparent
+            // 提示为空时 `HoverTooltip` 直接渲染内容，不做任何包裹——所以这里的结构对
+            // 「没传 tooltip」的调用方没有任何额外影响。
+            HoverTooltip(text = tooltip?.invoke(option).orEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(
+                            when {
+                                isSelected -> colors.primary
+                                hovered -> colors.onSurface.copy(alpha = 0.08f)
+                                else -> Color.Transparent
+                            }
+                        )
+                        .hoverable(interactions[index])
+                        .clickable(interactionSource = interactions[index], indication = null) {
+                            onSelect(option)
                         }
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = optionLabel(option),
+                        fontSize = 13.sp,
+                        color = if (isSelected) colors.onPrimary else colors.onSurface,
+                        maxLines = 1,
                     )
-                    .hoverable(interactions[index])
-                    .clickable(interactionSource = interactions[index], indication = null) {
-                        onSelect(option)
-                    }
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = optionLabel(option),
-                    fontSize = 13.sp,
-                    color = if (isSelected) colors.onPrimary else colors.onSurface,
-                    maxLines = 1,
-                )
+                }
             }
         }
     }
