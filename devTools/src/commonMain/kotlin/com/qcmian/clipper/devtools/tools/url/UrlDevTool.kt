@@ -71,7 +71,7 @@ internal object UrlDevTool : DevTool {
         name = "URL 编解码",
         description = "百分号编码与还原：默认严格 RFC 3986，也可按 URL 或表单处理。",
         group = DevToolGroup.ENCODER,
-        icon = ClipperIconKind.GLOBE,
+        icon = ClipperIconKind.LINK,
     )
 
     // 剪贴板里是一整条 URL 时把本工具推荐到最前（探测器认的是带 scheme 的绝对 URL）。

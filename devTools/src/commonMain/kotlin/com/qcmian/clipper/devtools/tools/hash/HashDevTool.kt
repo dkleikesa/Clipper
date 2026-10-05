@@ -82,7 +82,7 @@ internal object HashDevTool : DevTool {
         name = "Hash 摘要",
         description = "对文本或任意文件一次算出 MD5 / SHA-1 / SHA-224 / SHA-256 / SHA-384 / SHA-512 / SHA3 与 CRC32。",
         group = DevToolGroup.GENERATOR,
-        icon = ClipperIconKind.HASH,
+        icon = ClipperIconKind.FINGERPRINT,
     )
 
     // 与数学工具同一取舍：任何文本都可能是待摘要的内容，若声明 `text`，打开任意一段文字都会
