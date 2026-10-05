@@ -1,6 +1,8 @@
 package com.qcmian.clipper.core.platform.macos
 
 import com.qcmian.clipper.core.domain.model.SourceApplication
+import com.sun.jna.Callback
+import com.sun.jna.CallbackReference
 import com.sun.jna.Pointer
 
 /**
@@ -77,6 +79,86 @@ object MacWorkspace {
         if (!loaded || application == null) return false
         // `NSApplicationActivateAllWindows` | `NSApplicationActivateIgnoringOtherApps`。
         return MacNative.sendBool(application, "activateWithOptions:", ACTIVATE_ALL_WINDOWS or ACTIVATE_IGNORING_OTHER_APPS)
+    }
+
+    /**
+     * `NSApplication.setActivationPolicy:`：控制应用要不要出现在 Dock（以及 ⌘Tab）里。
+     *
+     * 本应用默认是菜单栏应用（`LSUIElement` → `NSApplicationActivationPolicyAccessory`），
+     * 平时不占 Dock。开发者工具窗口出现时临时切到 `Regular`——它是一个正经的编辑面，在 Dock
+     * 里露个图标既方便切回、也让「正在编辑」这件事有个系统层面的落点；窗口收起后再切回
+     * `Accessory`（否则图标会一直挂着）。
+     *
+     * **必须在 AppKit 主线程上调用**，而 AWT 的 EDT 不是 AppKit 主线程（见 [MacStatusItem]），
+     * 因此经 `performSelectorOnMainThread:` 派发：目标方法读 [pendingDockVisible] 再落地。
+     * 不等待（`waitUntilDone` 为假）——调用方在窗口的显隐副作用里，阻塞没有意义。
+     */
+    fun setDockIconVisible(visible: Boolean) {
+        if (!loaded) return
+        pendingDockVisible = visible
+        val target = dockTargetObject() ?: return
+        MacNative.send(
+            target,
+            "performSelectorOnMainThread:withObject:waitUntilDone:",
+            MacNative.selector(DOCK_SELECTOR),
+            null,
+            0.toByte(),
+        )
+    }
+
+    /** 动态建出来的派发目标类名；与 [MacStatusItem] 各用各的，互不干扰。 */
+    private const val DOCK_TARGET_CLASS = "ClipperDockPolicyTarget"
+
+    /** AppKit 主线程上执行的选择器。 */
+    private const val DOCK_SELECTOR = "applyDockPolicy:"
+
+    /** `NSApplicationActivationPolicyRegular`：常规应用，Dock 里出现图标。 */
+    private const val POLICY_REGULAR = 0L
+
+    /** `NSApplicationActivationPolicyAccessory`：只在菜单栏里存在，不占 Dock。 */
+    private const val POLICY_ACCESSORY = 1L
+
+    /** 最近一次请求的目标状态；主线程上的目标方法读它。 */
+    @Volatile
+    private var pendingDockVisible: Boolean? = null
+
+    /**
+     * 主线程回调：把待定状态落成真正的 `setActivationPolicy:`。
+     *
+     * 函数指针会被写进运行时建的类，必须保活（同 [MacStatusItem] 的 `applyCallback`）。
+     */
+    private val dockApplyCallback: Callback = object : DockApplyCallback {
+        override fun apply(self: Pointer?, command: Pointer?, argument: Pointer?) {
+            val visible = pendingDockVisible ?: return
+            val application = MacNative.send(MacNative.clazz("NSApplication"), "sharedApplication") ?: return
+            MacNative.sendBool(
+                application,
+                "setActivationPolicy:",
+                if (visible) POLICY_REGULAR else POLICY_ACCESSORY,
+            )
+        }
+    }
+
+    private interface DockApplyCallback : Callback {
+        fun apply(self: Pointer?, command: Pointer?, argument: Pointer?)
+    }
+
+    private var dockTarget: Pointer? = null
+
+    /** 建出（或复用）派发用的动态类实例；任一步失败返回 `null`，静默降级。 */
+    private fun dockTargetObject(): Pointer? {
+        dockTarget?.let { return it }
+        val implementation = runCatching { CallbackReference.getFunctionPointer(dockApplyCallback) }.getOrNull()
+            ?: return null
+        val targetClass = MacNative.clazz(DOCK_TARGET_CLASS)
+            ?: MacNative.allocateClass("NSObject", DOCK_TARGET_CLASS)?.also {
+                MacNative.addMethod(it, DOCK_SELECTOR, implementation, "v@:@")
+                MacNative.registerClass(it)
+            }
+            ?: return null
+        val target = MacNative.send(MacNative.send(targetClass, "alloc"), "init")
+        dockTarget = target
+        return target
     }
 
     /**

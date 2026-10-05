@@ -210,6 +210,11 @@ fun ApplicationScope.ClipperDevToolsWindow(
         // 窗口隐藏时也仍在组合里，所以这个副作用在**挂载那一刻**就先跑了一次（那时 `visible`
         // 还是 false、窗口还没露过面）——定位实际发生在那一刻，而不是「首次显示」时。
         LaunchedEffect(visible) {
+            // Dock 图标跟着本窗口的存亡走：开着时把应用临时标成常规应用（Dock 里出现图标），
+            // 收起后再切回菜单栏应用（否则它会一直占着 Dock）。设置窗口与面板**不**做这件事，
+            // 它们保持原有的「只在菜单栏里存在」——用户要的是「开发者工具像个正经编辑面」。
+            MacWorkspace.setDockIconVisible(visible)
+
             // 定位（多屏）：窗口必须落在**鼠标所在的那块屏幕**上（索引 0 = 活动屏幕，见
             // `screenBounds`），否则在副屏上按 `⇧⌘D`，它会跑到主屏去。
             //
