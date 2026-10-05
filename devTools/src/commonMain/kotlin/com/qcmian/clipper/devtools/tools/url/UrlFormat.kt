@@ -2,12 +2,6 @@ package com.qcmian.clipper.devtools.tools.url
 
 import com.qcmian.clipper.core.util.decodeUtf8OrNull
 
-/** 编解码的方向。与 Base64 工具一样**显式**给出，不靠猜。 */
-internal enum class UrlMode(val title: String) {
-    Encode("编码"),
-    Decode("解码"),
-}
-
 /**
  * 编码 / 解码用哪一套字符集，决定这个工具是在编「一个参数」还是「一整条 URL」。
  *

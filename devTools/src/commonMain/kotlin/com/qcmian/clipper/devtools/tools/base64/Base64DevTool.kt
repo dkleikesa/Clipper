@@ -47,12 +47,12 @@ import com.qcmian.clipper.devtools.api.readTextFileOrNull
 import com.qcmian.clipper.devtools.api.writeBytesFile
 import com.qcmian.clipper.devtools.api.writeTextFile
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
+import com.qcmian.clipper.devtools.ui.components.DevToolDirection
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
-import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
-import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
+import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.core.ui.code.DevToolCodeField
@@ -75,11 +75,6 @@ private val InputFieldHeight = 120.dp
  * 排版变慢——代码框走 `BasicTextField`，整段要一次性排版。真在实机上卡到不能用，再回来收。
  */
 private val MaxInputFileBytes = 16L * 1024 * 1024
-
-private enum class Base64Mode(val title: String) {
-    Encode("编码"),
-    Decode("解码"),
-}
 
 /**
  * 编码时从「非文本」来的输入：打开 / 拖入的文件、剪贴板里的图片。
@@ -126,8 +121,8 @@ private sealed interface Loaded {
 /**
  * Base64 编解码：文本、图片与任意文件互转。
  *
- * 方向是**显式**的（编码 / 解码分段控件），不做「自动猜」——`test`、`abcd` 这类普通词也是合法
- * Base64，猜错方向比多按一下更烦人（数学工具不声明数据类型，也是同一个取舍）。
+ * 方向是**显式**的（顶上「编码 / 解码」两页页签），不做「自动猜」——`test`、`abcd` 这类普通词也是
+ * 合法 Base64，猜错方向比多按一下更烦人（数学工具不声明数据类型，也是同一个取舍）。
  *
  * 输入输出都落在「字节」这一层：编码要的是字节（文本按 UTF-8 取，文件按原样取），解码给出的
  * 也是字节，再由「它是什么」决定怎么显示——图片给预览，能当 UTF-8 看的给文本，其余给一张
@@ -147,7 +142,7 @@ internal object Base64DevTool : DevTool {
 
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
-        var mode by remember { mutableStateOf(Base64Mode.Encode) }
+        var mode by remember { mutableStateOf(DevToolDirection.Encode) }
         var urlSafe by remember { mutableStateOf(false) }
         // 编码结果前面要不要写 `data:<类型>;base64,`。只对**文件 / 图片**来源生效：手敲的一段文本
         // 没有「文件类型」可言，给它套个 `text/plain` 只是往结果前面塞噪音。
@@ -172,13 +167,13 @@ internal object Base64DevTool : DevTool {
         var computedText by remember { mutableStateOf<String?>(null) }
 
         // 眼前这个方向正在用哪一份输入。
-        val text = if (mode == Base64Mode.Encode) encodeText else decodeText
-        val typed = if (mode == Base64Mode.Encode) encodeTyped else decodeTyped
+        val text = if (mode == DevToolDirection.Encode) encodeText else decodeText
+        val typed = if (mode == DevToolDirection.Encode) encodeTyped else decodeTyped
 
         // 改**当前方向**那一份输入。`fromUser` 区分「手打的」与「从文件 / 剪贴板搬进来的」——
         // 状态栏只对前者说「文本输入」。
         fun updateText(value: String, fromUser: Boolean) {
-            if (mode == Base64Mode.Encode) {
+            if (mode == DevToolDirection.Encode) {
                 encodeText = value
                 encodeTyped = fromUser
             } else {
@@ -214,7 +209,7 @@ internal object Base64DevTool : DevTool {
             val item = input ?: return@LaunchedEffect
             val image = item.image
             if (image != null && item.files.isEmpty()) {
-                mode = Base64Mode.Encode
+                mode = DevToolDirection.Encode
                 source = Base64Source(imageSourceName(DevToolInputOrigin.Paste), image.toByteArray())
                 encodeText = ""
                 encodeTyped = false
@@ -229,7 +224,7 @@ internal object Base64DevTool : DevTool {
             // 出来的，两边用同一条规则才不会「它推荐了、进来却不是解码」。
             val looksEncoded = withContext(Dispatchers.Default) { Base64DataTypeDetector.matches(text) }
             source = null
-            mode = if (looksEncoded) Base64Mode.Decode else Base64Mode.Encode
+            mode = if (looksEncoded) DevToolDirection.Decode else DevToolDirection.Encode
             if (looksEncoded) {
                 decodeText = text
                 decodeTyped = false
@@ -243,7 +238,7 @@ internal object Base64DevTool : DevTool {
         // 那一份即使算完也自然作废。
         LaunchedEffect(mode, urlSafe, withPrefix, text, source) {
             // 文件只喂编码方向；解码方向看的是它自己那个框里的 Base64。
-            val file = if (mode == Base64Mode.Encode) source else null
+            val file = if (mode == DevToolDirection.Encode) source else null
             if (file == null && text.isBlank()) {
                 outcome = null
                 computing = false
@@ -287,86 +282,138 @@ internal object Base64DevTool : DevTool {
         }
 
         Column(Modifier.fillMaxSize()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                DevToolSegmentedControl(
-                    options = Base64Mode.entries,
-                    selected = mode,
-                    optionLabel = { it.title },
-                    // 只换方向，不动两边的输入：编码框与解码框各存各的，切来切去都不丢。
-                    onSelect = { mode = it },
-                )
+            // 方向是两**页**，不是工具栏里的一枚开关：编码与解码各带自己那一整套（选项 + 输入框 +
+            // 结果区）。原先那枚分段控件与旁边的「URL 安全」长得一模一样，于是「换一整页」看上去
+            // 跟「改一个选项」是同一件事。
+            DevToolTabBar(
+                options = DevToolDirection.entries,
+                selected = mode,
+                optionLabel = { it.title },
+                // 只换页，不动两边的输入：编码框与解码框各存各的，切来切去都不丢。
+                onSelect = { mode = it },
+            )
 
-                DevToolGroupDivider()
+            Spacer(Modifier.height(12.dp))
 
-                DevToolToggle(
-                    title = "URL 安全",
-                    checked = urlSafe,
-                    onCheckedChange = { urlSafe = it },
-                )
+            // 载入的文件只属于编码那一页：解码读的是它自己框里的 Base64。
+            val loadedFile = source
 
-                DevToolActionSpacer()
+            when (mode) {
+                // 编码页：文本、文件、剪贴板图片都能编。
+                DevToolDirection.Encode -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        DevToolToggle(
+                            title = "URL 安全",
+                            checked = urlSafe,
+                            onCheckedChange = { urlSafe = it },
+                        )
 
-                DevToolToggle(
-                    title = "类型前缀",
-                    checked = withPrefix,
-                    onCheckedChange = { withPrefix = it },
-                )
+                        DevToolActionSpacer()
 
-                Spacer(Modifier.weight(1f))
+                        // 「类型前缀」只管文件 / 图片那一类来源：手敲的一段文本没有「文件类型」可写，
+                        // 给它套个 `text/plain` 只是往结果前面塞噪音（见 `computeOutcome`）。
+                        DevToolToggle(
+                            title = "类型前缀",
+                            checked = withPrefix,
+                            onCheckedChange = { withPrefix = it },
+                        )
+
+                        Spacer(Modifier.weight(1f))
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    // 输入区整个交给 `DevToolInputField`：文本、文件（打开 / 拖入 / 粘贴）与
+                    // **剪贴板里的图片**四路输入都从这一个口子进。载入文件 / 图片之后就换成那张
+                    // 来源卡片。
+                    DevToolInputField(
+                        label = "输入 · 文本",
+                        value = encodeText,
+                        onValueChange = {
+                            encodeText = it
+                            encodeTyped = true
+                        },
+                        host = host,
+                        placeholder = "在此粘贴文本或图片；或拖入 / 打开一个文件（图片、任意二进制）",
+                        // Base64 是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
+                        // 折行只改显示，`value` 仍是那一整行，复制 / 保存拿到的还是原样。
+                        softWrap = true,
+                        folding = false,
+                        scan = ::scanPlain,
+                        // 文件按**这一页**的方向安置：编码要的是字节（二进制正是内容）。返回空串
+                        // 表示「已经安置好了」——输入框不必再往正文里填东西，也吞掉这次粘贴。
+                        onFiles = { paths, _ ->
+                            paths.firstOrNull()?.let(::applyPath)
+                            ""
+                        },
+                        // 剪贴板里的图片没有磁盘路径：直接当编码来源——用户粘一张图进来，要看的
+                        // 显然是它的 Base64。
+                        onImage = { bytes, origin ->
+                            source = Base64Source(imageSourceName(origin), bytes)
+                            encodeText = ""
+                            encodeTyped = false
+                        },
+                        // 清空不是「手打」，但也别留着上一档的手打标记。
+                        onClear = {
+                            encodeText = ""
+                            encodeTyped = false
+                        },
+                        sourceCard = if (loadedFile != null) {
+                            { cardModifier ->
+                                FileSourceCard(
+                                    source = loadedFile,
+                                    onReplace = { host.pickFileToOpen()?.let(::applyPath) },
+                                    onClear = { source = null },
+                                    modifier = cardModifier,
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
+                    )
+                }
+
+                // 解码页：只吃一段 Base64（或一条 Data URL），结果可能是文本 / 图片 / 二进制文件。
+                DevToolDirection.Decode -> {
+                    DevToolInputField(
+                        label = "输入 · Base64",
+                        value = decodeText,
+                        onValueChange = {
+                            decodeText = it
+                            decodeTyped = true
+                        },
+                        host = host,
+                        placeholder = "在此粘贴 Base64；也认 data:image/png;base64,… 这样的 Data URL",
+                        softWrap = true,
+                        folding = false,
+                        scan = ::scanPlain,
+                        // 这一页打开 / 拖入的文件按**文本**读：Base64 本身就是文本（见 `loadFile`）。
+                        onFiles = { paths, _ ->
+                            paths.firstOrNull()?.let(::applyPath)
+                            ""
+                        },
+                        // 这一页没有图片可解：粘一张图进来只可能是想**编**它，所以替用户翻到编码页、
+                        // 顺手把图挂上——跟从前那枚分段控件一样，不让这次粘贴石沉大海。
+                        onImage = { bytes, origin ->
+                            mode = DevToolDirection.Encode
+                            source = Base64Source(imageSourceName(origin), bytes)
+                            encodeText = ""
+                            encodeTyped = false
+                        },
+                        onClear = {
+                            decodeText = ""
+                            decodeTyped = false
+                        },
+                        modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
+                    )
+                }
             }
 
             Spacer(Modifier.height(10.dp))
 
-            // 输入区整个交给 `DevToolInputField`：文本、文件（打开 / 拖入 / 粘贴）与**剪贴板里的
-            // 图片**四路输入都从这一个口子进。载入文件 / 图片之后就换成那张来源卡片。
-            val loadedFile = source
-            DevToolInputField(
-                label = if (mode == Base64Mode.Encode) "输入 · 文本" else "输入 · Base64",
-                value = text,
-                onValueChange = { updateText(it, fromUser = true) },
-                host = host,
-                placeholder = if (mode == Base64Mode.Encode) {
-                    "在此粘贴文本或图片；或拖入 / 打开一个文件（图片、任意二进制）"
-                } else {
-                    "在此粘贴 Base64；也认 data:image/png;base64,… 这样的 Data URL"
-                },
-                // Base64 是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
-                // 折行只改显示，`value` 仍是那一整行，复制 / 保存拿到的还是原样。
-                softWrap = true,
-                folding = false,
-                scan = ::scanPlain,
-                // 文件按当前方向安置：编码要字节（二进制正是内容），解码要文本（Base64 本身是文本）。
-                // 返回空串表示「已经安置好了」——输入框不必再往正文里填东西，也吞掉这次粘贴。
-                onFiles = { paths, _ ->
-                    paths.firstOrNull()?.let(::applyPath)
-                    ""
-                },
-                // 剪贴板里的图片没有磁盘路径：直接当**编码**方向的来源——用户粘一张图进来，
-                // 要看的显然是它的 Base64，而不是「这不是一段 Base64」。
-                onImage = { bytes, origin ->
-                    mode = Base64Mode.Encode
-                    source = Base64Source(imageSourceName(origin), bytes)
-                    updateText("", fromUser = false)
-                },
-                // 清空不是「手打」，但也别留着上一档的手打标记。
-                onClear = { updateText("", fromUser = false) },
-                sourceCard = if (mode == Base64Mode.Encode && loadedFile != null) {
-                    { cardModifier ->
-                        FileSourceCard(
-                            source = loadedFile,
-                            onReplace = { host.pickFileToOpen()?.let(::applyPath) },
-                            onClear = { source = null },
-                            modifier = cardModifier,
-                        )
-                    }
-                } else {
-                    null
-                },
-                modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
-            )
-
-            Spacer(Modifier.height(10.dp))
-
+            // 结果区两页共用一份：它按解出来的**字节是什么**决定画文本、图片还是文件卡，本来就不分
+            // 方向；各画一份只会让两边慢慢长歪。
             ResultArea(
                 outcome = outcome,
                 mode = mode,
@@ -380,13 +427,13 @@ internal object Base64DevTool : DevTool {
 
 /** 在后台算出这一次的结果。编解码本身是纯函数，这里只负责接上与排版无关的字节。 */
 private fun computeOutcome(
-    mode: Base64Mode,
+    mode: DevToolDirection,
     urlSafe: Boolean,
     withPrefix: Boolean,
     text: String,
     file: Base64Source?,
 ): Base64Outcome = when (mode) {
-    Base64Mode.Encode -> {
+    DevToolDirection.Encode -> {
         val bytes = file?.bytes ?: text.encodeToByteArray()
         val encoded = Base64Format.encode(bytes, urlSafe)
         // 前缀只在**有类型可写**时才加：文件 / 图片有 MIME，一段手敲的文本没有。
@@ -398,7 +445,7 @@ private fun computeOutcome(
         Base64Outcome.Encoded(output, bytes.size)
     }
 
-    Base64Mode.Decode -> {
+    DevToolDirection.Decode -> {
         // 输入若是 Data URL，它声明的类型就是最可信的一手信息——`data:application/zip;base64,…`
         // 解出来当然该存成 `.zip`。先取下来，再连同字节一起交给 `describe`。
         val mime = Base64Format.dataUriMime(text)
@@ -446,9 +493,9 @@ private fun describe(bytes: ByteArray, sourceChars: Int, mime: String?): Base64O
  * 读原始字节，走 `readBytesOrNull`——后者才认二进制文件（`readTextFileOrNull` 会把图片当二进制
  * 拒掉，而图片正是这里的主要用法）。
  */
-private fun loadFile(path: String, mode: Base64Mode): Loaded {
+private fun loadFile(path: String, mode: DevToolDirection): Loaded {
     val name = path.substringAfterLast('/').ifBlank { path }
-    if (mode == Base64Mode.Decode) {
+    if (mode == DevToolDirection.Decode) {
         val value = readTextFileOrNull(path)
             ?: return Loaded.Failure("读不了这个文件（不是文本，或超过大小上限）：$path")
         return Loaded.Text(value)
@@ -485,7 +532,7 @@ private fun saveBytes(host: DevToolHost, bytes: ByteArray, suggestedName: String
 @Composable
 private fun ResultArea(
     outcome: Base64Outcome?,
-    mode: Base64Mode,
+    mode: DevToolDirection,
     computing: Boolean,
     host: DevToolHost,
     modifier: Modifier,
@@ -797,12 +844,12 @@ private fun rememberThumbnail(source: Base64Source): ImageBitmap? {
 }
 
 @Composable
-private fun PlaceholderResult(mode: Base64Mode, computing: Boolean, modifier: Modifier) {
+private fun PlaceholderResult(mode: DevToolDirection, computing: Boolean, modifier: Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Text(
             text = when {
                 computing -> "计算中…"
-                mode == Base64Mode.Encode -> "输入文本或载入文件后，这里显示 Base64"
+                mode == DevToolDirection.Encode -> "输入文本或载入文件后，这里显示 Base64"
                 else -> "粘贴 Base64 后，这里显示原文 / 图片 / 文件"
             },
             fontSize = 12.sp,

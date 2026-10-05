@@ -44,6 +44,7 @@ import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.api.writeBytesFile
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
+import com.qcmian.clipper.devtools.ui.components.DevToolDirection
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
 import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
@@ -51,6 +52,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolSlider
+import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -114,6 +116,9 @@ private sealed interface CodeOutcome {
  *
  * 编码与绘制都交给 qrose（见 `BarcodeFormat`）；这里只管交互与排版。编码在后台线程做——一段长
  * 文本的编码要几十毫秒，不该压在组合线程上，编不出来时也在那里接住异常。
+ *
+ * 顶上两页页签（与 Base64 / URL 同一套）：编码这一页就是上面说的这些；解码那一页**还没做**，
+ * 先立个页签占住位置（见 `DecodePlaceholder`）——「从码图里读出内容」是迟早要接上去的一路。
  */
 internal object BarcodeDevTool : DevTool {
 
@@ -127,6 +132,9 @@ internal object BarcodeDevTool : DevTool {
 
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
+        // 与 Base64 / URL 一样，方向是顶上两页页签。这一版只有「编码」有内容，「解码」先占位
+        // （见 `DecodePlaceholder`）——页签先立起来，接上「读一张码图」那一路时结构不必再动。
+        var mode by remember { mutableStateOf(DevToolDirection.Encode) }
         var format by remember { mutableStateOf(BarcodeFormat.Qr) }
         var level by remember { mutableStateOf(QrErrorLevel.Medium) }
         // 另两种二维码的纠错各存一份：三者刻度不同（Aztec 是百分比、PDF417 是 0–8 级，见
@@ -157,7 +165,11 @@ internal object BarcodeDevTool : DevTool {
         }
 
         // 来源报告给底部状态栏：改过编辑框就说「文本输入」，否则交回面板判断（剪贴板 / 文件）。
-        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
+        // 解码那一页还没有内容，一律交回面板。
+        DevToolReportSource(
+            host,
+            if (mode == DevToolDirection.Encode && typed) DevToolTypedSource else null,
+        )
 
         // 防抖：正文一变就重新计时，停下来才把这一份交给编码。取消由 `LaunchedEffect` 负责，
         // 因此打字期间不会有半截文本被编出来。
@@ -172,8 +184,11 @@ internal object BarcodeDevTool : DevTool {
 
         // 生成：正文或任一参数一变就重来一次。整段编码放到后台线程，编码器抛错（长度不对、
         // 字符集不合、内容超容量）也接住，变成结果区里的一句交代，而不是让窗口崩掉。
-        LaunchedEffect(debounced, format, level, aztecEcPercent, pdf417Ec) {
-            if (debounced.isBlank()) {
+        //
+        // 解码页上什么都不编：停在门口，顺手把上一页留下的结果作废——`mode` 是键，切回编码页时
+        // 这一段会重跑，结果自己就回来了。
+        LaunchedEffect(mode, debounced, format, level, aztecEcPercent, pdf417Ec) {
+            if (mode == DevToolDirection.Decode || debounced.isBlank()) {
                 outcome = null
                 outcomeRequest = null
                 return@LaunchedEffect
@@ -203,7 +218,12 @@ internal object BarcodeDevTool : DevTool {
         val fresh = text.isNotBlank() && outcomeRequest == request
 
         // 码制与尺寸报到窗口底部的状态栏，不占内容区那一行（与其它工具同一分工）。
-        LaunchedEffect(outcome, outcomeRequest, request) {
+        LaunchedEffect(mode, outcome, outcomeRequest, request) {
+            // 解码页上没有任何码可报：不清掉的话，切过去还挂着上一页那句「QR · 21×21 · 5 字符」。
+            if (mode == DevToolDirection.Decode) {
+                host.reportStatus(null)
+                return@LaunchedEffect
+            }
             // 取成局部值再判断：`outcome` 是 `mutableStateOf` 的委托属性，直接对它做类型判断拿不到
             // 智能转换（编译器不保证两次读取之间它没变）。
             val current = outcome
@@ -238,145 +258,166 @@ internal object BarcodeDevTool : DevTool {
         }
 
         Column(Modifier.fillMaxSize()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // 「码制」用下拉而不是分段控件：十三个选项铺成一条轨道根本放不下（窗口收到最窄时
-                // 尤其明显），下拉上永远只有当前这一档。
-                Text("码制", fontSize = 12.sp, color = MaterialTheme.hintColor)
-                DevToolActionSpacer()
-                DevToolMenuButton(
-                    label = format.title,
-                    options = BarcodeFormat.entries,
-                    selected = format,
-                    optionLabel = { it.title },
-                    onSelect = { format = it },
-                )
+            // 方向是两**页**（与 Base64 / URL 用同一套页签）：编码这一页是「文本 → 码图」，解码
+            // 那一页还没做、先占住位置（见 `DecodePlaceholder`）。
+            DevToolTabBar(
+                options = DevToolDirection.entries,
+                selected = mode,
+                optionLabel = { it.title },
+                onSelect = { mode = it },
+            )
 
-                // 三种二维码都有纠错，但**刻度各不相同**（QR 四档、Aztec 百分比、PDF417 0–8 级），
-                // 所以按当前码制摆出它自己那一组，而不是拼成一个统一数值——那会让人以为它们是同一
-                // 种东西。一维码没有纠错，那个位置换成「下方是否印字」：两种码制各有一组附加控件，
-                // 工具栏因此始终只有一组，不会因为切码制而变成两排。
-                when (format) {
-                    BarcodeFormat.Qr -> ToolbarOption("纠错") {
-                        DevToolSegmentedControl(
-                            options = QrErrorLevel.entries,
-                            selected = level,
-                            optionLabel = { it.title },
-                            onSelect = { level = it },
-                            // 档名只有一个字，差别写进悬停提示。
-                            tooltip = { it.hint },
-                        )
-                    }
+            Spacer(Modifier.height(12.dp))
 
-                    BarcodeFormat.Aztec -> ToolbarOption("纠错") {
-                        // 百分比是**连续量**，所以给滑杆：切成四档既够不到 23% 这种中间值，也看不出
-                        // 它本来是连续的。范围与默认值见 `AztecEcPercentRange`。
-                        DevToolSlider(
-                            value = aztecEcPercent,
-                            range = AztecEcPercentRange,
-                            onValueChange = { aztecEcPercent = it },
-                            valueLabel = { "$it%" },
-                            tooltip = "纠错占符号面积的比例；规范建议至少 23%，越高越抗污损、能装的内容越少",
-                        )
-                    }
-
-                    BarcodeFormat.Pdf417 -> ToolbarOption("纠错") {
-                        // 十档铺不进一条轨道（与「码制」同一个理由），用下拉。
+            when (mode) {
+                DevToolDirection.Encode -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // 「码制」用下拉而不是分段控件：十三个选项铺成一条轨道根本放不下（窗口收到
+                        // 最窄时尤其明显），下拉上永远只有当前这一档。
+                        Text("码制", fontSize = 12.sp, color = MaterialTheme.hintColor)
+                        DevToolActionSpacer()
                         DevToolMenuButton(
-                            label = pdf417Ec.title,
-                            options = Pdf417ErrorLevel.entries,
-                            selected = pdf417Ec,
-                            optionLabel = { it.menuLabel },
-                            onSelect = { pdf417Ec = it },
+                            label = format.title,
+                            options = BarcodeFormat.entries,
+                            selected = format,
+                            optionLabel = { it.title },
+                            onSelect = { format = it },
                         )
+
+                        // 三种二维码都有纠错，但**刻度各不相同**（QR 四档、Aztec 百分比、PDF417
+                        // 0–8 级），所以按当前码制摆出它自己那一组，而不是拼成一个统一数值——那会让
+                        // 人以为它们是同一种东西。一维码没有纠错，那个位置换成「下方是否印字」：
+                        // 两种码制各有一组附加控件，工具栏因此始终只有一组，不会因为切码制而变成两排。
+                        when (format) {
+                            BarcodeFormat.Qr -> ToolbarOption("纠错") {
+                                DevToolSegmentedControl(
+                                    options = QrErrorLevel.entries,
+                                    selected = level,
+                                    optionLabel = { it.title },
+                                    onSelect = { level = it },
+                                    // 档名只有一个字，差别写进悬停提示。
+                                    tooltip = { it.hint },
+                                )
+                            }
+
+                            BarcodeFormat.Aztec -> ToolbarOption("纠错") {
+                                // 百分比是**连续量**，所以给滑杆：切成四档既够不到 23% 这种中间值，
+                                // 也看不出它本来是连续的。范围与默认值见 `AztecEcPercentRange`。
+                                DevToolSlider(
+                                    value = aztecEcPercent,
+                                    range = AztecEcPercentRange,
+                                    onValueChange = { aztecEcPercent = it },
+                                    valueLabel = { "$it%" },
+                                    tooltip = "纠错占符号面积的比例；规范建议至少 23%，越高越抗污损、能装的内容越少",
+                                )
+                            }
+
+                            BarcodeFormat.Pdf417 -> ToolbarOption("纠错") {
+                                // 十档铺不进一条轨道（与「码制」同一个理由），用下拉。
+                                DevToolMenuButton(
+                                    label = pdf417Ec.title,
+                                    options = Pdf417ErrorLevel.entries,
+                                    selected = pdf417Ec,
+                                    optionLabel = { it.menuLabel },
+                                    onSelect = { pdf417Ec = it },
+                                )
+                            }
+
+                            else -> ToolbarOption("文本") {
+                                DevToolSegmentedControl(
+                                    options = listOf(false, true),
+                                    selected = printText,
+                                    optionLabel = { if (it) "印字" else "不印" },
+                                    onSelect = { printText = it },
+                                    tooltip = {
+                                        if (it) {
+                                            "在码下方印出内容——一维标签的惯例（EAN / UPC 的数字就是这么印的）"
+                                        } else {
+                                            "只画条空，不印文字"
+                                        }
+                                    },
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.weight(1f))
                     }
 
-                    else -> ToolbarOption("文本") {
-                        DevToolSegmentedControl(
-                            options = listOf(false, true),
-                            selected = printText,
-                            optionLabel = { if (it) "印字" else "不印" },
-                            onSelect = { printText = it },
-                            tooltip = {
-                                if (it) {
-                                    "在码下方印出内容——一维标签的惯例（EAN / UPC 的数字就是这么印的）"
+                    Spacer(Modifier.height(10.dp))
+
+                    // 输入区就是普通的多行文本框：码的输入是文本，没有「另一份输入」、也没有来源
+                    // 卡片——两页的差别不在这里，只在于解码那一页还没做。
+                    DevToolInputField(
+                        label = "输入 · 文本",
+                        value = text,
+                        onValueChange = {
+                            text = it
+                            typed = true
+                        },
+                        host = host,
+                        // 占位提示给的是**示例**（这个码制真收的一个值），不是要求：输入框回答的是
+                        // 「这里填什么」，「限多少」由结果区（输入为空时）与失败提示交代——EAN-13
+                        // 那条要求二十多字，铺在这里既长又答非所问（见 `BarcodeFormat.inputExample`）。
+                        placeholder = "例如 ${format.inputExample}",
+                        // 长文本折行比横向滚出去好读；折行只改显示，`value` 仍是原样。
+                        softWrap = true,
+                        folding = false,
+                        scan = ::scanPlain,
+                        // 清空不算「手打」，但也别留着上一档的手打标记。
+                        onClear = {
+                            text = ""
+                            typed = false
+                        },
+                        modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
+                    )
+
+                    Spacer(Modifier.height(10.dp))
+
+                    ResultArea(
+                        outcome = outcome,
+                        currentFormat = format,
+                        painter = readyPainter,
+                        exportSide = exportSide,
+                        onExportSideChange = { exportSide = it },
+                        // 输入为空要单独说一声：下面那个 `fresh` 在文本为空时必然为假，若不先判空，
+                        // 空输入会落进「生成中…」——一句永远不会变的话，看起来像卡住了。
+                        empty = text.isBlank(),
+                        fresh = fresh,
+                        canAct = canAct,
+                        onSave = {
+                            val ready = outcome as? CodeOutcome.Ready ?: return@ResultArea
+                            // 导出的就是结果区里画的那一份（一维码可能已套上文字），别另外再取一次。
+                            val target = readyPainter ?: return@ResultArea
+                            scope.launch {
+                                val path = host.pickFileToSave(ready.format.fileName) ?: return@launch
+                                val bytes = exportPng(target, exportSide)
+                                host.showStatus(
+                                    when {
+                                        bytes == null -> "导出失败"
+                                        writeBytesFile(path, bytes) -> "已保存到 $path"
+                                        else -> "写不进这个位置：$path"
+                                    }
+                                )
+                            }
+                        },
+                        onCopy = {
+                            val target = readyPainter ?: return@ResultArea
+                            scope.launch {
+                                val bytes = exportPng(target, exportSide)
+                                // 成功那句提示由宿主（面板）给，这里只在导出失败时补一句。
+                                if (bytes != null) {
+                                    host.copyImageToClipboard(bytes)
                                 } else {
-                                    "只画条空，不印文字"
+                                    host.showStatus("导出失败")
                                 }
-                            },
-                        )
-                    }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
                 }
 
-                Spacer(Modifier.weight(1f))
+                DevToolDirection.Decode -> DecodePlaceholder(Modifier.fillMaxWidth().weight(1f))
             }
-
-            Spacer(Modifier.height(10.dp))
-
-            // 输入区就是普通的多行文本框：码的输入是文本，既没有「另一份输入」也没有方向之分，
-            // 所以不像 Base64 那样需要分段控件与来源卡片。
-            DevToolInputField(
-                label = "输入 · 文本",
-                value = text,
-                onValueChange = {
-                    text = it
-                    typed = true
-                },
-                host = host,
-                // 占位提示给的是**示例**（这个码制真收的一个值），不是要求：输入框回答的是「这里
-                // 填什么」，「限多少」由结果区（输入为空时）与失败提示交代——EAN-13 那条要求
-                // 二十多字，铺在这里既长又答非所问（见 `BarcodeFormat.inputExample`）。
-                placeholder = "例如 ${format.inputExample}",
-                // 长文本折行比横向滚出去好读；折行只改显示，`value` 仍是原样。
-                softWrap = true,
-                folding = false,
-                scan = ::scanPlain,
-                // 清空不算「手打」，但也别留着上一档的手打标记。
-                onClear = {
-                    text = ""
-                    typed = false
-                },
-                modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
-            )
-
-            Spacer(Modifier.height(10.dp))
-
-            ResultArea(
-                outcome = outcome,
-                currentFormat = format,
-                painter = readyPainter,
-                exportSide = exportSide,
-                onExportSideChange = { exportSide = it },
-                // 输入为空要单独说一声：下面那个 `fresh` 在文本为空时必然为假，若不先判空，
-                // 空输入会落进「生成中…」——一句永远不会变的话，看起来像卡住了。
-                empty = text.isBlank(),
-                fresh = fresh,
-                canAct = canAct,
-                onSave = {
-                    val ready = outcome as? CodeOutcome.Ready ?: return@ResultArea
-                    // 导出的就是结果区里画的那一份（一维码可能已套上文字），别另外再取一次。
-                    val target = readyPainter ?: return@ResultArea
-                    scope.launch {
-                        val path = host.pickFileToSave(ready.format.fileName) ?: return@launch
-                        val bytes = exportPng(target, exportSide)
-                        host.showStatus(
-                            when {
-                                bytes == null -> "导出失败"
-                                writeBytesFile(path, bytes) -> "已保存到 $path"
-                                else -> "写不进这个位置：$path"
-                            }
-                        )
-                    }
-                },
-                onCopy = {
-                    val target = readyPainter ?: return@ResultArea
-                    scope.launch {
-                        val bytes = exportPng(target, exportSide)
-                        // 成功那句提示由宿主（面板）给，这里只在导出失败时补一句。
-                        if (bytes != null) host.copyImageToClipboard(bytes) else host.showStatus("导出失败")
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().weight(1f),
-            )
         }
     }
 }
@@ -522,4 +563,26 @@ private fun ToolbarOption(label: String, content: @Composable () -> Unit) {
     Text(label, fontSize = 12.sp, color = MaterialTheme.hintColor)
     DevToolActionSpacer()
     content()
+}
+
+/**
+ * 解码那一页：还没做，先占住位置。
+ *
+ * 留白而不是把这一页藏起来（或把页签画成禁用）：在码图上读内容本来就是用户会来找的一件事，
+ * 页签立在那儿、点进去说清「还没有」，比满世界找不到入口、以为这工具只管生成要明白。
+ */
+@Composable
+private fun DecodePlaceholder(modifier: Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("解码还没做", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "以后在这里打开 / 拖入一张码图，认出里面的内容",
+                fontSize = 12.sp,
+                color = MaterialTheme.hintColor,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
 }

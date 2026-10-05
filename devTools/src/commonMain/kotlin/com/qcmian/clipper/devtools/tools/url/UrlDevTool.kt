@@ -33,11 +33,12 @@ import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.detect.UrlDataTypeDetector
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
-import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
+import com.qcmian.clipper.devtools.ui.components.DevToolDirection
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
+import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -59,8 +60,9 @@ private sealed interface UrlOutcome {
 /**
  * URL 百分号编码 / 解码。
  *
- * 结构与 Base64 工具一致：**方向显式**（编码 / 解码分段控件），两个方向各留一份输入，输入框在上、
- * 结果在下，边打字边重算。差别在结果那一路多了一档「规则」——严格 / URL / 表单，见 [UrlRules]。
+ * 结构与 Base64 工具一致：**方向显式**（顶上「编码 / 解码」两页页签），两个方向各留一份输入，
+ * 输入框在上、结果在下，边打字边重算。差别在工具栏上多了一档「规则」——严格 / URL / 表单，
+ * 两页共用（见 [UrlRules]）。
  *
  * 无状态的纯逻辑在 [UrlFormat] 里，这里只管交互与排版。
  */
@@ -79,7 +81,7 @@ internal object UrlDevTool : DevTool {
 
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
-        var mode by remember { mutableStateOf(UrlMode.Encode) }
+        var mode by remember { mutableStateOf(DevToolDirection.Encode) }
         // 默认落在最保守的**严格 RFC 3986**：编出来的结果在任何实现里都对得上，不会因为
         // `! * ' ( )` 这些「有的实现编、有的不编」的字符而与别人对不齐（见 [UrlRules]）。
         var rules by remember { mutableStateOf(UrlRules.Strict) }
@@ -99,20 +101,8 @@ internal object UrlDevTool : DevTool {
         var computedText by remember { mutableStateOf<String?>(null) }
 
         // 眼前这个方向正在用哪一份输入。
-        val text = if (mode == UrlMode.Encode) encodeText else decodeText
-        val typed = if (mode == UrlMode.Encode) encodeTyped else decodeTyped
-
-        // 改**当前方向**那一份输入。`fromUser` 区分「手打的」与「从文件 / 剪贴板搬进来的」——
-        // 状态栏只对前者说「文本输入」。
-        fun updateText(value: String, fromUser: Boolean) {
-            if (mode == UrlMode.Encode) {
-                encodeText = value
-                encodeTyped = fromUser
-            } else {
-                decodeText = value
-                decodeTyped = fromUser
-            }
-        }
+        val text = if (mode == DevToolDirection.Encode) encodeText else decodeText
+        val typed = if (mode == DevToolDirection.Encode) encodeTyped else decodeTyped
 
         DevToolReportSource(host, if (typed) DevToolTypedSource else null)
 
@@ -125,11 +115,11 @@ internal object UrlDevTool : DevTool {
             val value = withContext(Dispatchers.Default) { item.devToolText() }
             val looksLikeUrl = withContext(Dispatchers.Default) { UrlDataTypeDetector.matches(value) }
             if (looksLikeUrl) {
-                mode = UrlMode.Decode
+                mode = DevToolDirection.Decode
                 decodeText = value
                 decodeTyped = false
             } else {
-                mode = UrlMode.Encode
+                mode = DevToolDirection.Encode
                 encodeText = value
                 encodeTyped = false
             }
@@ -172,20 +162,21 @@ internal object UrlDevTool : DevTool {
         }
 
         Column(Modifier.fillMaxSize()) {
+            // 方向是两**页**：编码与解码各带自己那一整套（输入框 + 结果区）。原先它是一枚分段控件，
+            // 与右边的「规则」长得一模一样——可它换的是整页，规则换的只是同一页里的一个取值。
+            DevToolTabBar(
+                options = DevToolDirection.entries,
+                selected = mode,
+                optionLabel = { it.title },
+                // 只换页，不动两边的输入：编码框与解码框各存各的，切来切去都不丢。
+                onSelect = { mode = it },
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            // 「规则」两页共用一行、一份取值：编的时候按表单，解的时候也该按表单——换个方向回来，
+            // 它不该被忘掉。
             Row(verticalAlignment = Alignment.CenterVertically) {
-                DevToolSegmentedControl(
-                    options = UrlMode.entries,
-                    selected = mode,
-                    optionLabel = { it.title },
-                    // 只换方向，不动两边的输入：编码框与解码框各存各的，切来切去都不丢。
-                    onSelect = { mode = it },
-                )
-
-                DevToolGroupDivider()
-
-                // 「规则」是三选一，与左边那个方向分段控件**同一副长相**（一条轨道里几段）——两处
-                // 都是「多选一」，用同一种控件才不会让人以为第二种是别的性质的东西。「规则」这个
-                // 标签留着，是为了跟左边那组 tab 区分开。
                 Text("规则", fontSize = 12.sp, color = MaterialTheme.hintColor)
                 DevToolActionSpacer()
                 DevToolSegmentedControl(
@@ -193,7 +184,7 @@ internal object UrlDevTool : DevTool {
                     selected = rules,
                     optionLabel = { it.title },
                     onSelect = { rules = it },
-                    // 每档的出处与差别放在悬停提示里：tab 上只有短名，铺不下那几句话。
+                    // 每档的出处与差别放在悬停提示里：那一段上只有短名，铺不下那几句话。
                     tooltip = { it.hint },
                 )
 
@@ -202,25 +193,54 @@ internal object UrlDevTool : DevTool {
 
             Spacer(Modifier.height(10.dp))
 
-            DevToolInputField(
-                label = if (mode == UrlMode.Encode) "输入 · 原文" else "输入 · 已编码",
-                value = text,
-                onValueChange = { updateText(it, fromUser = true) },
-                host = host,
-                placeholder = if (mode == UrlMode.Encode) {
-                    "在此粘贴要编码的文本，例如查询参数、路径片段"
-                } else {
-                    "在此粘贴含 %XX 的文本，例如 %E4%B8%AD%E6%96%87"
-                },
-                // 百分号编码是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
-                // 折行只改显示，`value` 仍是那一整行，复制 / 保存拿到的还是原样。
-                softWrap = true,
-                folding = false,
-                scan = ::scanPlain,
-                // 清空不算「手打」，但也别留着上一档的手打标记。
-                onClear = { updateText("", fromUser = false) },
-                modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
-            )
+            when (mode) {
+                // 编码页：把原文里的「不该出现在 URL 里的字符」按 UTF-8 逐字节转义。
+                DevToolDirection.Encode -> {
+                    DevToolInputField(
+                        label = "输入 · 原文",
+                        value = encodeText,
+                        onValueChange = {
+                            encodeText = it
+                            encodeTyped = true
+                        },
+                        host = host,
+                        placeholder = "在此粘贴要编码的文本，例如查询参数、路径片段",
+                        // 百分号编码是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
+                        // 折行只改显示，`value` 仍是那一整行，复制 / 保存拿到的还是原样。
+                        softWrap = true,
+                        folding = false,
+                        scan = ::scanPlain,
+                        // 清空不算「手打」，但也别留着上一档的手打标记。
+                        onClear = {
+                            encodeText = ""
+                            encodeTyped = false
+                        },
+                        modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
+                    )
+                }
+
+                // 解码页：把一串 `%XX` 还原成原文，`+` 只在表单规则下当空格。
+                DevToolDirection.Decode -> {
+                    DevToolInputField(
+                        label = "输入 · 已编码",
+                        value = decodeText,
+                        onValueChange = {
+                            decodeText = it
+                            decodeTyped = true
+                        },
+                        host = host,
+                        placeholder = "在此粘贴含 %XX 的文本，例如 %E4%B8%AD%E6%96%87",
+                        softWrap = true,
+                        folding = false,
+                        scan = ::scanPlain,
+                        onClear = {
+                            decodeText = ""
+                            decodeTyped = false
+                        },
+                        modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
+                    )
+                }
+            }
 
             Spacer(Modifier.height(10.dp))
 
@@ -236,10 +256,10 @@ internal object UrlDevTool : DevTool {
 }
 
 /** 在后台算出这一次的结果。编解码本身是纯函数，这里只负责把方向与规则接上。 */
-private fun computeOutcome(mode: UrlMode, rules: UrlRules, text: String): UrlOutcome = when (mode) {
-    UrlMode.Encode -> UrlOutcome.Encoded(UrlFormat.encode(text, rules))
+private fun computeOutcome(mode: DevToolDirection, rules: UrlRules, text: String): UrlOutcome = when (mode) {
+    DevToolDirection.Encode -> UrlOutcome.Encoded(UrlFormat.encode(text, rules))
 
-    UrlMode.Decode -> UrlFormat.decode(text, rules).fold(
+    DevToolDirection.Decode -> UrlFormat.decode(text, rules).fold(
         onSuccess = { UrlOutcome.Decoded(it) },
         // 解码只会以 `UrlError` 失败；真出了别的异常，也不该把窗口炸掉。
         onFailure = { error ->
@@ -252,7 +272,7 @@ private fun computeOutcome(mode: UrlMode, rules: UrlRules, text: String): UrlOut
 @Composable
 private fun ResultArea(
     outcome: UrlOutcome?,
-    mode: UrlMode,
+    mode: DevToolDirection,
     computing: Boolean,
     host: DevToolHost,
     modifier: Modifier,
@@ -327,12 +347,12 @@ private fun ResultField(
 }
 
 @Composable
-private fun PlaceholderResult(mode: UrlMode, computing: Boolean, modifier: Modifier) {
+private fun PlaceholderResult(mode: DevToolDirection, computing: Boolean, modifier: Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Text(
             text = when {
                 computing -> "计算中…"
-                mode == UrlMode.Encode -> "输入文本后，这里显示它的百分号编码"
+                mode == DevToolDirection.Encode -> "输入文本后，这里显示它的百分号编码"
                 else -> "粘贴已编码的文本后，这里显示还原结果"
             },
             fontSize = 12.sp,

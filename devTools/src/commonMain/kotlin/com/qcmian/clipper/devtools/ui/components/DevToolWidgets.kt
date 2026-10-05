@@ -67,6 +67,9 @@ import kotlin.math.roundToInt
  *  - 一次性动作 → [DevToolButton]（[DevToolButton.primary] 表示「主操作」，与「选中」无关）。
  *
  * 不同类之间用 [DevToolGroupDivider] 断开；同类之间用 [DevToolActionSpacer]。
+ *
+ * 换**整页**（编码 / 解码）不在这一排里，用的是 [DevToolTabBar]：它换的是输入框与结果区本身，
+ * 不是同一页里的一个取值，所以另画一副长相（见那个文件里的分工说明）。
  */
 
 /**
