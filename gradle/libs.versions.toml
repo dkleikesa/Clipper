@@ -18,6 +18,8 @@ sqlite = "2.7.0"
 willena-sqlite-jdbc = "3.53.2.0"
 # kotlinx.serialization 的 XML 格式实现（kotlinx.serialization 官方只有 JSON/CBOR/ProtoBuf/Properties）。
 xmlutil = "1.0.2"
+# 密码学哈希（MD5 / SHA-1 / SHA-2）的 KMP 实现：这些原语 stdlib 里没有，自写密码学代码不划算。
+kotlincrypto-hash = "0.8.0"
 
 [libraries]
 androidx-lifecycle-viewmodelCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
@@ -45,6 +47,11 @@ androidx-room3-compiler = { module = "androidx.room3:room3-compiler", version.re
 androidx-sqlite = { module = "androidx.sqlite:sqlite", version.ref = "sqlite" }
 willena-sqlite-jdbc = { module = "io.github.willena:sqlite-jdbc", version.ref = "willena-sqlite-jdbc" }
 xmlutil-serialization = { module = "io.github.pdvrieze.xmlutil:serialization", version.ref = "xmlutil" }
+# Hash 工具用的四个：MD5、SHA-1、SHA-2（含 SHA-224）、SHA-3。同属一个库，版本一起走 `kotlincrypto-hash`。
+kotlincrypto-hash-md = { module = "org.kotlincrypto.hash:md", version.ref = "kotlincrypto-hash" }
+kotlincrypto-hash-sha1 = { module = "org.kotlincrypto.hash:sha1", version.ref = "kotlincrypto-hash" }
+kotlincrypto-hash-sha2 = { module = "org.kotlincrypto.hash:sha2", version.ref = "kotlincrypto-hash" }
+kotlincrypto-hash-sha3 = { module = "org.kotlincrypto.hash:sha3", version.ref = "kotlincrypto-hash" }
 
 [plugins]
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }

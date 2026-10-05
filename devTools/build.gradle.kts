@@ -43,6 +43,13 @@ kotlin {
             // 时间戳工具的时区换算与本地日期时间（`TimeZone` / `LocalDateTime` / `toLocalDateTime`）；
             // 绝对时刻用标准库的 `kotlin.time.Instant`，跨平台且不必为它开 expect/actual。
             implementation(libs.kotlinx.datetime)
+            // Hash 工具的密码学原语（MD5 / SHA-1 / SHA-2 / SHA-3）。stdlib 没有这些算法，而自写
+            // 密码学代码风险太大（再多测试也盖不住边界）；该库是 KMP 实现，直接在 commonMain 用。
+            // CRC32 太小众、库里也没有，就地实现（见 `HashFormat`）。
+            implementation(libs.kotlincrypto.hash.md)
+            implementation(libs.kotlincrypto.hash.sha1)
+            implementation(libs.kotlincrypto.hash.sha2)
+            implementation(libs.kotlincrypto.hash.sha3)
         }
 
         // 代码显示层里能脱离组合环境的部分（JSON 扫描器、显示变换与偏移映射）直接单测：

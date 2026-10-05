@@ -5,6 +5,7 @@ import com.qcmian.clipper.devtools.detect.BuiltInDataTypeDetectors
 import com.qcmian.clipper.devtools.detect.DataTypeDetector
 import com.qcmian.clipper.devtools.detect.detectTypes
 import com.qcmian.clipper.devtools.tools.base64.Base64DevTool
+import com.qcmian.clipper.devtools.tools.hash.HashDevTool
 import com.qcmian.clipper.devtools.tools.json.JsonDevTool
 import com.qcmian.clipper.devtools.tools.math.MathDevTool
 import com.qcmian.clipper.devtools.tools.timestamp.TimestampDevTool
@@ -63,6 +64,7 @@ class DevToolsRegistry(
                 MathDevTool,
                 TimestampDevTool,
                 Base64DevTool,
+                HashDevTool,
             ),
         )
     }
