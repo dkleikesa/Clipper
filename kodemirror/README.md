@@ -35,7 +35,7 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 
 ## 本仓库补丁
 
-**九处**，都用 `// <本仓库补丁>` 标出（`grep -rn "本仓库补丁" kodemirror/src` 可一次找全）。
+**十处**，都用 `// <本仓库补丁>` 标出（`grep -rn "本仓库补丁" kodemirror/src` 可一次找全）。
 除了源码，本仓库还在这个目录里加了**自己的五个测试**（`src/jvmTest`，见最后一节）——上游的测试
 没拷进来，这五个不是上游的。
 
@@ -193,6 +193,25 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 宿主换内容走 `EditorSession.setDoc`：那是**喂数据**，不是用户在改字，所以由它临时把
 `programmaticDocChange` 打开（`try/finally` 恢复），只读框因此照样显示得出内容。`ReadOnlySessionTest`
 钉住这几条：退格 / 剪切 / 插入改不动、选区照常、`setDoc` 照常、可编辑会话不受影响。
+
+### 10. 输入法组字（`view/KodeMirror.kt`）
+
+隐藏输入框每收到一次 `onValueChange` 就「把文本插进文档 + 清空自己」，这在**输入法组字**时是错的：
+拼音（或假名）每敲一个字母都会触发一次 `onValueChange`，于是字母被当成已确认的正文逐字插进文档，
+同时清空又把平台那一侧的组字状态一并抹掉——候选窗根本走不完，中文 / 日文打不出来。拉丁字母没有
+组字过程，所以从前只在这类输入法上暴露。
+
+补法两处，都落在 `EditorContent` 那个隐藏 `BasicTextField` 上：
+
+- `onValueChange`：`TextFieldValue.composition` 非空（＝正在组字）时**原样保留**隐藏框的值，
+  既不插入、也不清空，让候选窗继续；等组字结束（`composition` 为空）那一次再一次性插入。
+  这一条先判，排在回灌抑制（`pendingEcho`）之前——组字来的永远是真实输入，不该被当成回声丢掉。
+- `onPreviewKeyEvent`：组字期间**整个让开**（返回 `false`）。回车 / 空格 / 退格在默认键位里都有
+  绑定（换行 / 删除），不让开就会被抢去改文档（回车会既确认候选、又插一个换行）。让开而不是
+  吞掉，是因为这个隐藏框本身就是 `BasicTextField`——交给它按普通文本框那套组字逻辑走即可。
+
+`NativeCodeField` 一侧不受影响：它的 `TextFieldValue` 一直带着 `composition`，也没有「清空」这个
+动作——这正是不换实现、只用原生框时看不出这个 bug 的原因。
 
 ### 本仓库自己的测试
 

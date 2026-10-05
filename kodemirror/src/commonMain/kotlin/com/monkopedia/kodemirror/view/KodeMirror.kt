@@ -1091,6 +1091,21 @@ private fun EditorContent(
         readOnly = !session.editable,
         cursorBrush = SolidColor(Color.Transparent),
         onValueChange = { newValue ->
+            // <本仓库补丁> 输入法组字（拼音 / 假名等待选）期间，不要把隐藏框里的文本当成
+            // 已确认的正文提交。见 README「本仓库补丁」第 10 处。
+            //
+            // 上游每收到一次 onValueChange 就「把文本插进文档 + 清空隐藏框」，这在组字中是错的
+            // 两个方向：拼音字母被当成正文逐字插进文档，而清空又把平台那一侧的组字状态一起抹掉
+            // ——候选窗因此根本走不完，中文 / 日文打不出来（拉丁字母没有组字过程，所以从前看不出
+            // 问题）。
+            //
+            // 判据是 `TextFieldValue.composition`：非空即「输入法正在组字」。这时把隐藏框的完整
+            // 值（含组字区间）原样留着，让候选窗继续；等组字结束（composition 为空）那一次再
+            // 一次性插入。组字期间的按键另由下面 `onPreviewKeyEvent` 的补丁让开。
+            if (newValue.composition != null) {
+                hiddenTextValue = newValue
+                return@BasicTextField
+            }
             if (newValue.text == pendingEcho[0]) {
                 // Matching echoes stay suppressed for as long as they keep
                 // arriving: one keystroke can produce more than one on wasmJs —
@@ -1154,6 +1169,16 @@ private fun EditorContent(
                 impl.hasFocus = focusState.isFocused
             }
             .onPreviewKeyEvent { event ->
+                // <本仓库补丁> 输入法组字期间的按键属于候选窗，这一路整个让开，交给平台输入法
+                // （与上面 `onValueChange` 的补丁是一件事的两面，见 README「本仓库补丁」第 10 处）。
+                //
+                // 组字中会用到回车（确认候选）、空格 / 数字（选词）、退格（删拼音）——这些在本
+                // 编辑器的默认键位里都有绑定（换行 / 删除），不让开就会被抢去改文档：回车既确认
+                // 了候选又插了一个换行、退格删的是正文而不是拼音，候选窗当场崩掉。
+                //
+                // 让开（返回 `false`）而不是吞掉：这个隐藏框本身就是 `BasicTextField`，交给它按
+                // 普通文本框那套组字逻辑处理即可，本编辑器不该在这时插手。
+                if (hiddenTextValue.composition != null) return@onPreviewKeyEvent false
                 // If the document-level callback already handled this
                 // keydown, skip to avoid double-handling.
                 if (event.type == KeyEventType.KeyDown &&
