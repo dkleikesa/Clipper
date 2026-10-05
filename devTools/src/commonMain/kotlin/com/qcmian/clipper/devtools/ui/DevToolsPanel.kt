@@ -55,6 +55,8 @@ import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
+import com.qcmian.clipper.devtools.api.DevToolPasteKey
+import com.qcmian.clipper.devtools.api.LocalDevToolPasteKey
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.registry.DevToolsRegistry
 import com.qcmian.clipper.core.ui.code.CodeFieldEngine
@@ -112,8 +114,19 @@ fun DevToolsPanel(
     onPickFileToOpen: () -> String? = { null },
     onPickFileToSave: (String) -> String? = { null },
     onDroppedFilePaths: (DragAndDropEvent) -> List<String> = { emptyList() },
+    /** 从一次拖放里取出被拖进来的图片字节；见 [DevToolHost.droppedImage]。 */
+    onDroppedImage: (DragAndDropEvent) -> ByteArray? = { null },
     /** 剪贴板里若放着文件就给出它们的路径；见 [DevToolHost.clipboardFilePaths]。 */
     onClipboardFilePaths: () -> List<String> = { emptyList() },
+    /** 剪贴板里若放着图片就给出它的字节；见 [DevToolHost.clipboardImage]。 */
+    onClipboardImage: () -> ByteArray? = { null },
+    /**
+     * 窗口层接到的**粘贴**按键交给谁；见 [DevToolPasteKey]。
+     *
+     * 不提供时（离屏渲染、别处的窗口宿主）工具的输入区退回自己那层键盘拦截——那条要求输入区里
+     * 有焦点节点，只够兜底。
+     */
+    pasteKey: DevToolPasteKey? = null,
     modifier: Modifier = Modifier,
     titleBarDragModifier: Modifier = Modifier,
 ) {
@@ -211,7 +224,9 @@ fun DevToolsPanel(
         onPickFileToOpen,
         onPickFileToSave,
         onDroppedFilePaths,
+        onDroppedImage,
         onClipboardFilePaths,
+        onClipboardImage,
     ) {
         object : DevToolHost {
             override fun copyToClipboard(text: String) {
@@ -241,7 +256,11 @@ fun DevToolsPanel(
             override fun droppedFilePaths(event: DragAndDropEvent): List<String> =
                 onDroppedFilePaths(event).also { if (it.isNotEmpty()) openedFiles.value = it }
 
+            override fun droppedImage(event: DragAndDropEvent): ByteArray? = onDroppedImage(event)
+
             override fun clipboardFilePaths(): List<String> = onClipboardFilePaths()
+
+            override fun clipboardImage(): ByteArray? = onClipboardImage()
         }
     }
     LaunchedEffect(status.value) {
@@ -309,7 +328,12 @@ fun DevToolsPanel(
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     // 引擎开关在这里生效：工具里所有代码框都读这个局部值（见 `LocalCodeFieldEngine`）。
-                    CompositionLocalProvider(LocalCodeFieldEngine provides engine) {
+                    // 粘贴入口跟着一起放进来：工具的输入区靠它把处理函数登记给窗口层（见
+                    // `DevToolPasteKey`——按键只发给焦点路径上的节点，卡片一上来就没有焦点节点了）。
+                    CompositionLocalProvider(
+                        LocalCodeFieldEngine provides engine,
+                        LocalDevToolPasteKey provides pasteKey,
+                    ) {
                         when {
                             // 还在认这段内容是什么：先不画工具（见上面 `effectiveSelectedId` 的说明）。
                             detected == null && tools.isNotEmpty() -> Identifying()

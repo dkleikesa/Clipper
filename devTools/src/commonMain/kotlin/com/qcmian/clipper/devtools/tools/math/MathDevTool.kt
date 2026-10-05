@@ -48,14 +48,12 @@ import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
-import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
+import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
-import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
-import com.qcmian.clipper.core.ui.code.DevToolCodeField
 import com.qcmian.clipper.core.ui.code.scanPlain
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -145,29 +143,27 @@ internal object MathDevTool : DevTool {
 
         Column(Modifier.fillMaxSize()) {
             // 与 JSON / XML 工具用**同一个**输入框：点击落光标、当前行底纹、滚动条这些交互因此
-            // 完全一致。行号照显示；表达式没有块可折，只关掉折叠。
-            DevToolCodeField(
+            // 完全一致，拖入 / 粘贴的文件也照同一条路读成文本。行号照显示；表达式没有块可折，
+            // 只关掉折叠。
+            DevToolInputField(
                 label = "表达式",
                 value = source,
                 onValueChange = {
                     source = it
                     typed = true
                 },
+                host = host,
                 placeholder = "例如 2^10、sin(pi / 2)、sin(90deg)；支持的写法见「语法帮助」",
-                filePaste = rememberFilePaste(host),
                 // 表达式会长，折行比横向滚出去好读；这是少数用得上软折行的地方。
                 softWrap = true,
                 folding = false,
                 scan = ::scanPlain,
+                // 这里没有「打开文件」：手敲一个式子是这个工具的主用法，摆一个文件按钮只会与
+                // 旁边的清空抢位置（文件照样可以拖进来、粘进来）。
+                showOpenAction = false,
+                // 清空不算「手打」，与原先那个只清正文、不动来源标记的按钮一致。
+                onClear = { source = "" },
                 modifier = Modifier.fillMaxWidth().height(ExpressionFieldHeight),
-                actions = {
-                    DevToolFieldAction(
-                        kind = ClipperIconKind.TRASH,
-                        tooltip = "清空",
-                        enabled = source.isNotEmpty(),
-                        onClick = { source = "" },
-                    )
-                },
             )
 
             Spacer(Modifier.height(10.dp))

@@ -51,19 +51,16 @@ import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
-import com.qcmian.clipper.devtools.api.readTextFileOrNull
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
+import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
-import com.qcmian.clipper.core.ui.code.DevToolCodeField
 import com.qcmian.clipper.core.ui.code.rememberCodeColors
 import com.qcmian.clipper.core.ui.code.scanPlain
-import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
-import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -262,7 +259,10 @@ internal object TimestampDevTool : DevTool {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FieldLabel("输入")
                 Spacer(Modifier.width(FieldLabelGap))
-                DevToolCodeField(
+                // 输入区整个交给 `DevToolInputField`（文本、拖入 / 打开 / 粘贴的文件都从这一个
+                // 口子进来）。框名交给左边那一列，自带的那行标题连同动作都不画——「清空」与
+                // 「当前时间」按这一行的排法挂在右边。
+                DevToolInputField(
                     label = "输入",
                     showLabel = false,
                     value = source,
@@ -271,24 +271,19 @@ internal object TimestampDevTool : DevTool {
                         source = it
                         origin = SourceOrigin.Typed
                     },
+                    host = host,
                     placeholder = if (inputPattern.isBlank()) {
                         "例如 1759468800、1759468800000 或 2026-10-03 14:30:00"
                     } else {
                         "按「输入格式」填，例如 2026-10-03 14:30:00"
                     },
-                    filePaste = rememberFilePaste(host),
                     // 时间戳与日期时间都是短文本，折行比横向滚出去好读；没有块可折，行号照显示。
                     softWrap = true,
                     folding = false,
                     scan = ::scanPlain,
                     modifier = Modifier
                         .weight(1f)
-                        .height(InputFieldHeight)
-                        // 拖进来的文件与剪贴板里的文件条目走同一条读法（见 `readTextFileOrNull`）。
-                        .devToolFileDrop(host) { paths ->
-                            source = paths.joinToString("\n") { readTextFileOrNull(it) ?: it }
-                            origin = SourceOrigin.Typed
-                        },
+                        .height(InputFieldHeight),
                 )
 
                 Spacer(Modifier.width(8.dp))

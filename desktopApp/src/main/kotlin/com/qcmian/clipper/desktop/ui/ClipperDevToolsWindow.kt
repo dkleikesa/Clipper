@@ -33,6 +33,8 @@ import com.qcmian.clipper.desktop.domain.isOnScreen
 import com.qcmian.clipper.desktop.domain.minimumDevToolsWindowSize
 import com.qcmian.clipper.desktop.domain.screenBounds
 import com.qcmian.clipper.desktop.domain.screenCenterLocation
+import com.qcmian.clipper.devtools.api.DevToolPasteKey
+import com.qcmian.clipper.devtools.api.isPasteShortcut
 import com.qcmian.clipper.devtools.registry.DevToolsRegistry
 import com.qcmian.clipper.devtools.ui.DevToolsPanel
 import com.qcmian.clipper.feature.history.state.ClipboardUiAction
@@ -93,6 +95,10 @@ fun ApplicationScope.ClipperDevToolsWindow(
     // 是否已经摆过一次位置：首次显示一律居中，之后只在窗口跑到别的屏幕上时才挪（见下面）。
     var placed by remember { mutableStateOf(false) }
 
+    // 粘贴的落点：按键在窗口层接（理由见下面 `onPreviewKeyEvent`），处理交给当前工具的输入区
+    // ——只有它知道剪贴板里的文件 / 图片该怎么安置（见 `DevToolPasteKey`）。
+    val pasteKey = remember { DevToolPasteKey() }
+
     Window(
         // 关闭请求不自己去藏窗口：把意图发回状态持有者，由状态决定窗口的存亡。
         onCloseRequest = { viewModel.onAction(ClipboardUiAction.CloseDevTools) },
@@ -109,6 +115,14 @@ fun ApplicationScope.ClipperDevToolsWindow(
         // 节点取决于用户点没点过编辑区，靠焦点链会让这两个键时灵时不灵。
         //
         // `⌘B` 跟着一起放在这里，理由同上：它要能随时切换侧边栏，而不必先点一下编辑区。
+        //
+        // **粘贴也放在这里**，同一条理由，只是后果更明显：工具输入区一旦载入文件 / 图片就用卡片
+        // 替掉了文本框，内容区里再没有焦点节点，挂在输入区自己身上的那层键盘拦截根本收不到 `⌘V`
+        // ——「已经载入一张图，再粘个文件替换它」会毫无反应。窗口这一层接得到（见
+        // `ComposeSceneMediator`：窗口的 `onPreviewKeyEvent` 由 AWT 的按键监听驱动，排在内容区
+        // 派发之前，且不看 Compose 焦点），所以按键在这里接，能不能接、怎么安置问当前工具的
+        // 输入区；它说「不接」（文本框正开着、剪贴板里又是一段文本）就返回 `false`，照常走内容区
+        // 那条默认粘贴（光标在哪儿、撤销怎么走，都是代码框自己的事）。
         onPreviewKeyEvent = { event ->
             if (event.type != KeyEventType.KeyDown) {
                 false
@@ -120,6 +134,8 @@ fun ApplicationScope.ClipperDevToolsWindow(
                 viewModel.onAction(
                     ClipboardUiAction.UpdateSettings { it.copy(devToolsSidebar = it.devToolsSidebar.next()) }
                 )
+                true
+            } else if (event.isPasteShortcut() && pasteKey.handle()) {
                 true
             } else {
                 false
@@ -268,7 +284,11 @@ fun ApplicationScope.ClipperDevToolsWindow(
                 onPickFileToOpen = { pickFileToOpen(window) },
                 onPickFileToSave = { suggestedName -> pickFileToSave(window, suggestedName) },
                 onDroppedFilePaths = ::droppedFilePaths,
+                onDroppedImage = ::droppedImage,
                 onClipboardFilePaths = ::clipboardFilePaths,
+                onClipboardImage = ::clipboardImage,
+                // 粘贴的按键在窗口层接（见上面那段说明），处理落在当前工具的输入区上。
+                pasteKey = pasteKey,
                 titleBarDragModifier = dragTitleBar,
             )
         }

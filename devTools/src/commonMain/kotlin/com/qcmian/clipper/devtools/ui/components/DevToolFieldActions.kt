@@ -14,25 +14,21 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draganddrop.DragAndDropEvent
-import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.devtools.api.DevToolHost
-import com.qcmian.clipper.devtools.api.readTextFileOrNull
 import com.qcmian.clipper.devtools.api.writeTextFile
 
 /**
- * 编辑区标题行上的那几个动作（打开 / 清空 / 保存 / 复制）。
+ * 编辑区标题行上的那几个动作（结果框的保存 / 复制；输入框的打开 / 清空由 `DevToolInputField`
+ * 自带）。
  *
  * 做成**常驻的小图标按钮**，而不是原先的一串 11sp 灰字。两个理由：
  *
@@ -83,32 +79,6 @@ fun DevToolFieldAction(
 }
 
 /**
- * 输入框标题行上的动作：打开文件、清空。
- *
- * 读文件交给 [readTextFileOrNull]（commonMain，kotlinx-io），宿主只负责弹对话框给一个路径；
- * 拖进来的路径走的是同一个读法——用户自己挑的文件与剪贴板里的文件条目因此完全一样。
- */
-@Composable
-fun DevToolInputActions(
-    value: String,
-    onValueChange: (String) -> Unit,
-    host: DevToolHost,
-) {
-    DevToolFieldAction(
-        kind = ClipperIconKind.FOLDER,
-        tooltip = "打开文件",
-        onClick = { onValueChange(readPickedFile(host) ?: return@DevToolFieldAction) },
-    )
-    Spacer(Modifier.width(4.dp))
-    DevToolFieldAction(
-        kind = ClipperIconKind.TRASH,
-        tooltip = "清空这一段",
-        enabled = value.isNotEmpty(),
-        onClick = { onValueChange("") },
-    )
-}
-
-/**
  * 结果框标题行上的动作：保存文件、复制。
  *
  * 「复制」放在这里而不是工具栏上：它产出的是**这个框里**的内容，跟框放在一起才不会让人去找。
@@ -139,77 +109,5 @@ fun DevToolResultActions(
         tooltip = "复制结果",
         enabled = canAct,
         onClick = { host.copyToClipboard(value) },
-    )
-}
-
-/** 打开对话框 → 读文件 → 给一句提示；路径或内容拿不到时返回 `null`。 */
-private fun readPickedFile(host: DevToolHost): String? {
-    val path = host.pickFileToOpen() ?: return null
-    val text = readTextFileOrNull(path)
-    if (text == null) {
-        host.showStatus("读不了这个文件：$path")
-        return null
-    }
-    host.showStatus("已打开 $path")
-    return text
-}
-
-/**
- * 「粘贴文件」：剪贴板里放着文件时，粘进来的是**文件内容**，而不是系统默认给的那个文件名。
- *
- * 为什么要拦这一道：系统对「Finder 复制的文件」只提供**文件名**这一种文本表示（实测见
- * `FinderCopyTest`），不拦的话文本框里永远只会出现文件名。
- *
- * 与 [devToolFileDrop] 同一分工——路径由宿主从平台载荷里取（`DevToolHost.clipboardFilePaths`），
- * 内容由工具侧用 kotlinx-io 读，两边各只有一处。
- *
- * 返回值约定（配合 `DevToolCodeField` 的 `filePaste`）：
- *  - `null`：剪贴板里不是文件，**交回系统默认粘贴**；
- *  - 空串：是文件、但读不出文本（二进制），**吞掉这次粘贴**并给一句提示，免得又把文件名贴进去。
- */
-@Composable
-fun rememberFilePaste(host: DevToolHost): () -> String? = remember(host) {
-    {
-        val paths = host.clipboardFilePaths()
-        if (paths.isEmpty()) {
-            null
-        } else {
-            val texts = paths.mapNotNull(::readTextFileOrNull)
-            if (texts.isEmpty()) {
-                host.showStatus("剪贴板里的文件读不出文本，用「打开文件」或直接拖进来")
-                ""
-            } else {
-                texts.joinToString("\n")
-            }
-        }
-    }
-}
-
-/**
- * 让这个区域接受「从访达里拖进来的文件」：落下时把路径交给 [onFiles]。
- *
- * 做成 `Modifier` 扩展而不是某个控件的一个参数：落点是「这一片编辑区」，凡是画在这块区域里的
- * 东西都该能接住拖放——将来换掉编辑区实现也不必重写这段。
- *
- * 拖进来的**不是文件**时返回 `false`，让事件继续冒泡：拖一段选中的文字进来，应当由系统按
- * 「往文本框里拖文字」处理，而不是被这里吞掉。
- */
-@OptIn(ExperimentalComposeUiApi::class)
-@Composable
-fun Modifier.devToolFileDrop(host: DevToolHost, onFiles: (List<String>) -> Unit): Modifier {
-    // target 要跨重组保持同一个实例：`dragAndDropTarget` 靠它的身份维持拖放会话。
-    val target = remember(host) {
-        object : DragAndDropTarget {
-            override fun onDrop(event: DragAndDropEvent): Boolean {
-                val paths = host.droppedFilePaths(event)
-                if (paths.isEmpty()) return false
-                onFiles(paths)
-                return true
-            }
-        }
-    }
-    return this.dragAndDropTarget(
-        shouldStartDragAndDrop = { true },
-        target = target,
     )
 }

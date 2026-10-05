@@ -108,6 +108,15 @@ interface DevToolHost {
     fun droppedFilePaths(event: DragAndDropEvent): List<String>
 
     /**
+     * 从一次拖放里取出被拖进来的**图片**字节；拖的不是图片（是一条文件路径、一段文字）时返回 `null`。
+     *
+     * 与 [droppedFilePaths] 的分工：拖进来的是一张**图片文件**时走那一路（要的是那个文件本身，
+     * 而不是它的图标）；从浏览器一类应用里拖过来的图片没有文件路径，只有粘贴板上的图片表示，
+     * 走这一路。同属平台细节，工具只该拿到字节。
+     */
+    fun droppedImage(event: DragAndDropEvent): ByteArray? = null
+
+    /**
      * 剪贴板里若放着**文件**（Finder / 资源管理器里复制的那种），返回它们的路径；没有文件时为空表。
      *
      * 只给「粘贴文件内容」用。系统对复制的文件只提供**文件名**这一种文本表示（实测见
@@ -115,6 +124,15 @@ interface DevToolHost {
      * 同 [droppedFilePaths]，属于平台细节，工具只该拿到路径。
      */
     fun clipboardFilePaths(): List<String> = emptyList()
+
+    /**
+     * 剪贴板里若放着**图片**，返回它的字节：优先原样搬一份界面画得出来的表示（PNG / JPEG…），
+     * 只给得出像素时编成 PNG；没有图片时返回 `null`。
+     *
+     * 与 [clipboardFilePaths] 同一分工，两者都问时**先问文件**：在访达里复制一张图片，粘贴板上
+     * 既有文件 URL、也有图片表示（图标），先看图片就会把图标当成用户要的内容。
+     */
+    fun clipboardImage(): ByteArray? = null
 }
 
 /**

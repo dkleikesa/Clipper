@@ -49,6 +49,8 @@ import com.qcmian.clipper.devtools.api.writeTextFile
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
 import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
+import com.qcmian.clipper.devtools.ui.components.DevToolInputField
+import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
@@ -56,8 +58,6 @@ import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.core.ui.code.DevToolCodeField
 import com.qcmian.clipper.core.ui.code.rememberCodeColors
 import com.qcmian.clipper.core.ui.code.scanPlain
-import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
-import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -215,7 +215,7 @@ internal object Base64DevTool : DevTool {
             val image = item.image
             if (image != null && item.files.isEmpty()) {
                 mode = Base64Mode.Encode
-                source = Base64Source("剪贴板图片", image.toByteArray())
+                source = Base64Source(imageSourceName(DevToolInputOrigin.Paste), image.toByteArray())
                 encodeText = ""
                 encodeTyped = false
                 return@LaunchedEffect
@@ -317,66 +317,53 @@ internal object Base64DevTool : DevTool {
 
             Spacer(Modifier.height(10.dp))
 
+            // 输入区整个交给 `DevToolInputField`：文本、文件（打开 / 拖入 / 粘贴）与**剪贴板里的
+            // 图片**四路输入都从这一个口子进。载入文件 / 图片之后就换成那张来源卡片。
             val loadedFile = source
-            if (mode == Base64Mode.Encode && loadedFile != null) {
-                FileSourceCard(
-                    source = loadedFile,
-                    onReplace = {
-                        val path = host.pickFileToOpen()
-                        if (path != null) applyPath(path)
-                    },
-                    onClear = { source = null },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(InputFieldHeight)
-                        // 卡片替掉了文本框，就得把拖放接收器也接过来：否则载入第一个文件之后，
-                        // 输入区再拖什么都不会有反应（它已经不是那个挂接收器的节点了）。
-                        .devToolFileDrop(host) { paths ->
-                            paths.firstOrNull()?.let { path -> applyPath(path) }
-                        },
-                )
-            } else {
-                DevToolCodeField(
-                    label = if (mode == Base64Mode.Encode) "输入 · 文本" else "输入 · Base64",
-                    value = text,
-                    onValueChange = { updateText(it, fromUser = true) },
-                    placeholder = if (mode == Base64Mode.Encode) {
-                        "在此粘贴文本；或拖入 / 打开一个文件（图片、任意二进制）"
-                    } else {
-                        "在此粘贴 Base64；也认 data:image/png;base64,… 这样的 Data URL"
-                    },
-                    filePaste = rememberFilePaste(host),
-                    // Base64 是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
-                    // 折行只改显示，`value` 仍是那一整行，复制 / 保存拿到的还是原样。
-                    softWrap = true,
-                    folding = false,
-                    scan = ::scanPlain,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(InputFieldHeight)
-                        .devToolFileDrop(host) { paths ->
-                            paths.firstOrNull()?.let { path -> applyPath(path) }
-                        },
-                    actions = {
-                        DevToolFieldAction(
-                            kind = ClipperIconKind.FOLDER,
-                            tooltip = "打开文件",
-                            onClick = {
-                                val path = host.pickFileToOpen()
-                                if (path != null) applyPath(path)
-                            },
+            DevToolInputField(
+                label = if (mode == Base64Mode.Encode) "输入 · 文本" else "输入 · Base64",
+                value = text,
+                onValueChange = { updateText(it, fromUser = true) },
+                host = host,
+                placeholder = if (mode == Base64Mode.Encode) {
+                    "在此粘贴文本或图片；或拖入 / 打开一个文件（图片、任意二进制）"
+                } else {
+                    "在此粘贴 Base64；也认 data:image/png;base64,… 这样的 Data URL"
+                },
+                // Base64 是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
+                // 折行只改显示，`value` 仍是那一整行，复制 / 保存拿到的还是原样。
+                softWrap = true,
+                folding = false,
+                scan = ::scanPlain,
+                // 文件按当前方向安置：编码要字节（二进制正是内容），解码要文本（Base64 本身是文本）。
+                // 返回空串表示「已经安置好了」——输入框不必再往正文里填东西，也吞掉这次粘贴。
+                onFiles = { paths, _ ->
+                    paths.firstOrNull()?.let(::applyPath)
+                    ""
+                },
+                // 剪贴板里的图片没有磁盘路径：直接当**编码**方向的来源——用户粘一张图进来，
+                // 要看的显然是它的 Base64，而不是「这不是一段 Base64」。
+                onImage = { bytes, origin ->
+                    mode = Base64Mode.Encode
+                    source = Base64Source(imageSourceName(origin), bytes)
+                    updateText("", fromUser = false)
+                },
+                // 清空不是「手打」，但也别留着上一档的手打标记。
+                onClear = { updateText("", fromUser = false) },
+                sourceCard = if (mode == Base64Mode.Encode && loadedFile != null) {
+                    { cardModifier ->
+                        FileSourceCard(
+                            source = loadedFile,
+                            onReplace = { host.pickFileToOpen()?.let(::applyPath) },
+                            onClear = { source = null },
+                            modifier = cardModifier,
                         )
-                        Spacer(Modifier.width(4.dp))
-                        DevToolFieldAction(
-                            kind = ClipperIconKind.TRASH,
-                            tooltip = "清空",
-                            enabled = text.isNotEmpty(),
-                            // 清空不是「手打」，但也别留着上一档的手打标记。
-                            onClick = { updateText("", fromUser = false) },
-                        )
-                    },
-                )
-            }
+                    }
+                } else {
+                    null
+                },
+                modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
+            )
 
             Spacer(Modifier.height(10.dp))
 
@@ -471,6 +458,18 @@ private fun loadFile(path: String, mode: Base64Mode): Loaded {
             "读不了这个文件（超过 ${Base64Format.humanSize(MaxInputFileBytes)}，或不是普通文件）：$path"
         )
     return Loaded.Binary(Base64Source(name, bytes))
+}
+
+/**
+ * 图片没有文件名，卡片与状态栏总得有个称呼。
+ *
+ * 按来路分开叫：粘贴进来的就在剪贴板上，拖进来的则是一个没说名字的载荷——都叫「剪贴板图片」
+ * 会让人以为拖错了地方。
+ */
+private fun imageSourceName(origin: DevToolInputOrigin): String = when (origin) {
+    DevToolInputOrigin.Paste -> "剪贴板图片"
+    DevToolInputOrigin.Drop -> "拖入的图片"
+    DevToolInputOrigin.Open -> "图片"
 }
 
 private fun saveText(host: DevToolHost, value: String, suggestedName: String) {
@@ -715,7 +714,7 @@ private fun ImageResult(
  * 编码侧载入了文件：用一张卡片替掉输入框，说清楚「这次编的是这个文件」。
  *
  * 卡片上必须留着**换文件**与**回到文本**这两条路：它一旦替掉文本框，用户就没有别的入口了——
- * 「换一个文件」靠 [onReplace]（再拖一个文件进来也走它，见调用处的 `devToolFileDrop`），
+ * 「换一个文件」靠 [onReplace]（再拖一个文件、粘一张图片进来也走 `DevToolInputField` 那两条路），
  * 「回去打字」靠 [onClear]。
  */
 @Composable

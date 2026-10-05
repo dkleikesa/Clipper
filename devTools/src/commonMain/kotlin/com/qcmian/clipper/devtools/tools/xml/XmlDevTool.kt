@@ -23,17 +23,14 @@ import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
-import com.qcmian.clipper.devtools.api.readTextFileOrNull
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolFormatBar
-import com.qcmian.clipper.devtools.ui.components.DevToolInputActions
+import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.FormatMode
-import com.qcmian.clipper.devtools.ui.components.devToolFileDrop
-import com.qcmian.clipper.devtools.ui.components.rememberFilePaste
 import com.qcmian.clipper.devtools.ui.components.rememberFormattedText
 import com.qcmian.clipper.core.ui.code.DevToolCodeField
 import com.qcmian.clipper.core.ui.code.scanXml
@@ -139,26 +136,21 @@ internal object XmlDevTool : DevTool {
 
             Spacer(Modifier.height(10.dp))
 
-            // 输入与结果左右等分，便于逐行对照格式化前后的差异。两侧都用 [DevToolCodeField]，
-            // 只是扫描器换成 [scanXml]：高亮与折叠因此认得 `<tag>`。
+            // 输入与结果左右等分，便于逐行对照格式化前后的差异。输入侧走 [DevToolInputField]
+            // （文本、拖入 / 打开 / 粘贴的文件都从这一个口子进来），结果侧仍是只读代码框；
+            // 两侧的扫描器都换成 [scanXml]：高亮与折叠因此认得 `<tag>`。
             Row(Modifier.weight(1f)) {
-                DevToolCodeField(
+                DevToolInputField(
                     label = "输入",
                     value = source,
                     onValueChange = {
                         source = it
                         typed = true
                     },
+                    host = host,
                     placeholder = "在此粘贴 XML，从剪贴板条目打开，或把文件拖进来",
-                    filePaste = rememberFilePaste(host),
                     scan = ::scanXml,
-                    // 拖进来的文件与「打开文件」走同一条读法，读不出内容才退回显示路径。
-                    modifier = Modifier
-                        .weight(1f)
-                        .devToolFileDrop(host) { paths ->
-                            source = paths.joinToString("\n") { readTextFileOrNull(it) ?: it }
-                        },
-                    actions = { DevToolInputActions(source, { source = it; typed = true }, host) },
+                    modifier = Modifier.weight(1f),
                 )
 
                 Spacer(Modifier.width(8.dp))
