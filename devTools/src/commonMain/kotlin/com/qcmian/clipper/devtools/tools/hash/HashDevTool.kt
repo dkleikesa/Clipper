@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.code.rememberCodeColors
 import com.qcmian.clipper.core.ui.code.scanPlain
+import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.devtools.api.DevTool
@@ -45,6 +46,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultList
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
+import com.qcmian.clipper.devtools.ui.components.DevToolSingleLineField
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -104,6 +106,8 @@ internal object HashDevTool : DevTool {
         var inputSize by remember { mutableStateOf(0) }
         // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
         var typed by remember { mutableStateOf(false) }
+        // 待对拍的摘要：用户粘进来一段摘要，与上面算出的每一条比，看能不能对上、对上的是哪个算法。
+        var compareText by remember { mutableStateOf("") }
 
         // 当前这一份输入的标识：文件来源优先（卡片顶上时文本框是空的）。
         val currentKey: Any? = source ?: text
@@ -176,6 +180,11 @@ internal object HashDevTool : DevTool {
         // 结果对不对得上眼前这份输入与编码：不算完、或还在防抖的安静窗口里，就不是 fresh。
         val ready = inputSize > 0 && resultKey == currentKey &&
             resultEncoding == encoding && results.isNotEmpty()
+
+        // 对拍：输入框里有东西才叫「在比」。结论只在结果作数（`ready`）时才下得——否则比的是上一份
+        // 输入、或另一档编码的串，报出来的算法是错的。空输入是「还没对」，与「没对上」不是一回事。
+        val comparing = compareText.isNotBlank()
+        val match = if (ready && comparing) HashFormat.match(compareText, results, encoding) else null
 
         Column(Modifier.fillMaxSize()) {
             // 与 JSON / 数学工具用**同一个**输入框：点击落光标、行号、拖入 / 打开 / 粘贴的文件
@@ -258,6 +267,18 @@ internal object HashDevTool : DevTool {
                 )
             }
 
+            Spacer(Modifier.height(10.dp))
+
+            // 对拍那一行：粘一段外部摘要进来，核一下它对得上上面哪一条、是哪种算法。
+            CompareRow(
+                value = compareText,
+                onValueChange = { compareText = it },
+                comparing = comparing,
+                hasInput = inputSize > 0,
+                ready = ready,
+                match = match,
+            )
+
             Spacer(Modifier.height(6.dp))
 
             // 结果区与时间戳工具共用同一套列表：点一行复制那一行的摘要。空输入、首次计算各给一句
@@ -281,6 +302,9 @@ internal object HashDevTool : DevTool {
                         label = { it.algorithm.displayName },
                         value = { it.value },
                         onCopy = { host.copyToClipboard(it.value) },
+                        // 对上的那一行上主色：结论那句话说「是哪种算法」，这里把那一行同时指出来，
+                        // 眼睛不必在十一行里自己找（见 `CompareRow`）。
+                        primary = { it == match },
                         // 摘要很长（SHA-512 有 128 个字符），折行显示，否则尾巴会被省略号吃掉。
                         wrapValues = true,
                         enabled = ready,
@@ -353,5 +377,64 @@ private fun HashSourceCard(
             fontSize = 12.sp,
             color = MaterialTheme.hintColor,
         )
+    }
+}
+
+/** 结论那一格占的固定宽度：宽窄不随文案跳，右边的输入框因此不会在用户开始对拍时忽然缩一下。 */
+private val CompareVerdictWidth = 124.dp
+
+/**
+ * 「对拍」那一行：左边一个单行输入框，粘一段摘要进来；右边是结论。
+ *
+ * 结论只在**既有输入、又有待对拍内容**时才出现——两者缺一都无从谈起：没有输入就没有可比的摘要，
+ * 没有待对拍内容则根本没开始比。中间「结果还没算完」时给一句「对拍中…」，不拿上一份结果下结论。
+ *
+ * @param comparing 输入框里有没有东西要拿来比。
+ * @param hasInput 上面那份待摘要的内容是不是空的（空则没有可对的摘要）。
+ * @param ready 算出的结果是否作数（见 `HashDevTool.Content`）。
+ * @param match 对上的那一条结果；没对上、或还没对时为 `null`。
+ */
+@Composable
+private fun CompareRow(
+    value: String,
+    onValueChange: (String) -> Unit,
+    comparing: Boolean,
+    hasInput: Boolean,
+    ready: Boolean,
+    match: HashResult?,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("对比", fontSize = 12.sp, color = MaterialTheme.hintColor)
+        Spacer(Modifier.width(8.dp))
+        DevToolSingleLineField(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = "粘贴一个摘要，核对它对得上下面哪一条",
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(10.dp))
+        Box(Modifier.width(CompareVerdictWidth), contentAlignment = Alignment.CenterStart) {
+            CompareVerdict(comparing = comparing, hasInput = hasInput, ready = ready, match = match)
+        }
+    }
+}
+
+/** 对拍的结论：成功时报出**是哪种算法**，失败说「没对上」，还没算完说「对拍中」。 */
+@Composable
+private fun CompareVerdict(comparing: Boolean, hasInput: Boolean, ready: Boolean, match: HashResult?) {
+    val colors = MaterialTheme.colorScheme
+    when {
+        // 还没开始比：右侧留白，不先摆一句「不匹配」出来（那是「比过但没对上」的意思）。
+        !comparing || !hasInput -> Unit
+
+        !ready -> Text("对拍中…", fontSize = 12.sp, color = MaterialTheme.hintColor)
+
+        match != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+            ClipperIcon(ClipperIconKind.CHECKMARK, size = 14.dp, tint = colors.primary)
+            Spacer(Modifier.width(5.dp))
+            Text("匹配 · ${match.algorithm.displayName}", fontSize = 12.sp, color = colors.primary)
+        }
+
+        else -> Text("没有匹配的算法", fontSize = 12.sp, color = colors.error)
     }
 }

@@ -2,6 +2,7 @@ package com.qcmian.clipper.devtools.tools.hash
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 /**
  * 摘要逻辑：以各标准的**官方向量**对拍每一种算法。
@@ -204,5 +205,49 @@ class HashFormatTest {
             "41c0dba2a9d6240849100376a8235e2c82e1b9998a999e21db32dd97496d3376",
             hex(HashAlgorithm.SHA3_256, message),
         )
+    }
+
+    @Test
+    fun `match reports the algorithm that produced the value`() {
+        val results = HashFormat.digests("abc".encodeToByteArray(), HashEncoding.Hex)
+        val sha256 = hex(HashAlgorithm.SHA256, "abc")
+        assertEquals(HashAlgorithm.SHA256, HashFormat.match(sha256, results, HashEncoding.Hex)?.algorithm)
+    }
+
+    @Test
+    fun `match ignores case and surrounding whitespace for hex`() {
+        val results = HashFormat.digests("abc".encodeToByteArray(), HashEncoding.Hex)
+        val md5 = hex(HashAlgorithm.MD5, "abc")
+        // 大写与首尾空白都该放过：复制粘贴来对拍正是主用法（见 `HashFormat.match` 的说明）。
+        assertEquals(
+            HashAlgorithm.MD5,
+            HashFormat.match("  ${md5.uppercase()}\n", results, HashEncoding.Hex)?.algorithm,
+        )
+    }
+
+    @Test
+    fun `match keeps the base64 alphabets case sensitive`() {
+        val results = HashFormat.digests(ByteArray(0), HashEncoding.Base64)
+        val md5 = HashFormat.digest(HashAlgorithm.MD5, ByteArray(0), HashEncoding.Base64)
+        assertEquals(HashAlgorithm.MD5, HashFormat.match(md5, results, HashEncoding.Base64)?.algorithm)
+        // Base64 的字母表里大小写是两个不同的符号：整串改小写后不该再对上。
+        assertNull(HashFormat.match(md5.lowercase(), results, HashEncoding.Base64))
+    }
+
+    @Test
+    fun `match returns null when nothing matches or the input is blank`() {
+        val results = HashFormat.digests("abc".encodeToByteArray(), HashEncoding.Hex)
+        assertNull(HashFormat.match("deadbeef", results, HashEncoding.Hex))
+        assertNull(HashFormat.match("   ", results, HashEncoding.Hex))
+        assertNull(HashFormat.match("", results, HashEncoding.Hex))
+    }
+
+    @Test
+    fun `match only compares against the given encoding`() {
+        // 结果列表里摆的是什么就对什么：Base64 的那一列拿十六进制的串去对，自然对不上。
+        val bytes = "abc".encodeToByteArray()
+        val hexResults = HashFormat.digests(bytes, HashEncoding.Hex)
+        val base64 = HashFormat.digest(HashAlgorithm.SHA256, bytes, HashEncoding.Base64)
+        assertNull(HashFormat.match(base64, hexResults, HashEncoding.Hex))
     }
 }

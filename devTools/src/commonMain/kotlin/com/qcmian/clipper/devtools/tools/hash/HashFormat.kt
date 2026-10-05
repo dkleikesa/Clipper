@@ -40,6 +40,27 @@ internal object HashFormat {
         encode(digestBytes(algorithm, bytes), encoding)
 
     /**
+     * 拿一段**外部摘要**与本次算出的全部 [results] 对拍，返回第一条对上的；一条都对不上、或输入
+     * 为空时给 `null`。
+     *
+     * 只比当前 [encoding] 写出来的那一列：结果列表里摆的是什么，就对什么——换一档编码，对拍的目标
+     * 也跟着换。
+     *
+     * 十六进制**不分大小写**：`sha256sum` 印小写，但不少工具（GitHub 的校验值、Windows 的
+     * `certutil`）复制出来是大写，而「复制粘贴来对拍」正是这个功能的主用法，不该为此判失败。
+     * Base64 两档仍然**区分大小写**——它们的字母表里大小写是两个不同的符号，放宽了会平白对上一条
+     * 并不相等的串。
+     */
+    fun match(input: String, results: List<HashResult>, encoding: HashEncoding): HashResult? {
+        val needle = input.trim()
+        if (needle.isEmpty()) return null
+        val ignoreCase = encoding == HashEncoding.Hex
+        return results.firstOrNull { result ->
+            if (ignoreCase) result.value.equals(needle, ignoreCase = true) else result.value == needle
+        }
+    }
+
+    /**
      * 摘要字节 → 显示串。
      *
      *  - [HashEncoding.Hex]：小写十六进制；
