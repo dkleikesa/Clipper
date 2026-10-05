@@ -110,9 +110,12 @@ fun ApplicationScope.ClipperDevToolsWindow(
         // 透明是必需的：圆角之外要能透出桌面，否则四个角会被窗口底色填成方块。
         undecorated = true,
         transparent = true,
-        // 窗口级快捷键：自绘标题栏之后就没有系统菜单了，`⌘W` 得自己接上；`Esc` 与设置窗口
-        // 一致，表示「关掉这一层」。放在窗口层而不是内容根节点上——内容里有没有 Compose 焦点
-        // 节点取决于用户点没点过编辑区，靠焦点链会让这两个键时灵时不灵。
+        // 窗口级快捷键：自绘标题栏之后就没有系统菜单了，`⌘W` 得自己接上。放在窗口层而不是
+        // 内容根节点上——内容里有没有 Compose 焦点节点取决于用户点没点过编辑区，靠焦点链会让
+        // 这个键时灵时不灵。
+        //
+        // `Esc` 有意**不**关窗（与设置窗口不同）：工具里大半时间都在编辑区里反复试，一次 `Esc`
+        // 就把整扇窗收掉代价太大；要关就 `⌘W` 或点标题栏的关闭按钮。
         //
         // `⌘B` 跟着一起放在这里，理由同上：它要能随时切换侧边栏，而不必先点一下编辑区。
         //
@@ -126,7 +129,7 @@ fun ApplicationScope.ClipperDevToolsWindow(
         onPreviewKeyEvent = { event ->
             if (event.type != KeyEventType.KeyDown) {
                 false
-            } else if (event.key == Key.Escape || (event.isMetaPressed && event.key == Key.W)) {
+            } else if (event.isMetaPressed && event.key == Key.W) {
                 viewModel.onAction(ClipboardUiAction.CloseDevTools)
                 true
             } else if (event.isMetaPressed && event.key == Key.B) {
