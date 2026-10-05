@@ -57,6 +57,15 @@ kotlin {
             implementation(libs.qrose.oned)
         }
 
+        // 二维码 / 条码**解码**：ZXing 是 Java 库，只能落在 jvmMain。
+        //
+        // 这是本模块唯一一处平台代码，而且被刻意收成**一个 `expect` 函数**（收 ARGB 像素、还一串
+        // 认出来的码，见 `BarcodeScan`）：解图片、缩放、取像素都留在 commonMain，工具那一层照旧
+        // 不认识平台。将来要接别的平台，补一个 actual 即可，界面一行都不用动。
+        jvmMain.dependencies {
+            implementation(libs.zxing.core)
+        }
+
         // 代码显示层里能脱离组合环境的部分（JSON 扫描器、显示变换与偏移映射）直接单测：
         // 折叠与高亮的正确性全在这几个纯函数上，靠眼看界面是测不出来的。
         jvmTest.dependencies {

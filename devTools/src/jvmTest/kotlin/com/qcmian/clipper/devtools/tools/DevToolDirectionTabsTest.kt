@@ -74,7 +74,7 @@ class DevToolDirectionTabsTest {
     }
 
     @Test
-    fun `条码的解码页是占位，切回去还是编码页`() = runComposeUiTest {
+    fun `条码两页各是各的，来回切都在`() = runComposeUiTest {
         render(BarcodeDevTool, input = null)
 
         onNodeWithText("码制").assertIsDisplayed()
@@ -82,8 +82,9 @@ class DevToolDirectionTabsTest {
         onNodeWithText("解码").performClick()
         waitForIdle()
 
-        // 解码还没做：页签点得进来，页上是一句交代，编码那一套工具栏整块下去。
-        onNodeWithText("解码还没做").assertIsDisplayed()
+        // 解码页的输入是一张**码图**（空态是一句落点提示），编码那一套工具栏整块下去。
+        onNodeWithText("输入 · 码图").assertIsDisplayed()
+        onNodeWithText("把码图拖进来，或粘贴 / 打开一张图片").assertIsDisplayed()
         assertMissing("码制")
 
         onNodeWithText("编码").performClick()

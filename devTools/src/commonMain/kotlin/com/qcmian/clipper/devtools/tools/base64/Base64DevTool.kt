@@ -51,6 +51,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolDirection
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
+import com.qcmian.clipper.devtools.ui.components.imageInputName
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
@@ -210,7 +211,7 @@ internal object Base64DevTool : DevTool {
             val image = item.image
             if (image != null && item.files.isEmpty()) {
                 mode = DevToolDirection.Encode
-                source = Base64Source(imageSourceName(DevToolInputOrigin.Paste), image.toByteArray())
+                source = Base64Source(imageInputName(DevToolInputOrigin.Paste), image.toByteArray())
                 encodeText = ""
                 encodeTyped = false
                 return@LaunchedEffect
@@ -349,7 +350,7 @@ internal object Base64DevTool : DevTool {
                         // 剪贴板里的图片没有磁盘路径：直接当编码来源——用户粘一张图进来，要看的
                         // 显然是它的 Base64。
                         onImage = { bytes, origin ->
-                            source = Base64Source(imageSourceName(origin), bytes)
+                            source = Base64Source(imageInputName(origin), bytes)
                             encodeText = ""
                             encodeTyped = false
                         },
@@ -397,7 +398,7 @@ internal object Base64DevTool : DevTool {
                         // 顺手把图挂上——跟从前那枚分段控件一样，不让这次粘贴石沉大海。
                         onImage = { bytes, origin ->
                             mode = DevToolDirection.Encode
-                            source = Base64Source(imageSourceName(origin), bytes)
+                            source = Base64Source(imageInputName(origin), bytes)
                             encodeText = ""
                             encodeTyped = false
                         },
@@ -505,18 +506,6 @@ private fun loadFile(path: String, mode: DevToolDirection): Loaded {
             "读不了这个文件（超过 ${Base64Format.humanSize(MaxInputFileBytes)}，或不是普通文件）：$path"
         )
     return Loaded.Binary(Base64Source(name, bytes))
-}
-
-/**
- * 图片没有文件名，卡片与状态栏总得有个称呼。
- *
- * 按来路分开叫：粘贴进来的就在剪贴板上，拖进来的则是一个没说名字的载荷——都叫「剪贴板图片」
- * 会让人以为拖错了地方。
- */
-private fun imageSourceName(origin: DevToolInputOrigin): String = when (origin) {
-    DevToolInputOrigin.Paste -> "剪贴板图片"
-    DevToolInputOrigin.Drop -> "拖入的图片"
-    DevToolInputOrigin.Open -> "图片"
 }
 
 private fun saveText(host: DevToolHost, value: String, suggestedName: String) {

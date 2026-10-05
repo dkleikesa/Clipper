@@ -30,9 +30,11 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.ui.code.DevToolCodeField
 import com.qcmian.clipper.core.ui.code.rememberCodeColors
 import com.qcmian.clipper.core.ui.code.scanPlain
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
@@ -42,18 +44,23 @@ import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
+import com.qcmian.clipper.devtools.api.readBytesOrNull
 import com.qcmian.clipper.devtools.api.writeBytesFile
+import com.qcmian.clipper.devtools.api.writeTextFile
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolDirection
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
 import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
+import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
+import com.qcmian.clipper.devtools.ui.components.DevToolResultList
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolSlider
 import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
+import com.qcmian.clipper.devtools.ui.components.imageInputName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -64,6 +71,17 @@ private const val EvaluateDebounceMillis = 150L
 
 /** 输入区高度：与 Base64 工具一致，多行文本一屏能看个大概。 */
 private val InputFieldHeight = 120.dp
+
+/** 解码页输入区（那张码图卡片）的高度：装得下预览，也给下面的结果区留出地方。 */
+private val DecodeImageHeight = 150.dp
+
+/**
+ * 解码页一次读入的图片上限。
+ *
+ * 认码前会把长边缩到 1600（见 `BarcodeScan`），磁盘上比这大得多就没必要整块读进来——用户的意图
+ * 是认码，不是拿这个窗口当图片查看器。超限与读不到都归成一句提示。
+ */
+private const val MaxInputImageBytes = 32L * 1024 * 1024
 
 /**
  * 导出 PNG 的**长边**像素档位；短边按码的形状算（见 `exportSizeOf`）。
@@ -107,33 +125,51 @@ private sealed interface CodeOutcome {
 }
 
 /**
- * 条码生成：把一段文本编成二维码或一维码——三种二维码制（QR / Aztec / PDF417）与九种一维码制
- * （Code 128 / 39 / 93、EAN-13 / 8、UPC-A / E、ITF、Codabar），支持导出 PNG 与复制到剪贴板。
+ * 解码页载入的那张码图。
+ *
+ * 存的是**原始字节**而不是解好的图：解图与认码一起放在识别那个 effect 里做（那一段必须在后台
+ * 线程上，而拖放 / 粘贴 / 「打开」的回调都在主线程）。
+ *
+ * [origin] 是这张图从哪来（粘贴 / 拖入 / 打开），只用于状态栏左段那句「来自…」；从剪贴板记录直接
+ * 带进来的那张为 `null`——那种来源面板自己会说，比这里猜得准。
+ */
+private class BarcodeImageInput(
+    val name: String,
+    val bytes: ByteArray,
+    val origin: DevToolInputOrigin?,
+)
+
+/**
+ * 条码编解码，顶上两页页签（与 Base64 / URL 同一套）：
+ *
+ *  - **编码**：把一段文本编成二维码或一维码——三种二维码制（QR / Aztec / PDF417）与九种一维码制
+ *    （Code 128 / 39 / 93、EAN-13 / 8、UPC-A / E、ITF、Codabar），支持导出 PNG 与复制到剪贴板。
+ *    编码与绘制都交给 qrose（见 `BarcodeFormat`）。编码在后台线程做——一段长文本的编码要几十
+ *    毫秒，不该压在组合线程上，编不出来时也在那里接住异常。
+ *  - **解码**：把一张**码图**认回内容——打开 / 拖入 / 粘贴一张图，交给 ZXing（见 `BarcodeScan`）。
+ *    认什么码制不设限：本工具编得出的十二种之外，Data Matrix、MaxiCode、RSS 也一起认，一张图里
+ *    有好几个码就逐个列出来。识别同样在后台线程上（取像素是百万次级循环，ZXing 还要做二值化与
+ *    多轮扫描）。
  *
  * 与数学计算器同样**不吃某一种数据类型**（[acceptedDataTypes] 留空）：任何文本都可能是要编码的
  * 内容，声明 `text` 只会让打开任意一段文字都默认跳到本工具——那不是我们想要的，所以它只在
- * 侧边栏手动进入（进去后剪贴板内容照旧会被灌进输入框）。
- *
- * 编码与绘制都交给 qrose（见 `BarcodeFormat`）；这里只管交互与排版。编码在后台线程做——一段长
- * 文本的编码要几十毫秒，不该压在组合线程上，编不出来时也在那里接住异常。
- *
- * 顶上两页页签（与 Base64 / URL 同一套）：编码这一页就是上面说的这些；解码那一页**还没做**，
- * 先立个页签占住位置（见 `DecodePlaceholder`）——「从码图里读出内容」是迟早要接上去的一路。
+ * 侧边栏手动进入（进去后剪贴板内容照旧会被灌进输入框；带进来的若是**图**，则直接落在解码页，
+ * 见 `Content` 里那个 `LaunchedEffect`）。
  */
 internal object BarcodeDevTool : DevTool {
 
     override val metadata: DevToolMetadata = DevToolMetadata(
         id = "barcode",
-        name = "条码生成",
-        description = "把文本编成二维码或一维码：QR、Aztec、PDF417 与 Code 128、EAN-13 等，可保存为 PNG。",
+        name = "条码编解码",
+        description = "文本与二维码 / 一维码互转：生成十二种码制可存 PNG；解码认得 QR、Data Matrix 与各类一维码，打开、拖入或粘贴一张码图即可。",
         group = DevToolGroup.ENCODER,
         icon = ClipperIconKind.QR_CODE,
     )
 
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
-        // 与 Base64 / URL 一样，方向是顶上两页页签。这一版只有「编码」有内容，「解码」先占位
-        // （见 `DecodePlaceholder`）——页签先立起来，接上「读一张码图」那一路时结构不必再动。
+        // 与 Base64 / URL 一样，方向是顶上两页页签：默认落在编码页（从侧边栏点进来的默认意图是
+        // 「把这段内容编成码」），剪贴板条目是图时改落在解码页（见下面那个 effect）。
         var mode by remember { mutableStateOf(DevToolDirection.Encode) }
         var format by remember { mutableStateOf(BarcodeFormat.Qr) }
         var level by remember { mutableStateOf(QrErrorLevel.Medium) }
@@ -152,23 +188,71 @@ internal object BarcodeDevTool : DevTool {
         var debounced by remember { mutableStateOf("") }
         var outcome by remember { mutableStateOf<CodeOutcome?>(null) }
         var outcomeRequest by remember { mutableStateOf<EncodeRequest?>(null) }
+        // 解码页：用户挑 / 拖 / 粘进来的那张码图（`null` = 还没有图），以及一次识别的结果
+        // （`null` = 还没有图，**不是**「没认到码」——那是 `ScanOutcome.Ready` 里的空表）。
+        var imageInput by remember { mutableStateOf<BarcodeImageInput?>(null) }
+        var scanOutcome by remember { mutableStateOf<ScanOutcome?>(null) }
+        var scanning by remember { mutableStateOf(false) }
         // 画「码下方那行文字」要它：预览与导出共用同一份度量，两边才不会两样。
         val measurer = rememberTextMeasurer()
         val scope = rememberCoroutineScope()
 
-        // 从剪贴板条目打开时灌入正文——复制一段链接再按快捷键，是这里最顺手的用法。
+        // 把一张图安置到解码页上（拖入 / 粘贴 / 打开都走这里）。名字与字节是唯一的输入：预览与
+        // 认码都从它算出来（见下面那个 effect）。
+        fun applyImageBytes(name: String, bytes: ByteArray, origin: DevToolInputOrigin?) {
+            mode = DevToolDirection.Decode
+            imageInput = BarcodeImageInput(name, bytes, origin)
+        }
+
+        // 读一个文件并按**码图**安置：认码要的是原始字节（图片正是二进制）。同步读——与 Base64
+        // 工具那条路一致（用户在对话框里挑完文件，等一次读盘是应该的）。
+        fun applyImagePath(path: String) {
+            val name = path.substringAfterLast('/').ifBlank { path }
+            val bytes = readBytesOrNull(path, MaxInputImageBytes)
+            if (bytes == null) {
+                host.showStatus("读不了这个文件（超过 32MB，或不是普通文件）：$path")
+                return
+            }
+            applyImageBytes(name, bytes, DevToolInputOrigin.Open)
+        }
+
+        // 从剪贴板条目打开：带进来的是**图**（截图、从浏览器复制的图片）就直接落在解码页——认它
+        // 才是用户要做的事；**文件**是图也一样（截图存成文件、在访达里复制它，是常见的一段路）；
+        // 其余（文本、非图文件）照旧落在编码页（复制一段链接再按快捷键，是那边最顺手的用法）。
         LaunchedEffect(input) {
             val item = input ?: return@LaunchedEffect
+            val image = item.image
+            if (image != null && item.files.isEmpty()) {
+                applyImageBytes(
+                    name = imageInputName(DevToolInputOrigin.Paste),
+                    bytes = image.toByteArray(),
+                    // 来源交给面板判断：它自己会说「来自剪贴板」，比这里的「剪贴板图片」更贴切。
+                    origin = null,
+                )
+                return@LaunchedEffect
+            }
+            if (item.files.isNotEmpty()) {
+                val path = item.files.first()
+                val name = path.substringAfterLast('/').ifBlank { path }
+                val bytes = withContext(Dispatchers.Default) { readBytesOrNull(path, MaxInputImageBytes) }
+                if (bytes != null && withContext(Dispatchers.Default) { decodeImageOrNull(bytes) != null }) {
+                    applyImageBytes(name, bytes, origin = null)
+                    return@LaunchedEffect
+                }
+            }
             // 取文本可能要读文件、也可能要解析富文本——放到后台算，别让主线程在打开面板时先卡一下。
             text = withContext(Dispatchers.Default) { item.devToolText() }
             typed = false
         }
 
-        // 来源报告给底部状态栏：改过编辑框就说「文本输入」，否则交回面板判断（剪贴板 / 文件）。
-        // 解码那一页还没有内容，一律交回面板。
+        // 来源报告给底部状态栏：编码页改过编辑框就说「文本输入」；解码页说这张图是从哪来的
+        // （粘贴 / 拖入），从剪贴板记录直接带进来的那张交回面板判断。
         DevToolReportSource(
             host,
-            if (mode == DevToolDirection.Encode && typed) DevToolTypedSource else null,
+            when (mode) {
+                DevToolDirection.Encode -> if (typed) DevToolTypedSource else null
+                DevToolDirection.Decode -> imageInput?.origin?.let(::imageInputSource)
+            },
         )
 
         // 防抖：正文一变就重新计时，停下来才把这一份交给编码。取消由 `LaunchedEffect` 负责，
@@ -217,25 +301,45 @@ internal object BarcodeDevTool : DevTool {
         val request = EncodeRequest(format, text, level, aztecEcPercent, pdf417Ec)
         val fresh = text.isNotBlank() && outcomeRequest == request
 
-        // 码制与尺寸报到窗口底部的状态栏，不占内容区那一行（与其它工具同一分工）。
-        LaunchedEffect(mode, outcome, outcomeRequest, request) {
-            // 解码页上没有任何码可报：不清掉的话，切过去还挂着上一页那句「QR · 21×21 · 5 字符」。
-            if (mode == DevToolDirection.Decode) {
-                host.reportStatus(null)
+        // 识别：字节 → 图 → 按需缩小 → 像素 → ZXing。整段在后台线程上：取像素是百万次级循环，
+        // ZXing 还要在上面做二值化与多轮扫描。
+        //
+        // 换一张图时先把旧结果清掉，而不是像编码页那样「留着上一份但禁用动作」：这里的结果与卡片
+        // 里那张**图**是一体的（预览就是它），留着上一张图的结论会与眼前的图对不上。
+        LaunchedEffect(imageInput) {
+            val target = imageInput
+            if (target == null) {
+                scanOutcome = null
+                scanning = false
                 return@LaunchedEffect
             }
-            // 取成局部值再判断：`outcome` 是 `mutableStateOf` 的委托属性，直接对它做类型判断拿不到
-            // 智能转换（编译器不保证两次读取之间它没变）。
-            val current = outcome
-            host.reportStatus(
-                when {
-                    request.text.isBlank() -> null
-                    !fresh -> "生成中…"
-                    current is CodeOutcome.Failed -> "无法生成 · ${request.text.length} 字符"
-                    current is CodeOutcome.Ready ->
-                        "${current.format.title} · ${current.code.sizeLabel} · ${request.text.length} 字符"
+            scanOutcome = null
+            scanning = true
+            scanOutcome = withContext(Dispatchers.Default) { scanBarcodeImage(target.bytes) }
+            scanning = false
+        }
 
-                    else -> null
+        // 状态栏不占内容区那一行（与其它工具同一分工）。**一个 effect 管两页**：两个各写各的会
+        // 抢同一处，谁最后写就没准了。
+        LaunchedEffect(mode, outcome, outcomeRequest, request, scanning, scanOutcome) {
+            host.reportStatus(
+                when (mode) {
+                    DevToolDirection.Encode -> {
+                        // 取成局部值再判断：`outcome` 是 `mutableStateOf` 的委托属性，直接对它做类型
+                        // 判断拿不到智能转换（编译器不保证两次读取之间它没变）。
+                        val current = outcome
+                        when {
+                            request.text.isBlank() -> null
+                            !fresh -> "生成中…"
+                            current is CodeOutcome.Failed -> "无法生成 · ${request.text.length} 字符"
+                            current is CodeOutcome.Ready ->
+                                "${current.format.title} · ${current.code.sizeLabel} · ${request.text.length} 字符"
+
+                            else -> null
+                        }
+                    }
+
+                    DevToolDirection.Decode -> decodeStatus(scanning, scanOutcome)
                 }
             )
         }
@@ -259,7 +363,7 @@ internal object BarcodeDevTool : DevTool {
 
         Column(Modifier.fillMaxSize()) {
             // 方向是两**页**（与 Base64 / URL 用同一套页签）：编码这一页是「文本 → 码图」，解码
-            // 那一页还没做、先占住位置（见 `DecodePlaceholder`）。
+            // 那一页是「码图 → 文本」，各带自己那一整套卡片。
             DevToolTabBar(
                 options = DevToolDirection.entries,
                 selected = mode,
@@ -346,7 +450,7 @@ internal object BarcodeDevTool : DevTool {
                     Spacer(Modifier.height(10.dp))
 
                     // 输入区就是普通的多行文本框：码的输入是文本，没有「另一份输入」、也没有来源
-                    // 卡片——两页的差别不在这里，只在于解码那一页还没做。
+                    // 卡片——两张页签的差别不在这里，在于解码页的输入是一张图。
                     DevToolInputField(
                         label = "输入 · 文本",
                         value = text,
@@ -363,6 +467,12 @@ internal object BarcodeDevTool : DevTool {
                         softWrap = true,
                         folding = false,
                         scan = ::scanPlain,
+                        // 粘 / 拖一张图进来：这一页没有图可编，但那多半是想**解**它——替用户翻到
+                        // 解码页、顺手把图挂上（与 Base64 工具「在解码页粘一张图就翻到编码页」
+                        // 是同一条做法，只是方向相反）。
+                        onImage = { bytes, origin ->
+                            applyImageBytes(imageInputName(origin), bytes, origin)
+                        },
                         // 清空不算「手打」，但也别留着上一档的手打标记。
                         onClear = {
                             text = ""
@@ -416,7 +526,48 @@ internal object BarcodeDevTool : DevTool {
                     )
                 }
 
-                DevToolDirection.Decode -> DecodePlaceholder(Modifier.fillMaxWidth().weight(1f))
+                // 解码页：输入是一张**码图**，输出是图里认出来的内容。
+                DevToolDirection.Decode -> {
+                    DevToolInputField(
+                        // 卡片替掉文本框之后，这几个文本框参数不再画出来（值留空即可）。
+                        label = "",
+                        value = "",
+                        onValueChange = {},
+                        host = host,
+                        // 打开 / 拖入的**文件**：读原始字节（图片正是二进制）。返回空串表示「已经
+                        // 安置好了」，控件不必再往文本框里填什么（这一页也没有文本框）。
+                        onFiles = { paths, _ ->
+                            paths.firstOrNull()?.let(::applyImagePath)
+                            ""
+                        },
+                        // 没有路径的图片（从浏览器里复制 / 拖进来的）直接就是字节。
+                        onImage = { bytes, origin ->
+                            applyImageBytes(imageInputName(origin), bytes, origin)
+                        },
+                        // 卡片**一直**在（空态也在）：这一页没有可敲的正文，摆一个编辑框只会让人
+                        // 以为能粘一段字进去。它同时接住了拖放与粘贴。
+                        sourceCard = { cardModifier ->
+                            CodeImageCard(
+                                input = imageInput,
+                                outcome = scanOutcome,
+                                scanning = scanning,
+                                onOpen = { host.pickFileToOpen()?.let(::applyImagePath) },
+                                onClear = { imageInput = null },
+                                modifier = cardModifier,
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth().height(DecodeImageHeight),
+                    )
+
+                    Spacer(Modifier.height(10.dp))
+
+                    DecodeResultArea(
+                        scanning = scanning,
+                        outcome = scanOutcome,
+                        host = host,
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
+                }
             }
         }
     }
@@ -566,23 +717,214 @@ private fun ToolbarOption(label: String, content: @Composable () -> Unit) {
 }
 
 /**
- * 解码那一页：还没做，先占住位置。
+ * 解码页的输入卡片：没图时是「把码图拖进来 / 粘进来」的落点，有图时换成那张图的预览。
  *
- * 留白而不是把这一页藏起来（或把页签画成禁用）：在码图上读内容本来就是用户会来找的一件事，
- * 页签立在那儿、点进去说清「还没有」，比满世界找不到入口、以为这工具只管生成要明白。
+ * 它**一直**替掉文本框（见调用点）：这一页没有可敲的正文，摆一个编辑框只会让人以为能粘一段字
+ * 进去。卡片这一层已经接住拖放与粘贴（见 `DevToolInputField`），因此空态也是一个能用的入口。
+ *
+ * 预览取的是 [ScanOutcome.Ready.bitmap]（**原图**，不是认码前缩小那份）：认码为了快，预览为了
+ * 看得清，两件事各用各的尺寸。
  */
 @Composable
-private fun DecodePlaceholder(modifier: Modifier) {
-    Box(modifier, contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("解码还没做", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(4.dp))
+private fun CodeImageCard(
+    input: BarcodeImageInput?,
+    outcome: ScanOutcome?,
+    scanning: Boolean,
+    onOpen: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(6.dp)
+    val codeColors = rememberCodeColors()
+    val preview = (outcome as? ScanOutcome.Ready)?.bitmap
+
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(codeColors.editorBackground)
+            .border(1.dp, colors.outline.copy(alpha = 0.6f), shape)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("输入 · 码图", fontSize = 13.sp, color = MaterialTheme.hintColor)
+            Spacer(Modifier.weight(1f))
+            DevToolFieldAction(
+                kind = ClipperIconKind.FOLDER,
+                tooltip = if (input == null) "打开一张码图" else "换一张（也可以直接把图拖进来）",
+                onClick = onOpen,
+            )
+            Spacer(Modifier.width(4.dp))
+            DevToolFieldAction(
+                kind = ClipperIconKind.TRASH,
+                tooltip = "清除这张图",
+                enabled = input != null,
+                onClick = onClear,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            when {
+                input == null -> Text(
+                    text = "把码图拖进来，或粘贴 / 打开一张图片",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.hintColor,
+                    textAlign = TextAlign.Center,
+                )
+
+                preview != null -> Image(
+                    bitmap = preview,
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                // 还在认（预览要等它回来），或者这串字节根本不是图。
+                else -> Text(
+                    text = if (scanning) "识别中…" else "这张图读不出来",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.hintColor,
+                )
+            }
+        }
+        if (input != null) {
+            Spacer(Modifier.height(6.dp))
             Text(
-                text = "以后在这里打开 / 拖入一张码图，认出里面的内容",
+                // 认码时看到的尺寸比这里报的小（长边被缩到 1600），报的是**原图**尺寸：用户要核对
+                // 的是「我打开的是哪张图」，不是内部缩到多少。
+                text = input.name + (preview?.let { " · ${it.width}×${it.height}" }.orEmpty()),
                 fontSize = 12.sp,
                 color = MaterialTheme.hintColor,
-                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
+}
+
+/**
+ * 解码页的结果区。
+ *
+ * 状态不同答不同的问题，五档互斥：认出来的内容（一条给大框、多条给列表）、还在认、图里没有码、
+ * 这图压根读不出来、还没有图。**「没有码」与「不是图」必须分开**：前者要用户把码放正、拍清楚，
+ * 后者要用户换一张图——一句「识别失败」把两件事糊在一起，用户只能瞎试。
+ */
+@Composable
+private fun DecodeResultArea(
+    scanning: Boolean,
+    outcome: ScanOutcome?,
+    host: DevToolHost,
+    modifier: Modifier,
+) {
+    val ready = outcome as? ScanOutcome.Ready
+    val hits = ready?.hits.orEmpty()
+    when {
+        // 多条：一张图里两三个码时逐行列出来（点一行复制那一行），比挤进一个框里强。
+        hits.size > 1 -> DevToolResultList(
+            items = hits,
+            label = { barcodeFormatLabel(it.format) },
+            value = { it.text },
+            onCopy = { host.copyToClipboard(it.text) },
+            wrapValues = true,
+            modifier = modifier,
+        )
+
+        // 一条：给只读代码框——内容可能是一整段链接或一坨文本，看得清、选得中，也能存成文件。
+        hits.size == 1 -> DecodedField(hit = hits.first(), host = host, modifier = modifier)
+
+        outcome is ScanOutcome.Unreadable -> DevToolCodeField(
+            label = "结果",
+            value = outcome.message,
+            onValueChange = {},
+            editable = false,
+            isError = true,
+            softWrap = true,
+            folding = false,
+            scan = ::scanPlain,
+            modifier = modifier,
+        )
+
+        scanning -> CenteredHint("识别中…", modifier)
+
+        ready != null -> CenteredHint(
+            "这张图里没找到码——把码放正、拍清楚，或者换一张更大的图试试",
+            modifier,
+        )
+
+        else -> CenteredHint("载入一张码图后，这里显示认出来的内容", modifier)
+    }
+}
+
+/** 认出来那一条的落点：只读代码框 + 「保存 / 复制」两个跟着它走的动作。 */
+@Composable
+private fun DecodedField(hit: BarcodeHit, host: DevToolHost, modifier: Modifier) {
+    DevToolCodeField(
+        label = "结果 · ${barcodeFormatLabel(hit.format)}",
+        value = hit.text,
+        onValueChange = {},
+        editable = false,
+        softWrap = true,
+        folding = false,
+        scan = ::scanPlain,
+        modifier = modifier,
+        actions = {
+            DevToolFieldAction(
+                kind = ClipperIconKind.SAVE,
+                tooltip = "保存为文本文件",
+                onClick = {
+                    host.pickFileToSave("decoded.txt")?.let { path ->
+                        host.showStatus(
+                            if (writeTextFile(path, hit.text)) "已保存到 $path"
+                            else "写不进这个位置：$path"
+                        )
+                    }
+                },
+            )
+            Spacer(Modifier.width(4.dp))
+            DevToolFieldAction(
+                kind = ClipperIconKind.COPY,
+                tooltip = "复制",
+                onClick = { host.copyToClipboard(hit.text) },
+            )
+        },
+    )
+}
+
+/** 结果区里的一句居中说明（还没有图 / 没找到码 / 正在认）。 */
+@Composable
+private fun CenteredHint(text: String, modifier: Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Text(
+            text = text,
+            fontSize = 12.sp,
+            color = MaterialTheme.hintColor,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** 解码页那张图从哪来——状态栏左段那句「来自…」。从剪贴板记录带进来的那张交回面板判断。 */
+private fun imageInputSource(origin: DevToolInputOrigin): String = when (origin) {
+    DevToolInputOrigin.Paste -> "来自剪贴板图片"
+    DevToolInputOrigin.Drop -> "来自拖入的图片"
+    DevToolInputOrigin.Open -> "来自文件"
+}
+
+/**
+ * 解码页的状态栏文字：正在认、认到了什么、为什么没认到——**三档各答一个问题**。
+ *
+ * 报「图 1234×567」而不是只报「没找到码」：尺寸是用户自己能动手改的那一项，它顺带回答了「是不是
+ * 图太小了」。
+ */
+private fun decodeStatus(scanning: Boolean, outcome: ScanOutcome?): String? = when {
+    scanning -> "识别中…"
+    outcome is ScanOutcome.Unreadable -> "不是能读的图片"
+    outcome is ScanOutcome.Ready && outcome.hits.isEmpty() ->
+        "没找到码 · 图 ${outcome.bitmap.width}×${outcome.bitmap.height}"
+
+    outcome is ScanOutcome.Ready && outcome.hits.size == 1 ->
+        outcome.hits.first().let { "${barcodeFormatLabel(it.format)} · ${it.text.length} 字符" }
+
+    outcome is ScanOutcome.Ready -> "认出 ${outcome.hits.size} 个码"
+    else -> null
 }

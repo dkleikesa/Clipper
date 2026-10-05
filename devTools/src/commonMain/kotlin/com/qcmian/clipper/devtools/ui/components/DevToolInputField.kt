@@ -43,6 +43,19 @@ enum class DevToolInputOrigin {
 }
 
 /**
+ * 图片没有文件名，卡片与状态栏总得有个称呼——按来路分开叫。
+ *
+ * 三条来路各是一个处境：粘贴进来的本来就在剪贴板上，拖进来的是一个没说名字的载荷，「打开」挑的
+ * 则是磁盘上那张图。都叫「剪贴板图片」会让人以为拖错了地方。Base64 与条码两个工具都从这一个口子
+ * 取名字，同一个来源因此在两处叫同一个词。
+ */
+internal fun imageInputName(origin: DevToolInputOrigin): String = when (origin) {
+    DevToolInputOrigin.Paste -> "剪贴板图片"
+    DevToolInputOrigin.Drop -> "拖入的图片"
+    DevToolInputOrigin.Open -> "图片"
+}
+
+/**
  * 工具输入区——**文本 / 文件 / 图片三种输入的唯一入口**。
  *
  * 在这之前，各工具的输入区是「代码框 + 一层层外挂」拼出来的：一个 `rememberFilePaste` 管粘贴

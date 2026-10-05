@@ -102,7 +102,12 @@ internal enum class BarcodeFormat(
     // 三者的差别在**字符集声明**，不在「收不收中文」：PDF417 遇到非 ASCII 会先发 ECI 26（UTF-8）
     // 再按 UTF-8 字节编码，QR / Aztec 只把 UTF-8 字节塞进去。用 ZXing 解码我们导出的 PNG 实测：
     // PDF417（含 emoji 🎉）与 QR 的中文都能原样解回，Aztec 会被按 ISO-8859-1 解成乱码——字节是
-    // 对的，只是没声明；认 UTF-8 的扫描器（手机基本都认）不受影响，严格按 Latin-1 解的才难看。
+    // 对的，只是没声明；严格按 Latin-1 解的才难看。
+    //
+    // Aztec 这一路**本工具自己已经补上**：解码页认出这种乱码会修回 UTF-8（见 `repairTextEncoding`
+    // ——拿自家编的 Aztec 回头解，踩的正是这个坑）。这里要说的是**别的**扫描器：认 UTF-8 的（手机
+    // 基本都认）照旧没事，只认规范的会读出西欧字母。qrose 那份 Aztec 编码器是 ZXing 编码器的移植，
+    // ZXing 自己也不发 ECI，所以这不是我们这层能调的参数。
     Qr("QR", "qrcode.png", "任意文本；上限 1273–2953 字节（随纠错等级；数字 3100–7100 位、字母 1900–4300 个、汉字 420–980 个）", inputExample = "https://example.com", quietZone = 4),
     // 这里原本还有 Data Matrix（工业与物流标签常用），被去掉了：qrose 的实现对非 ASCII 会走
     // Base256，而那里写的是 `c.code and 0xFF`——每个字符只留**低字节**。于是「中文」编出来的码

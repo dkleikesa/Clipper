@@ -22,6 +22,8 @@ willena-sqlite-jdbc = "3.53.2.0"
 xmlutil = "1.0.2"
 # 密码学哈希（MD5 / SHA-1 / SHA-2）的 KMP 实现：这些原语 stdlib 里没有，自写密码学代码不划算。
 kotlincrypto-hash = "0.8.0"
+# 条码**解码**：QR / Aztec / PDF417 / Data Matrix 与各类一维码的识别器都在它的 core 里。
+zxing = "3.5.3"
 
 [libraries]
 androidx-lifecycle-viewmodelCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
@@ -62,6 +64,9 @@ qrose-matrix = { module = "io.github.alexzhirkevich:qrose-matrix", version.ref =
 # 一维条码：九种码（Code 128 / 39 / 93、EAN-13 / 8、UPC-A / E、ITF、Codabar）的编码器与统一的
 # `BarcodePainter`；同样传递依赖 qrose-core。两个模块由同一次发布产出，版本一起走 `qrose`。
 qrose-oned = { module = "io.github.alexzhirkevich:qrose-oned", version.ref = "qrose" }
+# 条码解码：只要 core——它吃的是**像素**（`RGBLuminanceSource`），图片格式那一层（`BufferedImage`
+# / ImageIO）在 javase 里，我们用不上：解字节、缩放、取像素都在 commonMain 用 Compose 做完了。
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 [plugins]
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }

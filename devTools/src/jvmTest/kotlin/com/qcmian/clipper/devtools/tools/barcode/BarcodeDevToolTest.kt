@@ -3,6 +3,7 @@
 package com.qcmian.clipper.devtools.tools.barcode
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ComposeUiTest
@@ -14,8 +15,12 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.runComposeUiTest
+import com.qcmian.clipper.core.domain.model.ClipImage
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.devtools.api.DevToolHost
+import com.qcmian.clipper.devtools.api.DevToolPasteKey
+import com.qcmian.clipper.devtools.api.LocalDevToolPasteKey
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -168,27 +173,147 @@ class BarcodeDevToolTest {
         waitForIdle()
     }
 
-    private fun ComposeUiTest.render(input: ClipItem?) {
+    // ---------------------------------------------------------------------------------------
+    // 解码页
+
+    /**
+     * 解码页：一张码图粘进来，认出来的内容就落到结果区。
+     *
+     * 走的是**窗口层那条粘贴路径**（`DevToolPasteKey`）——真机上按 `⌘V` 就是它。顺带钉住「卡片接得
+     * 住粘贴」：解码页的输入区被卡片替掉之后没有焦点节点，只有登记给窗口才收得到（见
+     * `DevToolInputField`）。
+     *
+     * 断言看的是工具报给状态栏的那一句，而不是编辑框里的文字：代码框的内容由 CodeMirror 那套
+     * 实现渲染，语义树里读到的未必是正文；而状态栏这一句是工具自己算的「认到了什么」。
+     */
+    @Test
+    fun `解码页认得出粘贴进来的码图`() = runComposeUiTest {
+        val pasteKey = DevToolPasteKey()
+        val host = FakeHost(clipboardImage = qrPng(DECODED_TEXT))
+        render(input = null, host = host, pasteKey = pasteKey)
+
+        onNodeWithText("解码").performClick()
+        waitForIdle()
+        onNodeWithText("把码图拖进来，或粘贴 / 打开一张图片").assertIsDisplayed()
+
+        assertTrue(pasteKey.handle(), "解码页的卡片要接得住这次粘贴")
+        waitUntil(timeoutMillis = 10_000) { host.status?.startsWith("QR · ") == true }
+
+        assertEquals("QR · ${DECODED_TEXT.length} 字符", host.status)
+        onNodeWithText("结果 · QR").assertIsDisplayed()
+    }
+
+    /** 剪贴板里是**图**（截图、从浏览器复制的图片）时直接落在解码页，并当场认出来。 */
+    @Test
+    fun `剪贴板里是图时直接落在解码页`() = runComposeUiTest {
+        val host = FakeHost()
+        render(input = ClipItem(id = "one", legacyImage = ClipImage(qrPng(DECODED_TEXT))), host = host)
+
+        waitUntil(timeoutMillis = 10_000) { host.status?.startsWith("QR · ") == true }
+        onNodeWithText("输入 · 码图").assertIsDisplayed()
+    }
+
+    /**
+     * 在**编码页**粘一张图：这一页没有图可编，但那多半是想解它——工具替用户翻到解码页。
+     *
+     * 与 Base64 工具「在解码页粘一张图就翻到编码页」是同一条做法，只是方向相反；没有这一条，
+     * 用户在编码页按 `⌘V` 会什么都没发生。
+     */
+    @Test
+    fun `在编码页粘图会翻到解码页`() = runComposeUiTest {
+        val pasteKey = DevToolPasteKey()
+        val host = FakeHost(clipboardImage = qrPng(DECODED_TEXT))
+        render(input = null, host = host, pasteKey = pasteKey)
+
+        // 从侧边栏点进来默认落在编码页。
+        onNodeWithText("输入 · 文本").assertIsDisplayed()
+
+        assertTrue(pasteKey.handle(), "编码页的输入框要接得住这次粘贴")
+        waitUntil(timeoutMillis = 10_000) { host.status?.startsWith("QR · ") == true }
+
+        onNodeWithText("输入 · 码图").assertIsDisplayed()
+    }
+
+    /** 从历史里打开一个**图片文件**（截图存成文件、在访达里复制它）：一样落在解码页。 */
+    @Test
+    fun `打开的是图片文件时落在解码页`() = runComposeUiTest {
+        val file = tempFile(suffix = ".png", bytes = qrPng(DECODED_TEXT))
+        val host = FakeHost()
+        render(input = ClipItem(id = "one", files = listOf(file)), host = host)
+
+        waitUntil(timeoutMillis = 10_000) { host.status?.startsWith("QR · ") == true }
+        onNodeWithText("输入 · 码图").assertIsDisplayed()
+    }
+
+    /** 打开的是**文本**文件时仍旧落在编码页——分流别把从前那条路顺手改了。 */
+    @Test
+    fun `打开的是文本文件时仍旧落在编码页`() = runComposeUiTest {
+        val file = tempFile(suffix = ".txt", bytes = "12345".encodeToByteArray())
+        val host = FakeHost()
+        render(input = ClipItem(id = "one", files = listOf(file)), host = host)
+
+        // 灌进去的正文编成了码（等防抖 + 编码），而页面还在编码页。
+        waitUntil(timeoutMillis = 10_000) { host.status?.startsWith("QR · ") == true }
+        onNodeWithText("输入 · 文本").assertIsDisplayed()
+    }
+
+    /** 一张二维码 PNG：认码的图就用工具自己的编码器产出。 */
+    private fun qrPng(text: String): ByteArray {
+        val code = encodeBarcode(BarcodeFormat.Qr, text, QrErrorLevel.Medium)
+        val size = exportSizeOf(code.painter, 320)
+        return renderPng(code.painter, size.width, size.height)
+    }
+
+    /** 落一个临时文件：给「从历史里打开一个文件」那两条用例当输入。 */
+    private fun tempFile(suffix: String, bytes: ByteArray): String =
+        Files.createTempFile("clipper-code", suffix).also {
+            it.toFile().deleteOnExit()
+            Files.write(it, bytes)
+        }.toString()
+
+    private fun ComposeUiTest.render(
+        input: ClipItem?,
+        host: FakeHost = FakeHost(),
+        pasteKey: DevToolPasteKey? = null,
+    ) {
         setContent {
             MaterialTheme {
-                BarcodeDevTool.Content(input = input, host = FakeHost())
+                // 窗口层那条粘贴入口：真机由 `ClipperDevToolsWindow` 提供，面板转交给工具。
+                CompositionLocalProvider(LocalDevToolPasteKey provides pasteKey) {
+                    BarcodeDevTool.Content(input = input, host = host)
+                }
             }
         }
         waitForIdle()
     }
 
     /** 只实现 [BarcodeDevTool.Content] 真会用到的那几道口子；其余接口自带空实现。 */
-    private class FakeHost : DevToolHost {
+    private class FakeHost(
+        /** 剪贴板里放着的那张图（解码页粘贴用它）。 */
+        private val clipboardImage: ByteArray? = null,
+    ) : DevToolHost {
+        /** 工具报给状态栏的最后一句（见上面那条用例对它的用法）。 */
+        var status: String? = null
+
         override fun copyToClipboard(text: String) = Unit
 
         override fun showStatus(message: String) = Unit
 
-        override fun reportStatus(text: String?) = Unit
+        override fun reportStatus(text: String?) {
+            status = text
+        }
+
+        override fun clipboardImage(): ByteArray? = clipboardImage
 
         override fun pickFileToOpen(): String? = null
 
         override fun pickFileToSave(suggestedName: String): String? = null
 
         override fun droppedFilePaths(event: DragAndDropEvent): List<String> = emptyList()
+    }
+
+    private companion object {
+        /** 码图里装的内容；认回来必须一字不差。 */
+        const val DECODED_TEXT = "https://example.com/decoded"
     }
 }
