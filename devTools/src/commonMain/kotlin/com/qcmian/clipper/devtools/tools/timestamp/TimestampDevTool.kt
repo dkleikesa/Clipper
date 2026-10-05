@@ -1,21 +1,14 @@
 package com.qcmian.clipper.devtools.tools.timestamp
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,13 +19,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
+import com.qcmian.clipper.core.ui.code.scanPlain
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.devtools.api.DataTypes
@@ -44,22 +35,18 @@ import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
-import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
-import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
+import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultList
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
-import com.qcmian.clipper.core.ui.code.rememberCodeColors
-import com.qcmian.clipper.core.ui.code.scanPlain
+import com.qcmian.clipper.devtools.ui.components.DevToolSingleLineField
+import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /** 输入区高度：大约四行，够显示一个时间戳或一条日期时间，也给结果区留出地方。 */
 private val InputFieldHeight = 84.dp
-
-/** 单行控件高度：与工具栏上的按钮 / 下拉同高，几行控件并排时基线才齐。 */
-private val FieldHeight = 30.dp
 
 /** 左侧标签列的宽度：最长的一项（「输入时区」）也放得下，各行内容因此左缘对齐。 */
 private val FieldLabelWidth = 60.dp
@@ -346,7 +333,7 @@ internal object TimestampDevTool : DevTool {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FieldLabel("输入格式")
                 Spacer(Modifier.width(FieldLabelGap))
-                SingleLineField(
+                DevToolSingleLineField(
                     value = inputPattern,
                     onValueChange = { inputPattern = it },
                     placeholder = "按此格式解析输入，如 yyyy-MM-dd HH:mm:ss",
@@ -365,7 +352,7 @@ internal object TimestampDevTool : DevTool {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 FieldLabel("输出格式")
                 Spacer(Modifier.width(FieldLabelGap))
-                SingleLineField(
+                DevToolSingleLineField(
                     value = outputPattern,
                     onValueChange = { outputPattern = it },
                     placeholder = "按此格式输出结果，如 yyyy-MM-dd HH:mm:ss",
@@ -466,63 +453,6 @@ private fun PresetMenu(selected: String, onSelect: (String) -> Unit) {
 @Composable
 private fun SyntaxButton(opened: Boolean, onClick: () -> Unit) {
     DevToolButton(title = if (opened) "收起" else "速查", onClick = onClick)
-}
-
-/**
- * 单行文本输入框：高度与按钮一致、有实底、聚焦时描主色边，文字垂直居中。
- *
- * 与 `DevToolCodeField`（代码编辑框）刻意不同：那个要装多行、要行号与滚动条，天然是「一块区域」；
- * 这里的模板只有一行，用轻量输入框才贴切，文字也居得中。
- *
- * 底色与边框是刻意选的：**实底 + 聚焦高亮**才读得出「这里能敲字」。若跟「预设」那种下拉一样用
- * 透明底 + 一股描边，两者就长得一模一样，让人以为它也是只读的。
- */
-@Composable
-private fun SingleLineField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(6.dp)
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    // 底色与输入框（`DevToolCodeField`）取同一块：都是「能敲字的框」，一个样才读得出来。
-    val codeColors = rememberCodeColors()
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        singleLine = true,
-        textStyle = TextStyle(fontSize = 13.sp, color = colors.onSurface),
-        cursorBrush = SolidColor(colors.primary),
-        interactionSource = interaction,
-        modifier = modifier
-            .height(FieldHeight)
-            .clip(shape)
-            .background(codeColors.editorBackground)
-            .border(
-                width = 1.dp,
-                color = if (focused) colors.primary else colors.outline.copy(alpha = 0.6f),
-                shape = shape,
-            )
-            .padding(horizontal = 12.dp),
-        decorationBox = { innerTextField ->
-            // 撑满整块高度再居中：`BasicTextField` 自己只占文字那一行，不这么做文字会贴在顶上。
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
-                if (value.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.hintColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                innerTextField()
-            }
-        },
-    )
 }
 
 private fun hintFor(auto: Boolean): String = if (auto) {

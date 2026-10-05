@@ -5,18 +5,21 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,14 +32,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.qcmian.clipper.core.ui.code.rememberCodeColors
 import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
+import com.qcmian.clipper.core.ui.theme.hintColor
 
 /**
  * 工具界面共用的一小组控件。
@@ -410,4 +418,63 @@ fun DevToolToggle(
             maxLines = 1,
         )
     }
+}
+
+/**
+ * 单行文本输入框：高度与工具栏控件一致、有实底、聚焦时描主色边，文字垂直居中。
+ *
+ * 与 `DevToolCodeField`（代码编辑框）刻意不同：那个要装多行、要行号与滚动条，天然是「一块区域」；
+ * 这里的值只有一行（时间戳的格式模板、Hash 待对拍的摘要），用轻量输入框才贴切，文字也居得中。
+ *
+ * 底色与边框是刻意选的：**实底 + 聚焦高亮**才读得出「这里能敲字」。若跟 [DevToolMenuButton] 那种
+ * 下拉一样用透明底 + 一股描边，两者就长得一模一样，让人以为它也是只读的。
+ *
+ * @param placeholder 空内容时的占位提示。
+ */
+@Composable
+internal fun DevToolSingleLineField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(6.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    // 底色与输入框（`DevToolCodeField`）取同一块：都是「能敲字的框」，一个样才读得出来。
+    val codeColors = rememberCodeColors()
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = TextStyle(fontSize = 13.sp, color = colors.onSurface),
+        cursorBrush = SolidColor(colors.primary),
+        interactionSource = interaction,
+        modifier = modifier
+            .height(DevToolControlHeight)
+            .clip(shape)
+            .background(codeColors.editorBackground)
+            .border(
+                width = 1.dp,
+                color = if (focused) colors.primary else colors.outline.copy(alpha = 0.6f),
+                shape = shape,
+            )
+            .padding(horizontal = 12.dp),
+        decorationBox = { innerTextField ->
+            // 撑满整块高度再居中：`BasicTextField` 自己只占文字那一行，不这么做文字会贴在顶上。
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+                if (value.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.hintColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                innerTextField()
+            }
+        },
+    )
 }
