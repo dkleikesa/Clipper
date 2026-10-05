@@ -9,6 +9,7 @@ import com.qcmian.clipper.devtools.tools.hash.HashDevTool
 import com.qcmian.clipper.devtools.tools.json.JsonDevTool
 import com.qcmian.clipper.devtools.tools.math.MathDevTool
 import com.qcmian.clipper.devtools.tools.timestamp.TimestampDevTool
+import com.qcmian.clipper.devtools.tools.url.UrlDevTool
 import com.qcmian.clipper.devtools.tools.xml.XmlDevTool
 
 /**
@@ -64,6 +65,7 @@ class DevToolsRegistry(
                 MathDevTool,
                 TimestampDevTool,
                 Base64DevTool,
+                UrlDevTool,
                 HashDevTool,
             ),
         )
