@@ -63,6 +63,16 @@ interface DevToolHost {
     /** 把结果写回系统剪贴板（面板会顺带提示一次）。 */
     fun copyToClipboard(text: String)
 
+    /**
+     * 把一张 **PNG 图片**写回系统剪贴板（面板会顺带提示一次）。
+     *
+     * 与 [copyToClipboard] 分开而不是让它收字节：文本与图片在剪贴板上是两种东西，用同一个口子
+     * 就得在目标端猜「这次粘出来的该是字还是图」。生成的二维码走这一路。
+     *
+     * 默认空实现：只提供文本复制的宿主（例如测试替身）不必为此改动。
+     */
+    fun copyImageToClipboard(png: ByteArray) {}
+
     /** 在面板底部状态栏闪一条临时提示（会自动消失，取代原先浮在内容上的气泡）。 */
     fun showStatus(message: String)
 

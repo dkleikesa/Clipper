@@ -8,6 +8,7 @@ import com.qcmian.clipper.devtools.tools.base64.Base64DevTool
 import com.qcmian.clipper.devtools.tools.hash.HashDevTool
 import com.qcmian.clipper.devtools.tools.json.JsonDevTool
 import com.qcmian.clipper.devtools.tools.math.MathDevTool
+import com.qcmian.clipper.devtools.tools.qrcode.QrCodeDevTool
 import com.qcmian.clipper.devtools.tools.timestamp.TimestampDevTool
 import com.qcmian.clipper.devtools.tools.url.UrlDevTool
 import com.qcmian.clipper.devtools.tools.xml.XmlDevTool
@@ -67,6 +68,7 @@ class DevToolsRegistry(
                 Base64DevTool,
                 UrlDevTool,
                 HashDevTool,
+                QrCodeDevTool,
             ),
         )
     }

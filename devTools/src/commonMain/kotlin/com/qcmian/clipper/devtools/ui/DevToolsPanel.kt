@@ -109,6 +109,8 @@ fun DevToolsPanel(
     item: ClipItem?,
     onClose: () -> Unit,
     onCopyToClipboard: (String) -> Unit,
+    /** 把一张 PNG 图片写回系统剪贴板；见 [DevToolHost.copyImageToClipboard]。 */
+    onCopyImageToClipboard: (ByteArray) -> Unit = {},
     sidebar: DevToolsSidebar = DevToolsSidebar.EXPANDED,
     onSidebarChange: (DevToolsSidebar) -> Unit = {},
     onPickFileToOpen: () -> String? = { null },
@@ -221,6 +223,7 @@ fun DevToolsPanel(
     // 「这条剪贴板记录是什么」更贴近眼下编辑区里的内容（见 `sourceLabel`）。
     val host = remember(
         onCopyToClipboard,
+        onCopyImageToClipboard,
         onPickFileToOpen,
         onPickFileToSave,
         onDroppedFilePaths,
@@ -232,6 +235,12 @@ fun DevToolsPanel(
             override fun copyToClipboard(text: String) {
                 if (text.isEmpty()) return
                 onCopyToClipboard(text)
+                status.value = "已复制到剪贴板"
+            }
+
+            override fun copyImageToClipboard(png: ByteArray) {
+                if (png.isEmpty()) return
+                onCopyImageToClipboard(png)
                 status.value = "已复制到剪贴板"
             }
 

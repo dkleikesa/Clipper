@@ -50,6 +50,9 @@ kotlin {
             implementation(libs.kotlincrypto.hash.sha1)
             implementation(libs.kotlincrypto.hash.sha2)
             implementation(libs.kotlincrypto.hash.sha3)
+            // 二维码工具的编码与绘制（`QrCodePainter`）以及导出 PNG（`Painter.toByteArray`）。
+            // KMP 实现，直接在 commonMain 用——二维码工具因此没有一行平台代码。
+            implementation(libs.qrose)
         }
 
         // 代码显示层里能脱离组合环境的部分（JSON 扫描器、显示变换与偏移映射）直接单测：

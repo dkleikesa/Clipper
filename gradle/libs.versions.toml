@@ -12,6 +12,8 @@ ksp = "2.3.12"
 # 覆盖率：只支持 JVM target（JS / native 不采集），KMP 项目按 `jvm` 变体出报告。
 kover = "0.9.11"
 material3 = "1.11.0-alpha07"
+# 二维码生成与渲染：纯 Kotlin + Compose Multiplatform（除 compose.ui 外无其它依赖）。
+qrose = "1.3.1"
 room3 = "3.0.2"
 sqlite = "2.7.0"
 # 带加密能力（SQLite3MultipleCiphers，兼容 SQLCipher 4 格式）的 SQLite JDBC 驱动。
@@ -52,6 +54,9 @@ kotlincrypto-hash-md = { module = "org.kotlincrypto.hash:md", version.ref = "kot
 kotlincrypto-hash-sha1 = { module = "org.kotlincrypto.hash:sha1", version.ref = "kotlincrypto-hash" }
 kotlincrypto-hash-sha2 = { module = "org.kotlincrypto.hash:sha2", version.ref = "kotlincrypto-hash" }
 kotlincrypto-hash-sha3 = { module = "org.kotlincrypto.hash:sha3", version.ref = "kotlincrypto-hash" }
+# 二维码：qrose 同时给出编码器与 Compose 矢量绘制，外加把 Painter 导成 PNG 的工具。
+# 它是 KMP 实现，二维码工具因此整个留在 commonMain，不必为编码 / 绘图开 expect/actual。
+qrose = { module = "io.github.alexzhirkevich:qrose", version.ref = "qrose" }
 
 [plugins]
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
