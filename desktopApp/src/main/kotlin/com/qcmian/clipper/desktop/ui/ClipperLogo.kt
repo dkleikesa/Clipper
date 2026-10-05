@@ -1,16 +1,26 @@
 package com.qcmian.clipper.desktop.ui
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathBuilder
 import androidx.compose.ui.graphics.vector.PathNode
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.vector.group
 import androidx.compose.ui.graphics.vector.path
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import java.io.ByteArrayOutputStream
+import javax.imageio.ImageIO
 
 /**
  * Clipper 的标志：一碗面（碗 + 筷子）。
@@ -118,6 +128,44 @@ fun clipperTrayIcon(color: Color): ImageVector = ImageVector.Builder(
     viewportWidth = MARK_CANVAS,
     viewportHeight = MARK_CANVAS,
 ).apply { addClipperMark(color) }.build()
+
+/**
+ * 程序坞图标的像素边长。
+ *
+ * 512 = 系统最大显示尺寸（128 点）的 2 倍：Retina 上放到最大也还是清的，与 `.icns` 里
+ * 「512×512@2x」那一档等价。再大只是白占内存——Dock 从来不画那么大。
+ */
+private const val DockIconPixels = 512
+
+/**
+ * 把渲染好的 [ClipperAppIcon]（`rememberVectorPainter(ClipperAppIcon)` 那一份）编成 PNG 字节，
+ * 交给 `MacWorkspace.setDockIconVisible` 当程序坞图标。
+ *
+ * **为什么要自己栅格化**：不是从 `.app` 启动时（`gradlew run`、IDE 里跑）进程没有 bundle 图标，
+ * 系统给的是一张「可执行文件」的通用图——一个 `>_` 的终端样子，与「开发者工具是个正经编辑面」
+ * 完全不搭。从 `.app` 启动时这一步只是把系统本来就会读的那个值再写一遍，两条路因此一致。
+ *
+ * 先画进 [ImageBitmap] 再转 AWT 位图，而不是直接用 `Painter.toAwtImage`：那个给的是**惰性**
+ * `java.awt.Image`（`ImageIO` 写不了），`ImageBitmap.toAwtImage()` 才是一张带 alpha 的真位图，
+ * 圆角之外的透明因此保得住。
+ */
+fun Painter.toDockIconPng(
+    density: Density,
+    layoutDirection: LayoutDirection,
+    pixels: Int = DockIconPixels,
+): ByteArray? = runCatching {
+    val edge = pixels.toFloat()
+    val bitmap = ImageBitmap(pixels, pixels)
+    CanvasDrawScope().draw(density, layoutDirection, Canvas(bitmap), Size(edge, edge)) {
+        // `draw` 是 `Painter` 上以 `DrawScope` 为扩展接收者的成员函数，两个接收者都得就位才能
+        // 调，因此用 `with`（与 `ClipperTray` 里那份图标画法同一条路）。
+        with(this@toDockIconPng) { draw(Size(edge, edge)) }
+    }
+    ByteArrayOutputStream().use { out ->
+        ImageIO.write(bitmap.toAwtImage(), "png", out)
+        out.toByteArray()
+    }
+}.getOrNull()
 
 private fun appIconBuilder(name: String) = ImageVector.Builder(
     name = name,

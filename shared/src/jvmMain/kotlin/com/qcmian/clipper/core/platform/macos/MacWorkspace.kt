@@ -82,7 +82,8 @@ object MacWorkspace {
     }
 
     /**
-     * `NSApplication.setActivationPolicy:`：控制应用要不要出现在 Dock（以及 ⌘Tab）里。
+     * `NSApplication.setActivationPolicy:` + `setApplicationIconImage:`：控制应用要不要出现在
+     * Dock（以及 ⌘Tab）里，以及那儿的图标长什么样。
      *
      * 本应用默认是菜单栏应用（`LSUIElement` → `NSApplicationActivationPolicyAccessory`），
      * 平时不占 Dock。开发者工具窗口出现时临时切到 `Regular`——它是一个正经的编辑面，在 Dock
@@ -90,12 +91,19 @@ object MacWorkspace {
      * `Accessory`（否则图标会一直挂着）。
      *
      * **必须在 AppKit 主线程上调用**，而 AWT 的 EDT 不是 AppKit 主线程（见 [MacStatusItem]），
-     * 因此经 `performSelectorOnMainThread:` 派发：目标方法读 [pendingDockVisible] 再落地。
-     * 不等待（`waitUntilDone` 为假）——调用方在窗口的显隐副作用里，阻塞没有意义。
+     * 因此经 `performSelectorOnMainThread:` 派发：目标方法读 [pendingDockVisible] 与
+     * [pendingDockIcon] 再落地。不等待（`waitUntilDone` 为假）——调用方在窗口的显隐副作用里，
+     * 阻塞没有意义。
+     *
+     * 图标**得自己给**（[iconPng]）：不是从 `.app` 启动时（`gradlew run`、IDE 里跑）进程没有
+     * bundle 图标，系统给的是一张「可执行文件」的通用图（一个 `>_` 的终端样子），Dock 里就是
+     * 那个样子；从 `.app` 启动时这一步只是把系统本来会读的那个值再写一遍，两条路因此一致。
+     * 传 `null` 表示「按系统给的来」（只是别处调用时的兜底，本应用不走这一路）。
      */
-    fun setDockIconVisible(visible: Boolean) {
+    fun setDockIconVisible(visible: Boolean, iconPng: ByteArray? = null) {
         if (!loaded) return
         pendingDockVisible = visible
+        pendingDockIcon = iconPng
         val target = dockTargetObject() ?: return
         MacNative.send(
             target,
@@ -118,12 +126,24 @@ object MacWorkspace {
     /** `NSApplicationActivationPolicyAccessory`：只在菜单栏里存在，不占 Dock。 */
     private const val POLICY_ACCESSORY = 1L
 
+    /**
+     * Dock 图标报给系统的点数。
+     *
+     * 渲染的是 512 像素（见 `toDockIconPng`），这里按 256 点报：2 倍图，Dock 放到最大
+     * （128 点）也还是清的。
+     */
+    private const val DOCK_ICON_POINTS = 256.0
+
     /** 最近一次请求的目标状态；主线程上的目标方法读它。 */
     @Volatile
     private var pendingDockVisible: Boolean? = null
 
+    /** 最近一次请求要用的 Dock 图标（PNG 字节）；主线程上的目标方法读它。 */
+    @Volatile
+    private var pendingDockIcon: ByteArray? = null
+
     /**
-     * 主线程回调：把待定状态落成真正的 `setActivationPolicy:`。
+     * 主线程回调：把待定状态落成真正的 `setActivationPolicy:`（以及那一份图标）。
      *
      * 函数指针会被写进运行时建的类，必须保活（同 [MacStatusItem] 的 `applyCallback`）。
      */
@@ -136,11 +156,30 @@ object MacWorkspace {
                 "setActivationPolicy:",
                 if (visible) POLICY_REGULAR else POLICY_ACCESSORY,
             )
+            // 图标只在「露出 Dock」时给：收起时应用不在 Dock 里，写它没有意义。
+            if (!visible) return
+            val image = pendingDockIcon?.let(::dockImage) ?: return
+            MacNative.send(application, "setApplicationIconImage:", image)
         }
     }
 
     private interface DockApplyCallback : Callback {
         fun apply(self: Pointer?, command: Pointer?, argument: Pointer?)
+    }
+
+    /**
+     * PNG 字节 → 尺寸合适的 `NSImage`（与 `MacStatusItem.makeImage` 同一套做法：`NSData` →
+     * `initWithData:`）。
+     *
+     * 尺寸必须显式改：`NSImage` 把像素数当点数用（512 像素 = 512 点），而 Dock 最大只画到 128
+     * 点。调用方渲染 512 像素，这里按 256 点报——2 倍图，放到多大都还是清的。
+     */
+    private fun dockImage(png: ByteArray): Pointer? {
+        val data = MacNative.data(png) ?: return null
+        val imageClass = MacNative.clazz("NSImage") ?: return null
+        val image = MacNative.send(MacNative.send(imageClass, "alloc"), "initWithData:", data) ?: return null
+        MacNative.setImageSize(image, DOCK_ICON_POINTS, DOCK_ICON_POINTS)
+        return image
     }
 
     private var dockTarget: Pointer? = null

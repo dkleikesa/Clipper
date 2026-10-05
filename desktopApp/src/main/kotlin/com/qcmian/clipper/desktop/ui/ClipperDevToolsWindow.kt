@@ -16,6 +16,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.ApplicationScope
@@ -99,12 +101,22 @@ fun ApplicationScope.ClipperDevToolsWindow(
     // ——只有它知道剪贴板里的文件 / 图片该怎么安置（见 `DevToolPasteKey`）。
     val pasteKey = remember { DevToolPasteKey() }
 
+    // 应用图标：既喂给 `Window(icon = ...)`，也自己栅格化成 PNG 给 Dock 用（见下面那个副作用）。
+    // 后者是必需的——不是从 `.app` 启动时进程没有 bundle 图标，系统会在 Dock 里给一张
+    // 「可执行文件」的通用图（一个 `>_` 的终端样子）。
+    val appIcon = rememberVectorPainter(ClipperAppIcon)
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val dockIconPng = remember(appIcon, density, layoutDirection) {
+        appIcon.toDockIconPng(density, layoutDirection)
+    }
+
     Window(
         // 关闭请求不自己去藏窗口：把意图发回状态持有者，由状态决定窗口的存亡。
         onCloseRequest = { viewModel.onAction(ClipboardUiAction.CloseDevTools) },
         visible = visible,
         title = DEVTOOLS_WINDOW_TITLE,
-        icon = rememberVectorPainter(ClipperAppIcon),
+        icon = appIcon,
         state = windowState,
         // 自绘标题栏：系统标题栏的底色由 AppKit 决定，既不跟主题走也和本应用配色对不上。
         // 透明是必需的：圆角之外要能透出桌面，否则四个角会被窗口底色填成方块。
@@ -216,7 +228,10 @@ fun ApplicationScope.ClipperDevToolsWindow(
             // Dock 图标跟着本窗口的存亡走：开着时把应用临时标成常规应用（Dock 里出现图标），
             // 收起后再切回菜单栏应用（否则它会一直占着 Dock）。设置窗口与面板**不**做这件事，
             // 它们保持原有的「只在菜单栏里存在」——用户要的是「开发者工具像个正经编辑面」。
-            MacWorkspace.setDockIconVisible(visible)
+            //
+            // 图标自带一份：不是从 `.app` 启动时（`gradlew run`、IDE）系统给的是「可执行文件」
+            // 那张通用图，Dock 里就成了一个 `>_` 的终端样子（见 `toDockIconPng`）。
+            MacWorkspace.setDockIconVisible(visible, dockIconPng)
 
             // 定位（多屏）：窗口必须落在**鼠标所在的那块屏幕**上（索引 0 = 活动屏幕，见
             // `screenBounds`），否则在副屏上按 `⇧⌘D`，它会跑到主屏去。
