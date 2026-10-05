@@ -2,11 +2,8 @@ package com.qcmian.clipper.devtools.tools.timestamp
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,10 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,17 +27,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
-import com.qcmian.clipper.core.ui.components.VerticalScrollbar
-import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
-import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.devtools.api.DataTypes
@@ -57,7 +47,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
-import com.qcmian.clipper.devtools.ui.components.DevToolScrollbarGap
+import com.qcmian.clipper.devtools.ui.components.DevToolResultList
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.core.ui.code.rememberCodeColors
 import com.qcmian.clipper.core.ui.code.scanPlain
@@ -76,9 +66,6 @@ private val FieldLabelWidth = 60.dp
 
 /** 标签与内容之间的间隔。 */
 private val FieldLabelGap = 8.dp
-
-/** 结果里标签列的宽度：最长的一条（「毫秒级时间戳」六个字）也放得下。 */
-private val LabelWidth = 92.dp
 
 /**
  * 速查卡片的宽度：三列（含义 130 + 写法 78 + 示例，见 `TimestampSyntaxPanel`）加上左右内边距与
@@ -421,7 +408,14 @@ internal object TimestampDevTool : DevTool {
                             color = MaterialTheme.colorScheme.error,
                         )
 
-                        else -> ResultList(fields, host, Modifier.fillMaxSize())
+                        else -> DevToolResultList(
+                            items = fields,
+                            label = { it.label },
+                            value = { it.value },
+                            primary = { it.primary },
+                            onCopy = { host.copyToClipboard(it.value) },
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
                 }
 
@@ -535,79 +529,6 @@ private fun hintFor(auto: Boolean): String = if (auto) {
     "输入时间戳或日期时间后，这里会列出它的各种写法"
 } else {
     "输入按「输入格式」解析，结果按「输出格式」输出"
-}
-
-/** 结果列表：逐行「标签 + 值」，点一行复制那一行的值。 */
-@Composable
-private fun ResultList(
-    fields: List<TimestampField>,
-    host: DevToolHost,
-    modifier: Modifier = Modifier,
-) {
-    val scroll = rememberScrollState()
-    Box(modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scroll)
-                // 让出滚动条的位置，免得最后一行被滑块压住。
-                .padding(end = VerticalScrollbarWidth + DevToolScrollbarGap),
-        ) {
-            fields.forEach { field ->
-                ResultRow(field, onCopy = { host.copyToClipboard(field.value) })
-            }
-        }
-        VerticalScrollbar(
-            scrollState = scroll,
-            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
-        )
-    }
-}
-
-/**
- * 结果里的一行。
- *
- * 整行可点即复制：值有长有短，让人精确拖选一段数字很容易选歪，点整行则没有落点要求。
- * 复制图标只在悬停时出现——平时不占视觉重量，「这一行能点」靠底色变化表达。
- */
-@Composable
-private fun ResultRow(field: TimestampField, onCopy: () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    val shape = RoundedCornerShape(4.dp)
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(if (hovered) colors.onSurface.copy(alpha = 0.06f) else Color.Transparent)
-            .hoverable(interaction)
-            .clickable(interactionSource = interaction, indication = null) { onCopy() }
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = field.label,
-            fontSize = 12.sp,
-            color = MaterialTheme.hintColor,
-            modifier = Modifier.width(LabelWidth),
-        )
-        Text(
-            text = field.value,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 13.sp,
-            // 两个时间戳是这次转换真正要拿走的数，用主色把它们从日期、星期里挑出来。
-            color = if (field.primary) colors.primary else colors.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(8.dp))
-        if (hovered) {
-            ClipperIcon(ClipperIconKind.COPY, size = 14.dp, tint = colors.onSurfaceVariant)
-        }
-    }
 }
 
 /** 空输入时的占位说明。 */
