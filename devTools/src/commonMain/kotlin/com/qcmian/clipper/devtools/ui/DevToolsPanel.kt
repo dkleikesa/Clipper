@@ -409,7 +409,8 @@ private fun ToolSidebar(
             groups.forEach { (group, tools) ->
                 Text(
                     text = group.label,
-                    fontSize = 10.sp,
+                    // 11sp：与应用里「次要文字」同一档（预览面板的字段名、右键菜单的快捷键都是 11）。
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.hintColor,
                     modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 3.dp),
@@ -462,17 +463,22 @@ private fun ToolSidebarItem(
                 )
                 .hoverable(interaction)
                 .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-                .padding(horizontal = 8.dp, vertical = 7.dp),
+                // 竖向 8dp 跟着变大的字号一起长：13sp 的字挤在 7dp 里显得局促。
+                .padding(horizontal = 8.dp, vertical = 8.dp),
         ) {
             ClipperIcon(
                 kind = metadata.icon,
-                size = 14.dp,
+                // 16dp：与图标栏（收起后的形态）取齐，两边看着是同一套图标；工具图标里有指纹这种
+                // 细节多的图形，14dp 下有些笔画会糊掉。
+                size = 16.dp,
                 tint = if (selected) colors.primary else colors.onSurfaceVariant,
             )
-            Spacer(Modifier.width(9.dp))
+            Spacer(Modifier.width(10.dp))
             Text(
                 text = metadata.name,
-                fontSize = 12.sp,
+                // 13sp：与应用正文同一档（历史列表、页脚行、搜索框都是 13）。工具名是这一列里
+                // 唯一要读的内容，不该比别处小一号。
+                fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = if (selected) colors.primary else colors.onSurface,
