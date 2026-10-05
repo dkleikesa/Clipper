@@ -1,4 +1,4 @@
-package com.qcmian.clipper.devtools.tools.qrcode
+package com.qcmian.clipper.devtools.tools.barcode
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -26,7 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -44,19 +44,12 @@ import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.api.writeBytesFile
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
+import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
+import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
-import io.github.alexzhirkevich.qrose.ImageFormat
-import io.github.alexzhirkevich.qrose.QrCodePainter
-import io.github.alexzhirkevich.qrose.options.QrBackground
-import io.github.alexzhirkevich.qrose.options.QrBrush
-import io.github.alexzhirkevich.qrose.options.QrColors
-import io.github.alexzhirkevich.qrose.options.QrErrorCorrectionLevel
-import io.github.alexzhirkevich.qrose.options.QrOptions
-import io.github.alexzhirkevich.qrose.options.solid
-import io.github.alexzhirkevich.qrose.toByteArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,74 +61,57 @@ private const val EvaluateDebounceMillis = 150L
 /** 输入区高度：与 Base64 工具一致，多行文本一屏能看个大概。 */
 private val InputFieldHeight = 120.dp
 
-/** 导出 PNG 的边长。1024 够清晰，文件也不至于过大。 */
-private const val ExportSize = 1024
+/** 导出 PNG 的**长边**像素数；短边按码的形状算（见 `exportSizeOf`）。 */
+private const val ExportLongSide = 1024
 
 /**
- * 码元之外还要留出的静区比例。
+ * 一次生成的结果：编得出就是 painter，编不出就是两句交代。
  *
- * 二维码规范要求四周各留约 4 个码元的空白，不留扫描器可能认不出。这里用 `scale` 把码缩进
- * 画布中央（背景补白），而不是在外面加 padding——**导出的 PNG 也要带着这段白边**，而导出走的是
- * 同一个 painter，只有缩进画布内部才一起带走。
- */
-private const val QuietZoneScale = 0.8f
-
-/** 导出时的建议文件名。 */
-private const val ExportFileName = "qrcode.png"
-
-/**
- * 可选的四档纠错等级。
+ * 失败刻意分成**两行**而不是拼成一句：第一行是这个码制的**输入要求**（中文、稳定、照着改就行），
+ * 第二行是编码器抛出的**原始报错**（英文、具体、常带「实际给了多少」这类细节）。两者各答一个
+ * 问题——「该给什么」与「这次为什么不行」；混在一行里只会变成一句中英夹杂、读不完的话。
  *
- * 不暴露 qrose 的 `Auto`：它只在有 logo 时才升档，没 logo 时等价于 [Low]，摆出来只会让人以为
- * 「自动」比「低」强。四档直接对应规范里的 L / M / Q / H。
+ * @param requirement 该码制的输入要求，来自 [BarcodeFormat.inputHint]。
+ * @param detail 编码器的原始报错；拿不到时为 `null`（那时只显示要求那一行）。
  */
-private enum class QrLevel(
-    val title: String,
-    val hint: String,
-    val level: QrErrorCorrectionLevel,
-) {
-    Low("低", "约 7% 面积可损坏，容量最大", QrErrorCorrectionLevel.Low),
-    Medium("中", "约 15% 面积可损坏（默认）", QrErrorCorrectionLevel.Medium),
-    MediumHigh("较高", "约 25% 面积可损坏", QrErrorCorrectionLevel.MediumHigh),
-    High("高", "约 30% 面积可损坏，容量最小", QrErrorCorrectionLevel.High),
-}
+private sealed interface CodeOutcome {
+    class Ready(val format: BarcodeFormat, val code: EncodedCode) : CodeOutcome
 
-/** 一次生成的结果：画得出就是 Painter，画不出（文本超容量等）就是一句交代。 */
-private sealed interface QrOutcome {
-    class Ready(val painter: QrCodePainter) : QrOutcome
-    class Failed(val message: String) : QrOutcome
+    class Failed(val requirement: String, val detail: String?) : CodeOutcome
 }
 
 /**
- * 二维码生成：把一段文本编成可扫描的二维码，可选纠错等级，支持导出 PNG。
+ * 条码生成：把一段文本编成二维码或一维码——三种二维码制（QR / Aztec / PDF417）与九种一维码制
+ * （Code 128 / 39 / 93、EAN-13 / 8、UPC-A / E、ITF、Codabar），支持导出 PNG 与复制到剪贴板。
  *
  * 与数学计算器同样**不吃某一种数据类型**（[acceptedDataTypes] 留空）：任何文本都可能是要编码的
- * 内容，声明 `text` 只会让打开任意一段文字都默认跳到二维码工具——那不是我们想要的，所以它只在
+ * 内容，声明 `text` 只会让打开任意一段文字都默认跳到本工具——那不是我们想要的，所以它只在
  * 侧边栏手动进入（进去后剪贴板内容照旧会被灌进输入框）。
  *
- * 编码与绘制都交给 qrose（见 `libs.versions.toml` 里的 `qrose`）：本工具只负责交互与排版。
- * 编码在后台线程做——一段长文本的编码要几十毫秒，不该压在组合线程上。
+ * 编码与绘制都交给 qrose（见 `BarcodeFormat`）；这里只管交互与排版。编码在后台线程做——一段长
+ * 文本的编码要几十毫秒，不该压在组合线程上，编不出来时也在那里接住异常。
  */
-internal object QrCodeDevTool : DevTool {
+internal object BarcodeDevTool : DevTool {
 
     override val metadata: DevToolMetadata = DevToolMetadata(
-        id = "qrcode",
-        name = "二维码",
-        description = "把文本编成可扫描的二维码，可选纠错等级，支持保存为 PNG。",
+        id = "barcode",
+        name = "条码生成",
+        description = "把文本编成二维码或一维码：QR、Aztec、PDF417 与 Code 128、EAN-13 等，可保存为 PNG。",
         group = DevToolGroup.ENCODER,
         icon = ClipperIconKind.QR_CODE,
     )
 
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
-        var level by remember { mutableStateOf(QrLevel.Medium) }
+        var format by remember { mutableStateOf(BarcodeFormat.Qr) }
+        var level by remember { mutableStateOf(QrErrorLevel.Medium) }
         var text by remember { mutableStateOf("") }
         // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
         var typed by remember { mutableStateOf(false) }
         // 防抖之后的正文：它才是拿去编码的那一份。编码放在后台，[outcomeSource] 记下结果对应的是
         // 哪一份正文——正文一变，旧结果虽然还画着，但已经不对应当前输入了（动作据此禁用）。
         var debounced by remember { mutableStateOf("") }
-        var outcome by remember { mutableStateOf<QrOutcome?>(null) }
+        var outcome by remember { mutableStateOf<CodeOutcome?>(null) }
         var outcomeSource by remember { mutableStateOf<String?>(null) }
         val scope = rememberCoroutineScope()
 
@@ -161,9 +137,9 @@ internal object QrCodeDevTool : DevTool {
             debounced = text
         }
 
-        // 生成：正文或等级一变就重来一次。整段编码放到后台线程，编码器抛错（文本超出容量）也接住，
-        // 变成结果区里的一句交代，而不是让窗口崩掉。
-        LaunchedEffect(debounced, level) {
+        // 生成：正文或码制 / 等级一变就重来一次。整段编码放到后台线程，编码器抛错（长度不对、
+        // 字符集不合、内容超容量）也接住，变成结果区里的一句交代，而不是让窗口崩掉。
+        LaunchedEffect(debounced, format, level) {
             if (debounced.isBlank()) {
                 outcome = null
                 outcomeSource = null
@@ -171,24 +147,35 @@ internal object QrCodeDevTool : DevTool {
             }
             val target = debounced
             val result = withContext(Dispatchers.Default) {
-                runCatching { QrCodePainter(target, qrOptions(level)) }
+                runCatching { encodeBarcode(format, target, level) }
                     .fold(
-                        onSuccess = { QrOutcome.Ready(it) },
-                        onFailure = { QrOutcome.Failed(qrFailureMessage(it)) },
+                        onSuccess = { CodeOutcome.Ready(format, it) },
+                        onFailure = { error ->
+                            CodeOutcome.Failed(
+                                requirement = format.inputHint,
+                                detail = error.message?.takeIf { it.isNotBlank() }
+                                    ?: error::class.simpleName.orEmpty(),
+                            )
+                        },
                     )
             }
             outcome = result
             outcomeSource = target
         }
 
-        // 字符数与等级报到窗口底部的状态栏，不占内容区那一行（与其它工具同一分工）。
-        LaunchedEffect(outcome, outcomeSource, text, level) {
+        // 码制与尺寸报到窗口底部的状态栏，不占内容区那一行（与其它工具同一分工）。
+        LaunchedEffect(outcome, outcomeSource, text) {
+            // 取成局部值再判断：`outcome` 是 `mutableStateOf` 的委托属性，直接对它做类型判断拿不到
+            // 智能转换（编译器不保证两次读取之间它没变）。
+            val current = outcome
             host.reportStatus(
                 when {
                     text.isBlank() -> null
                     outcomeSource != text -> "生成中…"
-                    outcome is QrOutcome.Failed -> "无法生成 · ${text.length} 字符"
-                    outcome is QrOutcome.Ready -> "纠错 ${level.title} · ${text.length} 字符"
+                    current is CodeOutcome.Failed -> "无法生成 · ${text.length} 字符"
+                    current is CodeOutcome.Ready ->
+                        "${current.format.title} · ${current.code.sizeLabel} · ${text.length} 字符"
+
                     else -> null
                 }
             )
@@ -197,33 +184,53 @@ internal object QrCodeDevTool : DevTool {
         // 眼前这份结果还对得上当前输入吗。它决定「保存 / 复制」能不能点——不等防抖回来就动手，
         // 存下的（或拷走的）是上一份内容，与 JSON / Base64 工具是同一条口径。
         val fresh = text.isNotBlank() && outcomeSource == text
-        val canAct = fresh && outcome is QrOutcome.Ready
+        val canAct = fresh && outcome is CodeOutcome.Ready
 
         // 导出：把 painter 栅格化成图再编成 PNG。保存与复制都要它，收成一处；栅格化有十几毫秒
         // 到几十毫秒，放到后台线程，别卡住界面。
-        suspend fun exportPng(painter: QrCodePainter): ByteArray? = withContext(Dispatchers.Default) {
-            runCatching { painter.toByteArray(ExportSize, ExportSize, ImageFormat.PNG) }.getOrNull()
+        suspend fun exportPng(painter: Painter): ByteArray? = withContext(Dispatchers.Default) {
+            runCatching {
+                val size = exportSizeOf(painter, ExportLongSide)
+                renderPng(painter, size.width, size.height)
+            }.getOrNull()
         }
 
         Column(Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 「等级」是四选一，与 URL 工具的「规则」同一副长相（一条轨道里几段）。档名只有
-                // 一个字，差别写进悬停提示。
-                Text("纠错", fontSize = 12.sp, color = MaterialTheme.hintColor)
+                // 「码制」用下拉而不是分段控件：十三个选项铺成一条轨道根本放不下（窗口收到最窄时
+                // 尤其明显），下拉上永远只有当前这一档。
+                Text("码制", fontSize = 12.sp, color = MaterialTheme.hintColor)
                 DevToolActionSpacer()
-                DevToolSegmentedControl(
-                    options = QrLevel.entries,
-                    selected = level,
+                DevToolMenuButton(
+                    label = format.title,
+                    options = BarcodeFormat.entries,
+                    selected = format,
                     optionLabel = { it.title },
-                    onSelect = { level = it },
-                    tooltip = { it.hint },
+                    onSelect = { format = it },
                 )
+
+                // 纠错只有 QR 有：另外两种二维码的参数形态各不相同（见 `QrErrorLevel`），一律用
+                // 编码器的默认值，不在这里凑一个控件。
+                if (format == BarcodeFormat.Qr) {
+                    DevToolGroupDivider()
+                    Text("纠错", fontSize = 12.sp, color = MaterialTheme.hintColor)
+                    DevToolActionSpacer()
+                    DevToolSegmentedControl(
+                        options = QrErrorLevel.entries,
+                        selected = level,
+                        optionLabel = { it.title },
+                        onSelect = { level = it },
+                        // 档名只有一个字，差别写进悬停提示。
+                        tooltip = { it.hint },
+                    )
+                }
+
                 Spacer(Modifier.weight(1f))
             }
 
             Spacer(Modifier.height(10.dp))
 
-            // 输入区就是普通的多行文本框：二维码的输入是文本，既没有「另一份输入」也没有方向之分，
+            // 输入区就是普通的多行文本框：码的输入是文本，既没有「另一份输入」也没有方向之分，
             // 所以不像 Base64 那样需要分段控件与来源卡片。
             DevToolInputField(
                 label = "输入 · 文本",
@@ -233,7 +240,8 @@ internal object QrCodeDevTool : DevTool {
                     typed = true
                 },
                 host = host,
-                placeholder = "在此粘贴或输入要生成二维码的文本，如链接、一段文字、Wi-Fi 信息",
+                // 占位提示按码制给：一维码对长度与字符集的要求各不相同，写清楚才不用靠报错去猜。
+                placeholder = format.inputHint,
                 // 长文本折行比横向滚出去好读；折行只改显示，`value` 仍是原样。
                 softWrap = true,
                 folding = false,
@@ -250,17 +258,17 @@ internal object QrCodeDevTool : DevTool {
 
             ResultArea(
                 outcome = outcome,
+                currentFormat = format,
                 fresh = fresh,
-                level = level,
                 canAct = canAct,
                 onSave = {
-                    val ready = outcome as? QrOutcome.Ready ?: return@ResultArea
+                    val ready = outcome as? CodeOutcome.Ready ?: return@ResultArea
                     scope.launch {
-                        val path = host.pickFileToSave(ExportFileName) ?: return@launch
-                        val bytes = exportPng(ready.painter)
+                        val path = host.pickFileToSave(ready.format.fileName) ?: return@launch
+                        val bytes = exportPng(ready.code.painter)
                         host.showStatus(
                             when {
-                                bytes == null -> "二维码导出失败"
+                                bytes == null -> "导出失败"
                                 writeBytesFile(path, bytes) -> "已保存到 $path"
                                 else -> "写不进这个位置：$path"
                             }
@@ -268,11 +276,11 @@ internal object QrCodeDevTool : DevTool {
                     }
                 },
                 onCopy = {
-                    val ready = outcome as? QrOutcome.Ready ?: return@ResultArea
+                    val ready = outcome as? CodeOutcome.Ready ?: return@ResultArea
                     scope.launch {
-                        val bytes = exportPng(ready.painter)
+                        val bytes = exportPng(ready.code.painter)
                         // 成功那句提示由宿主（面板）给，这里只在导出失败时补一句。
-                        if (bytes != null) host.copyImageToClipboard(bytes) else host.showStatus("二维码导出失败")
+                        if (bytes != null) host.copyImageToClipboard(bytes) else host.showStatus("导出失败")
                     }
                 },
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -281,35 +289,12 @@ internal object QrCodeDevTool : DevTool {
     }
 }
 
-/**
- * 二维码的绘制选项。
- *
- * **颜色固定为黑码白底**，不跟主题走：二维码要能被别的设备扫，浅色主题下白底没问题，深色主题下
- * 若把底色改成深色、码改成浅色，不少扫描器会认不出。所以无论深浅，结果区里始终是一张白底黑码的
- * 图——这也是结果卡固定用白底的原因。
- */
-private fun qrOptions(level: QrLevel): QrOptions = QrOptions(
-    colors = QrColors(
-        dark = QrBrush.solid(Color.Black),
-        light = QrBrush.solid(Color.White),
-    ),
-    // 背景补白：配合 `scale` 一起，给码元四周留出静区（见 [QuietZoneScale]）。
-    background = QrBackground(fill = SolidColor(Color.White)),
-    errorCorrectionLevel = level.level,
-    scale = QuietZoneScale,
-)
-
-/** 编码失败时给用户的一句交代。绝大多数情况是文本超出这个等级的容量。 */
-private fun qrFailureMessage(error: Throwable): String {
-    val detail = error.message?.takeIf { it.isNotBlank() } ?: error::class.simpleName.orEmpty()
-    return "这条文本放不下二维码：$detail\n试试缩短内容，或把纠错等级调低。"
-}
-
 @Composable
 private fun ResultArea(
-    outcome: QrOutcome?,
+    outcome: CodeOutcome?,
+    /** 当前选中的码制；还没有结果时用它当标题。 */
+    currentFormat: BarcodeFormat,
     fresh: Boolean,
-    level: QrLevel,
     canAct: Boolean,
     onSave: () -> Unit,
     onCopy: () -> Unit,
@@ -318,17 +303,18 @@ private fun ResultArea(
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(6.dp)
     val codeColors = rememberCodeColors()
-    // 画得出二维码时用白底（见 `qrOptions` 的说明），其余状态与别的工具一样用编辑区底色，
+    val ready = outcome as? CodeOutcome.Ready
+    // 画得出码时用白底（见 `renderPng` 的说明），其余状态与别的工具一样用编辑区底色，
     // 免得深色主题下一句浅色的提示文字落在白底上看不见。
-    val ready = outcome as? QrOutcome.Ready
+    val format = ready?.format ?: currentFormat
 
     Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("结果 · 二维码", fontSize = 13.sp, color = MaterialTheme.hintColor)
+            Text("结果 · ${format.title}", fontSize = 13.sp, color = MaterialTheme.hintColor)
             if (ready != null) {
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = "纠错 ${level.title}",
+                    text = ready.code.sizeLabel,
                     fontSize = 12.sp,
                     color = MaterialTheme.hintColor,
                 )
@@ -343,7 +329,7 @@ private fun ResultArea(
             Spacer(Modifier.width(4.dp))
             DevToolFieldAction(
                 kind = ClipperIconKind.COPY,
-                tooltip = "复制二维码到剪贴板",
+                tooltip = "复制到剪贴板",
                 enabled = canAct,
                 onClick = onCopy,
             )
@@ -361,7 +347,7 @@ private fun ResultArea(
         ) {
             when {
                 ready != null -> Image(
-                    painter = ready.painter,
+                    painter = ready.code.painter,
                     contentDescription = null,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize(),
@@ -369,15 +355,30 @@ private fun ResultArea(
 
                 !fresh -> Text("生成中…", fontSize = 12.sp, color = MaterialTheme.hintColor)
 
-                outcome is QrOutcome.Failed -> Text(
-                    text = outcome.message,
-                    fontSize = 12.sp,
-                    color = colors.error,
-                    textAlign = TextAlign.Center,
-                )
+                // 两行：上面是「该给什么」（错误色，是眼下要照做的），下面是「这次为什么不行」
+                // （灰一档、小一号，属于细节）。
+                outcome is CodeOutcome.Failed -> Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "文本要求：${outcome.requirement}",
+                        fontSize = 12.sp,
+                        color = colors.error,
+                        textAlign = TextAlign.Center,
+                    )
+                    outcome.detail?.takeIf { it.isNotEmpty() }?.let { detail ->
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            text = detail,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.hintColor,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
 
                 else -> Text(
-                    text = "输入文本后，这里显示二维码",
+                    text = "输入文本后，这里显示 ${currentFormat.title}",
                     fontSize = 12.sp,
                     color = MaterialTheme.hintColor,
                 )

@@ -659,10 +659,10 @@ class ClipboardViewModel(
     }
 
     /**
-     * 开发者工具里的「复制图片」：把生成的二维码（PNG 字节）写回系统剪贴板。
+     * 开发者工具里的「复制图片」：把生成的码图（PNG 字节）写回系统剪贴板。
      *
      * 与 [copyToClipboardFromDevTools] 是同一条路（[ClipboardPlatform.writeClipboard]），因此同样
-     * 会被记成一条新的历史——用户复制一张二维码，本就期望它能再粘一次。
+     * 会被记成一条新的历史——用户复制一张码图，本就期望它能再粘一次。
      */
     fun copyImageToClipboardFromDevTools(png: ByteArray) {
         if (png.isEmpty()) return

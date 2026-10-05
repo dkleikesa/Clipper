@@ -12,7 +12,7 @@ ksp = "2.3.12"
 # 覆盖率：只支持 JVM target（JS / native 不采集），KMP 项目按 `jvm` 变体出报告。
 kover = "0.9.11"
 material3 = "1.11.0-alpha07"
-# 二维码生成与渲染：纯 Kotlin + Compose Multiplatform（除 compose.ui 外无其它依赖）。
+# 条码生成与渲染：纯 Kotlin + Compose Multiplatform（除 compose.ui 外无其它依赖）。
 qrose = "1.3.1"
 room3 = "3.0.2"
 sqlite = "2.7.0"
@@ -54,9 +54,14 @@ kotlincrypto-hash-md = { module = "org.kotlincrypto.hash:md", version.ref = "kot
 kotlincrypto-hash-sha1 = { module = "org.kotlincrypto.hash:sha1", version.ref = "kotlincrypto-hash" }
 kotlincrypto-hash-sha2 = { module = "org.kotlincrypto.hash:sha2", version.ref = "kotlincrypto-hash" }
 kotlincrypto-hash-sha3 = { module = "org.kotlincrypto.hash:sha3", version.ref = "kotlincrypto-hash" }
-# 二维码：qrose 同时给出编码器与 Compose 矢量绘制，外加把 Painter 导成 PNG 的工具。
-# 它是 KMP 实现，二维码工具因此整个留在 commonMain，不必为编码 / 绘图开 expect/actual。
-qrose = { module = "io.github.alexzhirkevich:qrose", version.ref = "qrose" }
+# 二维条码：qrose-matrix 给出四种码（QR / Data Matrix / Aztec / PDF417）的编码器与
+# Compose 矢量绘制（统一的 `MatrixBarcodePainter`），并传递依赖 qrose-core——
+# 把 Painter 导成 PNG 的 `toByteArray` 就在那里。整条链路都是 KMP，工具因此留在 commonMain。
+# 其中 Data Matrix 暂未启用：qrose 的实现对非 ASCII 会静默截成低字节（见 `BarcodeFormat`）。
+qrose-matrix = { module = "io.github.alexzhirkevich:qrose-matrix", version.ref = "qrose" }
+# 一维条码：九种码（Code 128 / 39 / 93、EAN-13 / 8、UPC-A / E、ITF、Codabar）的编码器与统一的
+# `BarcodePainter`；同样传递依赖 qrose-core。两个模块由同一次发布产出，版本一起走 `qrose`。
+qrose-oned = { module = "io.github.alexzhirkevich:qrose-oned", version.ref = "qrose" }
 
 [plugins]
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }

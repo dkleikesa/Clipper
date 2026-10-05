@@ -280,7 +280,7 @@ fun ApplicationScope.ClipperDevToolsWindow(
                 item = state.devToolsItem,
                 onClose = { viewModel.onAction(ClipboardUiAction.CloseDevTools) },
                 onCopyToClipboard = viewModel::copyToClipboardFromDevTools,
-                // 图片那一路（二维码）走单独的入口：它写回的是图片表示，不是一段文本。
+                // 图片那一路（条码工具的码图）走单独的入口：它写回的是图片表示，不是一段文本。
                 onCopyImageToClipboard = viewModel::copyImageToClipboardFromDevTools,
                 // 侧边栏形态是「用户的选择」，随设置持久化（见 `AppSettings.devToolsSidebar`）。
                 sidebar = state.settings.devToolsSidebar,
