@@ -524,14 +524,28 @@ fun DevToolSlider(
                 // 逐格吸附：取值是整数量，拖动时不该出现 33.4% 这种读数。
                 steps = (range.last - range.first - 1).coerceAtLeast(0),
                 modifier = Modifier.width(DevToolSliderWidth),
-                // 轨道连续贯穿，不画断口与首尾停点（与设置页那处同一个写法）。
-                track = {
-                    SliderDefaults.Track(
-                        sliderState = it,
-                        thumbTrackGapSize = 0.dp,
-                        trackInsideCornerSize = 0.dp,
-                        drawStopIndicator = null,
-                    )
+                // 轨道自画成 4dp 细线：这一版 Material 的 `SliderDefaults.Track` 画的是 16dp 的粗胶囊，
+                // 与设置页那条细线对不上，所以不借它，只取它的颜色；垂直居中由 Slider 自己的 Layout
+                // 负责（`trackOffsetY`），这里只铺一条线。
+                track = { sliderState ->
+                    val sliderColors = SliderDefaults.colors()
+                    val range = sliderState.valueRange
+                    val fraction = if (range.endInclusive == range.start) 0f
+                        else ((sliderState.value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(sliderColors.inactiveTrackColor),
+                    ) {
+                        Box(
+                            Modifier
+                                .fillMaxWidth(fraction)
+                                .fillMaxHeight()
+                                .background(sliderColors.activeTrackColor),
+                        )
+                    }
                 },
                 // 拇指缩到 18dp、去掉按下缩放：Material 默认那副动效与工具栏其余控件的静止感不合。
                 thumb = {
