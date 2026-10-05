@@ -590,14 +590,19 @@ internal fun handleTap(view: EditorSession, offset: Offset) {
  *   pass the LIVE-layout resolver (`posFromVisibleItems`-backed) so drag
  *   selection tracks scrolling instead of using the stale-after-scroll cache
  *   (#165).
+ * @param anchorPos <本仓库补丁> 选区的**不动端**（文档偏移）。为 `null`（默认）时按老规矩取
+ *   [start] 落点——一次普通拖选就是「从按下的地方拖过来」。按着 Shift 拖的那一路传的是**按下之前**
+ *   那个选区的不动端：整个拖拽过程都接着原来那段扩，而不是从按下处重新开一段（与 Compose 原生
+ *   输入框的 `onExtendDrag` 同一条规矩）。
  */
 internal fun handleDrag(
     view: EditorSession,
     start: Offset,
     current: Offset,
-    posAt: (Offset) -> Int?
+    posAt: (Offset) -> Int?,
+    anchorPos: Int? = null,
 ) {
-    val anchor = posAt(start) ?: return
+    val anchor = anchorPos ?: posAt(start) ?: return
     val head = posAt(current) ?: return
     view.dispatch(
         TransactionSpec(

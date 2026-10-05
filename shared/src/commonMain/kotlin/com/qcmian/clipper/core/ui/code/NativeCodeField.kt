@@ -65,6 +65,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
@@ -241,9 +242,17 @@ fun NativeCodeField(spec: CodeFieldSpec) {
         l.getCursorRect(transformed)
     }
     // 没聚焦就不画——平台文本框自己就是这条规矩（`showCursor` 里也看着焦点）。
+    // **窗口不在前台也一样**：Compose 原生光标用的是 `isWindowFocused && state.hasFocus`
+    // （`TextFieldCursor`），这里自绘的这一条要跟它一致，否则切到别的应用之后这条光标还在闪，
+    // 而同一个框里平台那一条早就不见了。
+    val caretShouldBlink = focused && LocalWindowInfo.current.isWindowFocused
     var caretOn by remember { mutableStateOf(true) }
-    LaunchedEffect(editable, focused) {
-        if (editable || !focused) return@LaunchedEffect
+    LaunchedEffect(editable, caretShouldBlink) {
+        if (editable || !caretShouldBlink) {
+            // 停在「亮」上：重新聚焦时从头亮满半周期，与平台光标一致。
+            caretOn = true
+            return@LaunchedEffect
+        }
         caretOn = true
         while (true) {
             delay(CaretBlinkMillis)
@@ -476,7 +485,7 @@ fun NativeCodeField(spec: CodeFieldSpec) {
                                 .drawWithContent {
                                     drawContent()
                                     val rect = caretRect
-                                    if (!editable && focused && caretOn && rect != null) {
+                                    if (!editable && caretShouldBlink && caretOn && rect != null) {
                                         drawRect(
                                             color = colors.primary,
                                             topLeft = Offset(rect.left, rect.top),

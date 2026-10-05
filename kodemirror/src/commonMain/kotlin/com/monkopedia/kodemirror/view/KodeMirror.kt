@@ -89,6 +89,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -98,6 +99,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.input.TextFieldValue
@@ -260,9 +262,28 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
     // 就要重组所有可见行；取值函数在绘制里才被调用，翻转只让这些行**重绘**。
     // 键里带 `state.selection`：光标一动就重新计时——先亮满半周期再开始闪，与系统输入框一致
     // （打字时光标是常亮的，停手后才闪）。
+    //
+    // <本仓库补丁> **没焦点就不闪、也不画**，判据与 Compose 原生光标逐字相同（`TextFieldCursor`：
+    // `isWindowFocused && state.hasFocus`）——「字段自己拿到焦点」（那个隐藏输入框）**且**
+    // 「窗口在前台」。两条缺一不可：少了前一条，点进旁边那个框之后，这个框的光标还在自顾自地闪；
+    // 少了后一条，切到别的应用之后本窗口里的光标还在闪。上游那条静态光标看不出这个毛病（它画一次
+    // 就一直在），本仓库给它加了明灭节奏，这两条就得自己补上。
+    var hasFocus by remember(session) { mutableStateOf(false) }
+    val windowInfo = LocalWindowInfo.current
+    // 组合期读一次：下面那个 effect 要按它停 / 起明灭循环。
+    val caretShouldBlink = hasFocus && windowInfo.isWindowFocused
     var caretOn by remember(session) { mutableStateOf(true) }
-    val caretVisible = remember(session) { { caretOn } }
-    LaunchedEffect(session, state.selection) {
+    val caretVisible = remember(session, windowInfo) {
+        // 绘制期再读一遍（不是把组合期那个 Boolean 捕进来）：窗口焦点一变只让这一层重绘，
+        // 与 `caretOn` 同一个理由（见上）。`hasFocus` 是局部委托属性，读到的同样是当前值。
+        { hasFocus && windowInfo.isWindowFocused && caretOn }
+    }
+    LaunchedEffect(session, state.selection, caretShouldBlink) {
+        if (!caretShouldBlink) {
+            // 停在「亮」上：重新聚焦时从头亮满半周期，与系统输入框一致。
+            caretOn = true
+            return@LaunchedEffect
+        }
         while (true) {
             caretOn = true
             delay(CaretBlinkHalfPeriodMillis)
@@ -683,6 +704,14 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                             // gutter clicks) see the Main pass first, so this
                             // does not take the gesture away from them.
                             val down = awaitFirstDown().also { it.consume() }
+                            // <本仓库补丁> 按下时按着 Shift：这一次点击是「接着扩选」而不是「落光标」。
+                            //
+                            // 修饰键取的是**这一个事件**上的（`currentEvent.keyboardModifiers`），不是
+                            // 某一帧的按键状态——与 Compose 原生输入框同一条规矩（那边 `mouseSelection`
+                            // 读的也是 down 事件自带的 modifiers）：中途松开 Shift 不该把这一次点击
+                            // 变回「落光标」。
+                            val extendSelection =
+                                currentEvent.keyboardModifiers.isShiftPressed
                             // Focus immediately on any pointer down, and ask for
                             // the keyboard even when focus does not change —
                             // otherwise one the user dismissed never comes back.
@@ -693,6 +722,13 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                             var isDrag = false
                             var dragStart = downPosition
                             var dragCurrent = downPosition
+                            // Shift 扩选的锚点：取**按下之前**那个选区的不动端。整个拖拽过程都原样
+                            // 保留它（每次派发都写回同一个值），因此这里读一次就够。
+                            val extendAnchor = if (extendSelection) {
+                                session.state.selection.main.anchor.value
+                            } else {
+                                null
+                            }
 
                             // A touch drag is not ours to take. The line list
                             // (LazyColumn) and the line content
@@ -799,7 +835,8 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                                         session,
                                         dragStart,
                                         dragCurrent,
-                                        currentResolvePos
+                                        currentResolvePos,
+                                        anchorPos = extendAnchor
                                     )
                                 }
                                 session.plugin(dropCursorViewPlugin)
@@ -820,7 +857,8 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                                             session,
                                             dragStart,
                                             dragCurrent,
-                                            currentResolvePos
+                                            currentResolvePos,
+                                            anchorPos = extendAnchor
                                         )
                                     }
                                     session.plugin(dropCursorViewPlugin)
@@ -850,7 +888,12 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                                     1
                                 }
                                 lastClickPosition = downPosition
-                                dispatchTapSelection(session, pos, clickCount)
+                                dispatchTapSelection(
+                                    session,
+                                    pos,
+                                    clickCount,
+                                    extend = extendSelection
+                                )
                             } else {
                                 // Drag cancelled
                                 session.plugin(dropCursorViewPlugin)
@@ -965,7 +1008,10 @@ fun KodeMirror(session: EditorSession, modifier: Modifier = Modifier) {
                         keyProcessedByCallback = keyProcessedByCallback,
                         pendingEcho = pendingEcho,
                         // <本仓库补丁> 光标闪烁的取值函数（见上面 `caretOn`）。
-                        caretVisible = caretVisible
+                        caretVisible = caretVisible,
+                        // <本仓库补丁> 隐藏输入框的焦点变化要回到这一层：它同时决定光标闪不闪
+                        // （见上面 `hasFocus`）。
+                        onFocusChange = { hasFocus = it }
                     )
                 }
                 // Visible horizontal scrollbar for no-wrap mode (#65). Only
@@ -1047,7 +1093,14 @@ private fun EditorContent(
     keyProcessedByCallback: BooleanArray,
     pendingEcho: Array<String?>,
     /** <本仓库补丁> 光标此刻该不该画（闪烁）。只在绘制里调用，见 [drawSelectionOverlay]。 */
-    caretVisible: () -> Boolean
+    caretVisible: () -> Boolean,
+    /**
+     * <本仓库补丁> 那个隐藏输入框的焦点变化。
+     *
+     * 会话自己也要知道（`EditorSessionImpl.hasFocus`，给 `ViewUpdate.focusChanged`），但那只够
+     * 插件用；光标闪不闪是这一层的事，得回到外面去（见 `KodeMirror` 里的 `hasFocus`）。
+     */
+    onFocusChange: (Boolean) -> Unit
 ) {
     val session = LocalEditorSession.current
     val impl = session as EditorSessionImpl
@@ -1167,6 +1220,8 @@ private fun EditorContent(
             .focusRequester(focusRequester)
             .onFocusChanged { focusState ->
                 impl.hasFocus = focusState.isFocused
+                // <本仓库补丁> 焦点也回到外面去：它决定光标闪不闪（见 `EditorContent` 的参数说明）。
+                onFocusChange(focusState.isFocused)
             }
             .onPreviewKeyEvent { event ->
                 // <本仓库补丁> 输入法组字期间的按键属于候选窗，这一路整个让开，交给平台输入法
@@ -1586,7 +1641,8 @@ private fun foldPlaceholderHit(
 }
 
 /**
- * <本仓库补丁> 一次点击该落成什么选区：单击落光标，双击选中该处的词，三击选中该行。
+ * <本仓库补丁> 一次点击该落成什么选区：单击落光标，双击选中该处的词，三击选中该行；
+ * 按着 Shift 时则是**在原选区上接着扩**（见 [extend]）。
  *
  * 上游只落光标（`selectWord` / `selectLine` 是键位命令，要先落光标再扩展，**两步**）。这里在
  * **一个事务**里直接算出最终选区：分两步会占掉两次撤销，用户按一下撤销只退掉一半。
@@ -1602,9 +1658,31 @@ private fun foldPlaceholderHit(
  * 那会连带影响 `selectNextOccurrence` 等命令，因此这里照抄上游，只由 `TapSelectionTest` 钉住。
  *
  * `internal` 是为了让 `TapSelectionTest` 直接喂位置与连击数（手势那一层喂不进真实节奏）。
+ *
+ * @param extend <本仓库补丁> 按着 Shift 点的那一下：**保留原选区的不动端**（选区里的 `anchor`），
+ *   只把活动端挪到 [pos]——与 Compose 原生输入框的 `onExtend` 同一条规矩（浏览器里的 CodeMirror 6
+ *   也是这么扩的）。连击数在这里**不算数**：Shift 一按，这一下就是「接着扩」，不是「重选一个词 /
+ *   一行」（原生框同样先看 Shift、再看连击数）。选区为空时 `anchor` 就是光标，于是 Shift 点一下
+ *   等于从光标处扩过去，与原生框一致。
  */
-internal fun dispatchTapSelection(session: EditorSession, pos: Int, clickCount: Int) {
+internal fun dispatchTapSelection(
+    session: EditorSession,
+    pos: Int,
+    clickCount: Int,
+    extend: Boolean = false,
+) {
     val state = session.state
+    if (extend) {
+        session.dispatch(
+            TransactionSpec(
+                selection = SelectionSpec.EditorSelectionSpec(
+                    EditorSelection.single(state.selection.main.anchor, DocPos(pos))
+                ),
+                userEvent = "select"
+            )
+        )
+        return
+    }
     val range = when (clickCount) {
         2 -> state.wordAt(DocPos(pos))?.let { EditorSelection.single(it.from, it.to) }
         3 -> {

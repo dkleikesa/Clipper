@@ -36,8 +36,8 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 ## 本仓库补丁
 
 **十处**，都用 `// <本仓库补丁>` 标出（`grep -rn "本仓库补丁" kodemirror/src` 可一次找全）。
-除了源码，本仓库还在这个目录里加了**自己的五个测试**（`src/jvmTest`，见最后一节）——上游的测试
-没拷进来，这五个不是上游的。
+除了源码，本仓库还在这个目录里加了**自己的六个测试**（`src/jvmTest`，见最后一节）——上游的测试
+没拷进来，这六个不是上游的。
 
 ### 1. 竖向滚动条（`view/KodeMirror.kt`）
 
@@ -68,14 +68,24 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 
 上游画的是静态光标，编辑时看不出「光标在哪、是不是活的」。补法是给它一个明灭节奏：
 
-- `KodeMirror.kt`：`caretOn` 加一个 `LaunchedEffect(session, state.selection)` 每 500ms 翻转；
+- `KodeMirror.kt`：`caretOn` 加一个 `LaunchedEffect(session, state.selection, …)` 每 500ms 翻转；
   键里带 `state.selection`，所以光标一动就重新计时（先亮满半周期再开始闪，与系统输入框一致）。
   往下传的是**取值函数** `caretVisible: () -> Boolean`，不是 Boolean——传 Boolean 会让每半秒
   重组所有可见行，取值函数在绘制里才被调用，翻转只让这些行重绘。
 - `SelectionDrawing.kt`：`drawSelectionOverlay` / `drawLineSelection` 多一个 `cursorVisible`
   参数（默认 `{ true }`，因此对既有调用方源码兼容），只在它说该亮时才画光标。
+- **没焦点就不闪、也不画**（后补的一条）：判据与 Compose 原生光标逐字相同
+  （`TextFieldCursor`：`isWindowFocused && state.hasFocus`）——那个隐藏输入框拿到焦点**且**窗口
+  在前台。少任何一条都会露出来：点进旁边那个框之后，这个框的光标还在自顾自地闪；切到别的应用
+  之后本窗口里的光标还在闪。窗口焦点取 `LocalWindowInfo.current.isWindowFocused`，把它**捕进
+  取值函数里在绘制期读**（不是把组合期那个 Boolean 捕进来），窗口焦点一变只让正文那一层重绘；
+  组合期另读一份当 `LaunchedEffect` 的键，用来停 / 起明灭循环。
 
-### 3. 双击选词 / 三击选行（`view/KodeMirror.kt`）
+  对应 `:shared` 的 `CaretFocusTest`：那三个「不该闪」的断言（窗口失焦、同窗口里失去焦点的那个框、
+  原生实现那条自绘的只读光标）都配了一条「该闪的确实在闪」当反面对照——光标要是压根没画出来
+  （焦点没拿到、排版没跑），「没闪」同样成立，那样断言就等于什么都没验。
+
+### 3. 双击选词 / 三击选行 / Shift 扩选（`view/KodeMirror.kt` + `view/InputHandling.kt`）
 
 上游的点击只落光标，没有多击语义（`selectWord` / `selectLine` 是键位命令，要先落光标再扩展，
 **两步**）。补法分两层：
@@ -99,6 +109,23 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 换行符的下标），光标因此落在**本行行尾**而不是甩到下一行。注意
 `wordAt` 有一处不对称（上游如此）：它按 `pos` 左侧字符向前扩、按 `pos` 处字符向后扩，所以双击
 落在词的右侧空白上会选中**左边那个词**——`TapSelectionTest` 把这个行为钉住了，别当成 bug 顺手改。
+
+**Shift 扩选**（后补的一条）：上游这条手势没有 Shift 那一路——按住 Shift 点一下照样落光标，
+选区当场被收掉。补法与 Compose 原生输入框对齐（浏览器里的 CodeMirror 6 也是这么扩的）：
+
+- 修饰键取**按下那一个事件**上的（`currentEvent.keyboardModifiers.isShiftPressed`），不是某一帧的
+  按键状态：中途松开 Shift 不该把这一次点击变回「落光标」；
+- `dispatchTapSelection` 多一个 `extend`：保留原选区的**不动端**（`anchor`），只把活动端挪到落点。
+  连击数在那一支**不算数**（原生框同样是先看 Shift、再看连击数）：Shift 按住连点两下不该把刚扩
+  出来的选区换成「一个词」；
+- 拖拽那一路走 `handleDrag` 的新参数 `anchorPos`：Shift 拖拽接着**按下之前**那个不动端扩，而不是
+  从按下处重新起一段（对应原生框的 `onExtendDrag`）。普通拖选不传它，锚点照旧取按下落点；
+- 方向键那条**不用改**：上游 `defaultKeymap` 里每条移动键都自带 `shift` 变体，本来就通。
+
+手势那一层（从事件上读 Shift）测不了：测试框架的鼠标注入带不了修饰键
+（`PlatformRootForTest.sendPointerEvent` 里 `keyboardModifiers = PointerKeyboardModifiers()`）。
+因此 `ShiftExtendSelectionTest` 喂的是手势层算出来的那几项——位置、连击数、锚点，方向键那条则是
+走产品代码里真的绑定解析（`runKeyBindings`）。
 
 ### 4. 鼠标指针形状（`view/KodeMirror.kt` + `view/Gutter.kt`）
 
@@ -215,9 +242,11 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 
 ### 本仓库自己的测试
 
-`src/jvmTest`（配 `build.gradle.kts` 里的 `jvmTest` 依赖）里有五个：
+`src/jvmTest`（配 `build.gradle.kts` 里的 `jvmTest` 依赖）里有六个：
 
 - `TapSelectionTest` 覆盖上面第 3 处：喂位置与连击数、读最终选区；
+- `ShiftExtendSelectionTest` 覆盖第 3 处那条 Shift 支路：点击（含连击数不算数、选区反向的情形）、
+  拖拽的锚点，以及方向键那条**真的绑定解析**（`runKeyBindings`）；
 - `FoldClickTest` 覆盖第 5 处：折一段再点它，读「还剩没剩折叠区间」（箭头那一路给区间、正文那一路
   只给偏移，两条各有用例）；
 - `FoldRowCollapseTest` 覆盖第 6 处：喂一条替换装饰、读渲染出来的行（行数 + 每行文本）；
@@ -227,16 +256,21 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 - `ReadOnlySessionTest` 覆盖第 9 处：喂**真的命令**（`deleteCharBackward` 就是 Backspace 那一条、
   `clipboardCut` 就是 ⌘X 那一条）与事务，读「正文动没动、选区进没进状态」。
 
-**光标闪烁、指针形状、箭头角度、手势判定都测不了**——前三个是画出来的（`FoldRowCollapseTest`
+**指针形状、箭头角度、手势判定都测不了**——前两个是画出来的（`FoldRowCollapseTest`
 只验到「收成一行」，验不到画成什么样；`FoldClickTest` 只验到「点下去展开了」，验不到点得到多大），
 最后一个要真实事件时钟，只能手点。第 8 处是个例外：它**错在几何**而不是错在画法，把几何抽成
 纯函数之后就能拿真排版结果喂进去量了（画出来的那一步仍只有肉眼验——这次是临时组合一次、把
 `captureToImage` 的 PNG 看一眼，没有留成用例）。
 
-**唯一一条对付「画出来」的自动化用例**在 `:shared` 的 `ReadOnlyCodeFieldTest`：「只读框里拖一下
-看得见选区」，两个引擎各跑一遍，判据是同一份组合拖动前后的**像素差**（选区不进语义树，只有画出来
-才算数；那一版回归正是状态里选上了、屏幕上什么都没有）。只读框里的光标同样只有肉眼验过——它的
-明灭半周期是 500ms，拿它当判据的用例会随时钟漂。
+**对付「画出来」的自动化用例**在 `:shared`，判据都是同一份组合的**像素差**（这些东西不进语义树，
+只有画出来才算数）：
+
+- `ReadOnlyCodeFieldTest`「只读框里拖一下看得见选区」，两个引擎各跑一遍——那一版回归正是状态里
+  选上了、屏幕上什么都没有；
+- `CaretFocusTest` 覆盖第 2 处那条焦点规则：窗口失焦、同窗口里失去焦点的那个框、原生实现那条自绘
+  的只读光标，三处「不该闪」都配了「该闪的确实在闪」当反面对照。**明灭节奏在这里不漂**：帧间推进
+  的是测试自己的时钟（`mainClock.advanceTimeBy`），`LaunchedEffect` 里的 `delay` 跟着它走，
+  用不着真的 sleep（曾经以为这条测不了，是因为拿它当判据时用的是真实时间）。
 
 **点正文里那个 `…`** 这条端到端路径在 `:devTools` 的 `KodemirrorCodeFieldTest` 里（那里有真的
 组合与手势注入）：折起来、横扫正文最左端、找到能展开的那一点。命中区域的**大小**它同样验不了
