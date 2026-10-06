@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,8 +68,23 @@ private const val EvaluateDebounceMillis = 150L
 /** 表达式输入区的高度：大约五行，长表达式也看得全，同时给历史留出足够地方。 */
 private val ExpressionFieldHeight = 96.dp
 
-/** 语法帮助里「写法」那一列的宽度：最长的一条（`0x1F  0b1010  0o17`）也放得下。 */
-private val HelpNameWidth = 148.dp
+/**
+ * 语法帮助里「写法」那一列的宽度。
+ *
+ * 每一格写法都是一个能点的按钮（见 `HelpSpellingCell`），所以除了文字本身，还要放得下它左右的
+ * 留白与格与格之间的间隔。这一列是**定宽**的——各行说明因此左缘对齐——所以必须容下最宽的一行，
+ * 否则那一行里最后一格会被挤到第二行去（`exp ln log10 log2` 原先就是这样断成两行的）。最宽的
+ * 一行是两个长写法的 `sin(90deg)` `sin(90°)`，下面两个间距值配合它取，留出余量。
+ */
+private val HelpNameWidth = 172.dp
+
+/**
+ * 一格写法左右的留白（见 [HelpSpellingCell] 的内边距），以及相邻两格之间的间隔。
+ *
+ * 取小值不是为了省地方，而是为了把宽度让给写法本身：同一行的几个写法要排进上面那一列里，间距
+ * 一大，四格的那种行（`exp ln log10 log2`）就排不下了。
+ */
+private val HelpSpellingGap = 8.dp
 
 /** 一条历史记录：式子 + 它的结果。 */
 private data class MathHistoryEntry(val expression: String, val value: Double)
@@ -206,7 +224,14 @@ internal object MathDevTool : DevTool {
 
             // 底部这一块要么是历史、要么是语法帮助：两者并排会把两边都挤成一条缝，不值当。
             if (showHelp) {
-                HelpPanel(modifier = Modifier.weight(1f))
+                HelpPanel(
+                    // 点一个写法就把它接到表达式末尾：查到一半可以直接拿去算，不必照着敲。
+                    onPick = {
+                        source += it
+                        typed = true
+                    },
+                    modifier = Modifier.weight(1f),
+                )
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("历史", fontSize = 13.sp, color = MaterialTheme.hintColor)
@@ -405,59 +430,77 @@ private fun HistoryRow(entry: MathHistoryEntry, onPick: (MathHistoryEntry) -> Un
  *
  * 做成一张参考表而不是一句提示：函数名与常量名记不全很正常，摊开来看比让人「自己猜」有用。
  * 内容是**静态**的，与 `MathEvaluator` 里的函数表一一对应——那边加函数时这里要一起改。
+ *
+ * 写法那一格可以点，点一下接到「表达式」的末尾（与时间戳、正则两张速查同一套交互）：查到一半
+ * 就能直接拿去算，不必照着它一个字符一个字符地敲。顶部那行提示固定在卡片里、不随内容滚——它说
+ * 的是「点了会落到哪」，滚走之后用户就只能猜了。
+ *
+ * @param onPick 点中一个写法，由调用方决定接到哪儿。
  */
 @Composable
-private fun HelpPanel(modifier: Modifier = Modifier) {
+private fun HelpPanel(onPick: (String) -> Unit, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(6.dp)
     val scroll = rememberScrollState()
 
-    Box(modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(shape)
-                .background(colors.onSurface.copy(alpha = 0.04f))
-                .border(1.dp, colors.outline.copy(alpha = 0.6f), shape)
-                .verticalScroll(scroll)
-                // 右端多让一条滚动条的宽度再加一点间隙，免得最长的那一行被滑块压住。
-                .padding(
-                    start = 12.dp,
-                    top = 8.dp,
-                    bottom = 8.dp,
-                    end = 12.dp + VerticalScrollbarWidth + DevToolScrollbarGap,
-                ),
-        ) {
-            HelpSection("运算符")
-            HelpRow("+  -  *  /  %  ^", "加减乘除、取余、乘方；^ 右结合，-2^2 算作 -(2^2) = -4")
-            HelpRow("( )  ,", "分组，以及函数参数之间的分隔")
-            HelpRow("0x1F  0b1010  0o17", "十六 / 二 / 八进制整数")
-            HelpRow("1.5e-3", "科学计数法")
-
-            HelpSection("常量")
-            HelpRow("pi   e   tau", "圆周率、自然常数、2π")
-
-            HelpSection("函数")
-            HelpRow("sin  cos  tan", "三角函数，入参按所选角度单位")
-            HelpRow("asin  acos  atan", "反三角函数，结果按所选角度单位")
-            HelpRow("sinh  cosh  tanh", "双曲函数，与角度单位无关")
-            HelpRow("sqrt  cbrt  hypot", "平方根、立方根、√(x²+y²)")
-            HelpRow("exp  ln  log10  log2", "指数、自然对数、常用对数、以 2 为底的对数")
-            HelpRow("log(x, 底)", "任意底的对数，例如 log(8, 2) = 3")
-            HelpRow("pow(x, y)", "x 的 y 次方，等同 x^y")
-            HelpRow("abs  sign  round", "绝对值、符号、四舍五入")
-            HelpRow("floor  ceil  trunc", "向下取整、向上取整、截断小数")
-            HelpRow("min  max  avg  sum", "可变参数：最小、最大、平均、求和")
-
-            HelpSection("角度与弧度")
-            HelpRow("sin(pi / 2)", "三角函数一律按弧度，与各类编程语言一致")
-            HelpRow("sin(90deg)  sin(90°)", "要按角度算，在数字后加 deg 或 °")
-            HelpRow("deg(x)", "把角度换成弧度，deg(180) ≈ 3.1416")
-        }
-        VerticalScrollbar(
-            scrollState = scroll,
-            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(colors.onSurface.copy(alpha = 0.04f))
+            .border(1.dp, colors.outline.copy(alpha = 0.6f), shape),
+    ) {
+        Text(
+            text = "点一个写法，接进「表达式」的末尾",
+            fontSize = 11.sp,
+            color = MaterialTheme.hintColor,
+            modifier = Modifier.padding(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 6.dp),
         )
+        DevToolSectionDivider()
+
+        Box(Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scroll)
+                    // 右端多让一条滚动条的宽度再加一点间隙，免得最长的那一行被滑块压住。
+                    .padding(
+                        start = 12.dp,
+                        top = 2.dp,
+                        bottom = 8.dp,
+                        end = 12.dp + VerticalScrollbarWidth + DevToolScrollbarGap,
+                    ),
+            ) {
+                HelpSection("运算符")
+                HelpRow(listOf("+", "-", "*", "/", "%", "^"), "加减乘除、取余、乘方；^ 右结合，-2^2 算作 -(2^2) = -4", onPick)
+                HelpRow(listOf("(", ")", ","), "分组，以及函数参数之间的分隔", onPick)
+                HelpRow(listOf("0x1F", "0b1010", "0o17"), "十六 / 二 / 八进制整数", onPick)
+                HelpRow(listOf("1.5e-3"), "科学计数法", onPick)
+
+                HelpSection("常量")
+                HelpRow(listOf("pi", "e", "tau"), "圆周率、自然常数、2π", onPick)
+
+                HelpSection("函数")
+                HelpRow(listOf("sin", "cos", "tan"), "三角函数，入参按所选角度单位", onPick)
+                HelpRow(listOf("asin", "acos", "atan"), "反三角函数，结果按所选角度单位", onPick)
+                HelpRow(listOf("sinh", "cosh", "tanh"), "双曲函数，与角度单位无关", onPick)
+                HelpRow(listOf("sqrt", "cbrt", "hypot"), "平方根、立方根、√(x²+y²)", onPick)
+                HelpRow(listOf("exp", "ln", "log10", "log2"), "指数、自然对数、常用对数、以 2 为底的对数", onPick)
+                HelpRow(listOf("log(x, 底)"), "任意底的对数，例如 log(8, 2) = 3", onPick)
+                HelpRow(listOf("pow(x, y)"), "x 的 y 次方，等同 x^y", onPick)
+                HelpRow(listOf("abs", "sign", "round"), "绝对值、符号、四舍五入", onPick)
+                HelpRow(listOf("floor", "ceil", "trunc"), "向下取整、向上取整、截断小数", onPick)
+                HelpRow(listOf("min", "max", "avg", "sum"), "可变参数：最小、最大、平均、求和", onPick)
+
+                HelpSection("角度与弧度")
+                HelpRow(listOf("sin(pi / 2)"), "三角函数一律按弧度，与各类编程语言一致", onPick)
+                HelpRow(listOf("sin(90deg)", "sin(90°)"), "要按角度算，在数字后加 deg 或 °", onPick)
+                HelpRow(listOf("deg(x)"), "把角度换成弧度，deg(180) ≈ 3.1416", onPick)
+            }
+            VerticalScrollbar(
+                scrollState = scroll,
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+            )
+        }
     }
 }
 
@@ -472,25 +515,69 @@ private fun HelpSection(title: String) {
     )
 }
 
-/** 帮助里的一行：左边是等宽的写法，右边是一句话说明。 */
+/**
+ * 帮助里的一行：左边是一个或多个等宽的写法（每一格都能点，见 [HelpSpellingCell]），右边是一句
+ * 话说明。
+ *
+ * 同一行的几个写法各自占一格、用间隔分开，而不是拿空格把它们拼成一个字符串：拼在一起会被当成
+ * 一个整体，点下去不知道要接哪一个进去。
+ */
 @Composable
-private fun HelpRow(name: String, description: String) {
+private fun HelpRow(
+    spellings: List<String>,
+    description: String,
+    onPick: (String) -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Text(
-            text = name,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurface,
+        Row(
             modifier = Modifier.width(HelpNameWidth),
-        )
+            horizontalArrangement = Arrangement.spacedBy(HelpSpellingGap),
+        ) {
+            spellings.forEach { spelling -> HelpSpellingCell(spelling, onPick) }
+        }
         Text(
             text = description,
             fontSize = 12.sp,
             color = MaterialTheme.hintColor,
             modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * 可点的写法格：点一下把这个写法接进「表达式」的末尾。
+ *
+ * 悬停浮出主色底、光标变手型：右边那一列说明不可点，只有在这里给出「能按」的信号，才分得清哪
+ * 一格能按、哪一格只是文字。
+ */
+@Composable
+private fun HelpSpellingCell(text: String, onPick: (String) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(if (hovered) colors.primary.copy(alpha = 0.12f) else Color.Transparent)
+            .hoverable(interaction)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .clickable(interactionSource = interaction, indication = null) { onPick(text) }
+            // 左右各 2dp：够让悬停底纹不贴着字，又不至于占掉写法本需要的宽度（见 `HelpNameWidth`）。
+            .padding(horizontal = 2.dp, vertical = 1.dp),
+    ) {
+        Text(
+            text = text,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            color = if (hovered) colors.primary else colors.onSurface,
+            // 一格写法是一整个可以点的词，断成两行既不好看、也让人以为它分成了两个写法。列宽够时
+            // 用不上这一句；万一某个平台的等宽字体更宽而排不下，宁可截断得看得出来，也别悄悄换行。
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
