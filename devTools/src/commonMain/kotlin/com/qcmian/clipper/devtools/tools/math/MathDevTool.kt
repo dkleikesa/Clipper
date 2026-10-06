@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -35,8 +36,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
@@ -69,22 +72,40 @@ private const val EvaluateDebounceMillis = 150L
 private val ExpressionFieldHeight = 96.dp
 
 /**
- * 语法帮助里「写法」那一列的宽度。
+ * 一格写法左右的留白，以及同一行里相邻两格之间的间隔。
  *
- * 每一格写法都是一个能点的按钮（见 `HelpSpellingCell`），所以除了文字本身，还要放得下它左右的
- * 留白与格与格之间的间隔。这一列是**定宽**的——各行说明因此左缘对齐——所以必须容下最宽的一行，
- * 否则那一行里最后一格会被挤到第二行去（`exp ln log10 log2` 原先就是这样断成两行的）。最宽的
- * 一行是两个长写法的 `sin(90deg)` `sin(90°)`，下面两个间距值配合它取，留出余量。
+ * 这个量级是刻意取宽的：写法本身都是短词，格子的宽窄基本由留白决定。留白太小，一排字看着就是
+ * 「挤在一起」，悬停时那一块底纹也贴着字，不像一枚能按的按钮。
  */
-private val HelpNameWidth = 172.dp
+private val HelpSpellingPadding = 8.dp
+private val HelpSpellingGap = 12.dp
+
+/** 写法与它右边那句说明之间的间隔：比格与格之间再宽一点，两组才分得开。 */
+private val HelpDescriptionGap = 20.dp
 
 /**
- * 一格写法左右的留白（见 [HelpSpellingCell] 的内边距），以及相邻两格之间的间隔。
+ * 「写法」那一列的宽度：各行说明因此左缘对齐。
  *
- * 取小值不是为了省地方，而是为了把宽度让给写法本身：同一行的几个写法要排进上面那一列里，间距
- * 一大，四格的那种行（`exp ln log10 log2`）就排不下了。
+ * 取所有行里最宽的一行——`exp ln log10 log2`（四格，每格按最长的 `log10` 算），下面这几个值加起来
+ * 约 268dp，这里留一点余量。短行（`1.5e-3`）右边因此会空出一块：对齐就是这么来的，空档与「说明
+ * 参差」二选一。
+ *
+ * 用 `Modifier.widthIn(min = …)` 而不是 `width(…)`：万一某个平台的等宽字体比估的还宽，那一行会自己
+ * 撑开几个像素（那**一行**的说明跟着挪一点），而不是把 `log2` 挤到第二行去。
  */
-private val HelpSpellingGap = 8.dp
+private val HelpNameWidth = 272.dp
+
+/** 写法用的字号。格宽要按它估（见 [rememberHelpCellWidth]），所以单独列出来，改字号时一处改。 */
+private val HelpSpellingFontSize = 12.sp
+
+/**
+ * 等宽字体一个字符的宽度与字号之比。
+ *
+ * `KodeMirror` 算装订线宽度用的是同一个系数（那边写的是 `fontSize * 0.65`）：12sp 等宽字体实测步进
+ * 约 7.9dp（0.658，见 `WindowSizing`）。这里**取大一点**：估宽了只是那一格多出零点几像素的留白，
+ * 看不出来；估窄了则会把这一行最长的那个写法截断成省略号——两边代价差得多，所以往宽的一侧靠。
+ */
+private const val HelpCharAdvanceRatio = 0.70f
 
 /** 一条历史记录：式子 + 它的结果。 */
 private data class MathHistoryEntry(val expression: String, val value: Double)
@@ -504,23 +525,29 @@ private fun HelpPanel(onPick: (String) -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** 帮助里的一节标题。 */
+/**
+ * 帮助里的一节标题。
+ *
+ * 左缘与写法的**字**对齐（让出格子那圈横向留白）：标题是给它下面那几行写法看的，歪开 8dp 会像是
+ * 另起了一栏。
+ */
 @Composable
 private fun HelpSection(title: String) {
     Text(
         text = title,
         fontSize = 12.sp,
         color = MaterialTheme.hintColor,
-        modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+        modifier = Modifier.padding(start = HelpSpellingPadding, top = 10.dp, bottom = 4.dp),
     )
 }
 
 /**
- * 帮助里的一行：左边是一个或多个等宽的写法（每一格都能点，见 [HelpSpellingCell]），右边是一句
- * 话说明。
+ * 帮助里的一行：左边是一个或多个写法（每一格都能点，见 [HelpSpellingCell]），右边是一句话说明。
  *
- * 同一行的几个写法各自占一格、用间隔分开，而不是拿空格把它们拼成一个字符串：拼在一起会被当成
- * 一个整体，点下去不知道要接哪一个进去。
+ * 同一行的几格**一样宽**（宽度取这一行最长的那个写法，见 [rememberHelpCellWidth]）：参差不齐的
+ * 一排字读起来像散文，等宽之后才是一排按钮。
+ *
+ * 写法那一列整体占 [HelpNameWidth]：各行说明因此左缘对齐，读起来是一条竖线。
  */
 @Composable
 private fun HelpRow(
@@ -528,16 +555,18 @@ private fun HelpRow(
     description: String,
     onPick: (String) -> Unit,
 ) {
+    val cellWidth = rememberHelpCellWidth(spellings)
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Row(
-            modifier = Modifier.width(HelpNameWidth),
+            modifier = Modifier.widthIn(min = HelpNameWidth),
             horizontalArrangement = Arrangement.spacedBy(HelpSpellingGap),
         ) {
-            spellings.forEach { spelling -> HelpSpellingCell(spelling, onPick) }
+            spellings.forEach { spelling -> HelpSpellingCell(spelling, cellWidth, onPick) }
         }
+        Spacer(Modifier.width(HelpDescriptionGap))
         Text(
             text = description,
             fontSize = 12.sp,
@@ -548,34 +577,57 @@ private fun HelpRow(
 }
 
 /**
- * 可点的写法格：点一下把这个写法接进「表达式」的末尾。
+ * 一行里每一格该有多宽：按这一行**最长**的那个写法算，同一行几格因此一样宽（行与行之间可以不同）。
  *
- * 悬停浮出主色底、光标变手型：右边那一列说明不可点，只有在这里给出「能按」的信号，才分得清哪
- * 一格能按、哪一格只是文字。
+ * 宽度是**估**出来的（等宽字体步进 ≈ 字号 × [HelpCharAdvanceRatio]），不是真去量一遍：写法用的字体
+ * 是写死的等宽，估出来的零头落在格子左右那圈留白里，看不出来；估宽一点也只是那一格松一点，挤不掉
+ * 字。全角字符（`log(x, 底)` 里那个「底」）按两格算。
  */
 @Composable
-private fun HelpSpellingCell(text: String, onPick: (String) -> Unit) {
+private fun rememberHelpCellWidth(spellings: List<String>): Dp {
+    val density = LocalDensity.current
+    val charWidth = with(density) { (HelpSpellingFontSize.toPx() * HelpCharAdvanceRatio).toDp() }
+    return remember(spellings, charWidth) {
+        val maxChars = spellings.maxOf { spelling ->
+            spelling.sumOf { char -> if (char.code >= 0x2E80) 2 else 1 }
+        }
+        charWidth * maxChars + HelpSpellingPadding * 2
+    }
+}
+
+/**
+ * 可点的写法格：点一下把这个写法接进「表达式」的末尾。
+ *
+ * 悬停浮出主色底、光标变手型：右边那句说明不可点，只有在这里给出「能按」的信号，才分得清哪一格能
+ * 按、哪一格只是文字。
+ *
+ * @param width 同一行几格共用的宽度（见 [rememberHelpCellWidth]）。文字**靠左**：几格等宽时左缘对
+ *   齐，读起来才是一列；居中会让长短不一的写法各漂各的。
+ */
+@Composable
+private fun HelpSpellingCell(text: String, width: Dp, onPick: (String) -> Unit) {
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
 
     Box(
         modifier = Modifier
+            .width(width)
             .clip(RoundedCornerShape(4.dp))
             .background(if (hovered) colors.primary.copy(alpha = 0.12f) else Color.Transparent)
             .hoverable(interaction)
             .pointerHoverIcon(PointerIcon.Hand)
             .clickable(interactionSource = interaction, indication = null) { onPick(text) }
-            // 左右各 2dp：够让悬停底纹不贴着字，又不至于占掉写法本需要的宽度（见 `HelpNameWidth`）。
-            .padding(horizontal = 2.dp, vertical = 1.dp),
+            .padding(horizontal = HelpSpellingPadding, vertical = 3.dp),
+        contentAlignment = Alignment.CenterStart,
     ) {
         Text(
             text = text,
             fontFamily = FontFamily.Monospace,
-            fontSize = 12.sp,
+            fontSize = HelpSpellingFontSize,
             color = if (hovered) colors.primary else colors.onSurface,
-            // 一格写法是一整个可以点的词，断成两行既不好看、也让人以为它分成了两个写法。列宽够时
-            // 用不上这一句；万一某个平台的等宽字体更宽而排不下，宁可截断得看得出来，也别悄悄换行。
+            // 一格写法是一整个可以点的词，断成两行既不好看、也让人以为它分成了两个写法。宽度是估
+            // 出来的，万一某个平台的等宽字体更宽，宁可截断得看得出来，也别悄悄换行。
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
