@@ -6,6 +6,7 @@ import com.qcmian.clipper.devtools.detect.DataTypeDetector
 import com.qcmian.clipper.devtools.detect.detectTypes
 import com.qcmian.clipper.devtools.tools.base64.Base64DevTool
 import com.qcmian.clipper.devtools.tools.hash.HashDevTool
+import com.qcmian.clipper.devtools.tools.hex.HexDevTool
 import com.qcmian.clipper.devtools.tools.json.JsonDevTool
 import com.qcmian.clipper.devtools.tools.barcode.BarcodeDevTool
 import com.qcmian.clipper.devtools.tools.math.MathDevTool
@@ -75,6 +76,7 @@ class DevToolsRegistry(
                 XmlDevTool,
                 MathDevTool,
                 TimestampDevTool,
+                HexDevTool,
                 Base64DevTool,
                 UrlDevTool,
                 HashDevTool,
