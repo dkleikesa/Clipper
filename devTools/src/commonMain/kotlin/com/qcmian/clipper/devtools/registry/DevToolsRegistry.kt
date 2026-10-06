@@ -9,6 +9,8 @@ import com.qcmian.clipper.devtools.tools.hash.HashDevTool
 import com.qcmian.clipper.devtools.tools.json.JsonDevTool
 import com.qcmian.clipper.devtools.tools.barcode.BarcodeDevTool
 import com.qcmian.clipper.devtools.tools.math.MathDevTool
+// 正则工具先不挂出来（见 [DevToolsRegistry.builtIn] 的说明）；放开时把这一行与那里的登记一起取消注释。
+// import com.qcmian.clipper.devtools.tools.regex.RegexDevTool
 import com.qcmian.clipper.devtools.tools.timestamp.TimestampDevTool
 import com.qcmian.clipper.devtools.tools.url.UrlDevTool
 import com.qcmian.clipper.devtools.tools.xml.XmlDevTool
@@ -58,6 +60,14 @@ class DevToolsRegistry(
          *
          * **新增一个插件只需要在这里加一行**：工具自己声明名称、分组、图标与能吃的类型，
          * 面板与自动选中逻辑都会自动带上它。
+         *
+         * **正则工具已经写好，但暂时不挂出来**（`tools/regex/`）：内容（界面、纯逻辑、报错翻译、
+         * 速查表）与测试全都在，也全都跑着，只是不进这份名单——侧边栏因此看不到它，分组「文本」
+         * 也跟着消失（见 `DevToolsPanel.groupTools`，空分组不画）。
+         *
+         * 藏的是**入口**，不是实现：`RegexDevToolTest` 直接调工具的 `Content`（不经注册表），所以
+         * 它这一层照旧被守着；要放开时把上面那行 import 与下面这一行的注释一起去掉即可，
+         * 别忘了同时把 `RegexDevToolTest` 里那条「暂时没挂进注册表」改回去。
          */
         fun builtIn(): DevToolsRegistry = DevToolsRegistry(
             tools = listOf(
@@ -69,6 +79,7 @@ class DevToolsRegistry(
                 UrlDevTool,
                 HashDevTool,
                 BarcodeDevTool,
+                // RegexDevTool,
             ),
         )
     }
