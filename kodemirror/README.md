@@ -35,7 +35,7 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 
 ## 本仓库补丁
 
-**十处**，都用 `// <本仓库补丁>` 标出（`grep -rn "本仓库补丁" kodemirror/src` 可一次找全）。
+**十一处**，都用 `// <本仓库补丁>` 标出（`grep -rn "本仓库补丁" kodemirror/src` 可一次找全）。
 除了源码，本仓库还在这个目录里加了**自己的六个测试**（`src/jvmTest`，见最后一节）——上游的测试
 没拷进来，这六个不是上游的。
 
@@ -240,6 +240,22 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 `NativeCodeField` 一侧不受影响：它的 `TextFieldValue` 一直带着 `composition`，也没有「清空」这个
 动作——这正是不换实现、只用原生框时看不出这个 bug 的原因。
 
+### 11. 装订线行号越界（`view/Gutter.kt`）
+
+`GutterView` 拿的是 `columnItems` 那一份**快照**里的行号，读的却是**实时**的 `session.state`。整篇
+变短时（换剪贴板条目、点清空、撤销）两者会差一帧：`LazyColumn` 仍按旧快照 subcompose 末尾那几行，
+`doc.line(...)` 于是收到一个比当前文档还大的行号，抛
+`Invalid line number 22 in 21-line document`。异常落在组合里（`Error was captured in composition`），
+整块编辑器当场废掉——装订线只是画行号，不该有这种杀伤力。
+
+补法是把行号夹进当前文档的范围（`lineNumber.coerceIn(1, doc.lines)`），画出来的号与查到的行都用夹
+过的那个。多出来的那一帧因此显示成「重复的最后一行」，下一帧随快照更新自己就没了；装订线宽度不变，
+正文左缘也不会跟着跳。
+
+**这个一帧竞争在测试框架里复现不出来**：回灌走的是 `LaunchedEffect`，「换内容」的端到端用例无论修
+没修都是绿的（试过）。所以回归用例直接钉 `GutterView` 的契约——喂一个越界行号，它必须画得出来，
+放在 `:devTools` 的 `GutterLineNumberGuardTest`（那里有真的组合；本目录的测试刻意不起组合环境）。
+
 ### 本仓库自己的测试
 
 `src/jvmTest`（配 `build.gradle.kts` 里的 `jvmTest` 依赖）里有六个：
@@ -275,6 +291,9 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 **点正文里那个 `…`** 这条端到端路径在 `:devTools` 的 `KodemirrorCodeFieldTest` 里（那里有真的
 组合与手势注入）：折起来、横扫正文最左端、找到能展开的那一点。命中区域的**大小**它同样验不了
 （那是几个像素的容差），但「画出来了、点得着、只展开一次」三条都钉住了。
+
+第 11 处的回归同样在 `:devTools`（`GutterLineNumberGuardTest`）：那一处是**一帧之内的调度竞争**，
+端到端跑不出来，所以直接给 `GutterView` 喂一个越界行号，钉住「夹到最后一行、不抛」。
 
 ## 与上游同步
 

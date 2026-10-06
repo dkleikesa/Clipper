@@ -99,9 +99,18 @@ fun gutter(config: GutterConfig): Extension = gutters.of(config)
 @Composable
 fun GutterView(session: EditorSession, lineNumber: Int, modifier: Modifier = Modifier) {
     val theme = LocalEditorTheme.current
-    val lineNum = LineNumber(lineNumber)
-    val isActive = session.state.doc.lineAt(session.state.selection.main.head).number == lineNum
-    val line = session.state.doc.line(lineNum)
+    // <本仓库补丁> 行号可能比**当前**文档还大，不能直接拿它去查文档。
+    //
+    // `lineNumber` 来自 `columnItems` 那一份**快照**（见 `KodeMirror`），而这里读的是**实时**的
+    // `session.state`。整篇变短时（换条目、点清空、撤销）两者会差一帧：`LazyColumn` 仍按旧快照
+    // subcompose 末尾那几行，`doc.line(...)` 于是抛 "Invalid line number ... in ...-line document"
+    // ——异常落在组合里（`Error was captured in composition`），整块编辑器当场废掉。
+    // 夹到当前文档的最后一行：那一帧多出来的行画成「重复的最后一行」，下一帧它自己就没了；比崩掉
+    // 好，也保住了这一行的排版（装订线宽度不变、正文左缘不跳）。
+    val doc = session.state.doc
+    val lineNum = LineNumber(lineNumber.coerceIn(1, doc.lines))
+    val isActive = doc.lineAt(session.state.selection.main.head).number == lineNum
+    val line = doc.line(lineNum)
     val configs = session.state.facet(gutters)
     val hasActiveLineGutter = isActive &&
         configs.any { it.type == GutterType.ActiveLineGutter }
@@ -134,7 +143,9 @@ fun GutterView(session: EditorSession, lineNumber: Int, modifier: Modifier = Mod
                 ) {
                     val contentStyle = LocalContentTextStyle.current
                     BasicText(
-                        text = lineNumber.toString(),
+                        // 与上面查到的行号一致：夹过之后画的也是夹到的那一行，不会出现「号是 22、
+                        // 内容取自第 21 行」这种自相矛盾的一帧。
+                        text = lineNum.value.toString(),
                         style = contentStyle.copy(
                             color = if (isActive) {
                                 theme.gutterActiveForeground
