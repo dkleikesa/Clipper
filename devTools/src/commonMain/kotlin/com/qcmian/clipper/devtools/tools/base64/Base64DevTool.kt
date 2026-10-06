@@ -136,7 +136,7 @@ internal object Base64DevTool : DevTool {
         name = "Base64 编解码",
         description = "文本、图片与任意文件与 Base64 互转；解码结果自动分辨文本、图片与二进制。",
         group = DevToolGroup.ENCODER,
-        icon = ClipperIconKind.DOC_ARROW,
+        icon = ClipperIconKind.BASE64,
     )
 
     override val acceptedDataTypes: Set<String> = setOf(DataTypes.BASE64)
