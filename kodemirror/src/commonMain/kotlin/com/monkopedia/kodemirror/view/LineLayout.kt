@@ -43,6 +43,25 @@ data class LineLayout(
 }
 
 /**
+ * <本仓库补丁> 由一份被**缓存**的行排版换算出文档位置；换出来的位置若不在当前文档里，返回 null。
+ *
+ * 缓存比文档慢一帧（与 [LineLayoutCache.coordsAtPos] 里那两条 #127 / #152 同源）。整篇变短之后，
+ * 这一行的 `lineFrom` 与它的排版结果都还是变短前那一行的，算出来的位置于是可能落到新文档之外
+ * ——实测见过 `DocPos(973) in document of length 951`。上游把这个位置原样交给调用方，调用方拿去
+ * `doc.lineAt(...)` 就抛 `Invalid position`：`selectLineDown`（下方向键）一路把它带进键盘事件，
+ * 崩在 AWT 事件线程上，整个窗口一起没。
+ *
+ * 与 [LineLayoutCache.coordsAtPos] 取同一个口径：**越界就不给**，而不是夹到文末。夹过去等于替
+ * 调用方断言「指针 / 目标就在那儿」；返回 null 则让它们各自走已有的兜底——`moveVertically` 会退成
+ * 按整逻辑行走一行，正是「按了一下方向键」该有的结果。
+ */
+private fun LineLayout.positionWithin(offsetInLine: Int, state: EditorState): Int? {
+    // 偏移先夹到**排版自己**的文本长度：排版可能比文档更长（见 `coordsAtPos` 里同样的那一步）。
+    val pos = lineFrom + offsetInLine.coerceIn(0, result.layoutInput.text.length)
+    return pos.takeIf { it in 0..state.doc.length }
+}
+
+/**
  * Cache of [TextLayoutResult] objects for every currently-rendered line.
  *
  * The composable stores results here via [store]; the [EditorSession] uses
@@ -135,8 +154,7 @@ internal class LineLayoutCache {
                 val offsetInLine = layout.result.getOffsetForPosition(
                     Offset(localX, y - layout.topPx)
                 )
-                return layout.lineFrom +
-                    offsetInLine.coerceIn(0, layout.result.layoutInput.text.length)
+                return layout.positionWithin(offsetInLine, state)
             }
         }
         // y is outside any line's exact range — find the best matching line
@@ -153,8 +171,7 @@ internal class LineLayoutCache {
         val offsetInLine = closest.result.getOffsetForPosition(
             Offset(localX, localY)
         )
-        return closest.lineFrom +
-            offsetInLine.coerceIn(0, closest.result.layoutInput.text.length)
+        return closest.positionWithin(offsetInLine, state)
     }
 
     /**

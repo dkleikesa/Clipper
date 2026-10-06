@@ -35,9 +35,9 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 
 ## 本仓库补丁
 
-**十一处**，都用 `// <本仓库补丁>` 标出（`grep -rn "本仓库补丁" kodemirror/src` 可一次找全）。
-除了源码，本仓库还在这个目录里加了**自己的六个测试**（`src/jvmTest`，见最后一节）——上游的测试
-没拷进来，这六个不是上游的。
+**十二处**，都用 `// <本仓库补丁>` 标出（`grep -rn "本仓库补丁" kodemirror/src` 可一次找全）。
+除了源码，本仓库还在这个目录里加了**自己的七个测试**（`src/jvmTest`，见最后一节）——上游的测试
+没拷进来，这七个不是上游的。
 
 ### 1. 竖向滚动条（`view/KodeMirror.kt`）
 
@@ -256,9 +256,22 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 没修都是绿的（试过）。所以回归用例直接钉 `GutterView` 的契约——喂一个越界行号，它必须画得出来，
 放在 `:devTools` 的 `GutterLineNumberGuardTest`（那里有真的组合；本目录的测试刻意不起组合环境）。
 
+### 12. 坐标换算不交出越界位置（`view/LineLayout.kt`）
+
+`LineLayoutCache.posAtCoords` 拿一份**缓存的**行排版（比文档慢一帧）换文档位置：整篇变短之后，
+那一行记的 `lineFrom` 与它的排版结果都还是变短前的，算出来的位置于是可能落到新文档之外。上游把它
+原样交给调用方，调用方拿去 `doc.lineAt(...)` 就抛
+`Invalid position DocPos(973) in document of length 951`——实测是**下方向键**踩到的
+（`selectLineDown` → `moveVertically`），异常落在 AWT 事件线程上，整个窗口一起没。
+
+`coordsAtPos` 与 `blockAtPos` 早就各有一道同样的保护（#127 / #152），只有 `posAtCoords` 漏了。
+补法就是补上：越界返回 null，而不是夹到文末——夹过去等于替调用方断言「目标就在那儿」，返回 null
+才会让它走已有的兜底（`moveVertically` 退成按整逻辑行走一行，正是「按了一下方向键」该有的结果）。
+`LineLayoutCachePosAtCoordsTest` 钉住三条：行起点越界、偏移越界，以及范围内的坐标照常换出位置。
+
 ### 本仓库自己的测试
 
-`src/jvmTest`（配 `build.gradle.kts` 里的 `jvmTest` 依赖）里有六个：
+`src/jvmTest`（配 `build.gradle.kts` 里的 `jvmTest` 依赖）里有七个：
 
 - `TapSelectionTest` 覆盖上面第 3 处：喂位置与连击数、读最终选区；
 - `ShiftExtendSelectionTest` 覆盖第 3 处那条 Shift 支路：点击（含连击数不算数、选区反向的情形）、
@@ -270,7 +283,9 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
   矩形。测试源集因此要带 `compose.desktop.currentOs`——`TextMeasurer` 背后是 skiko 的
   `FontCollection`，缺了它取字体解析器时抛 `LibraryLoadException`，报错完全不提「依赖缺失」；
 - `ReadOnlySessionTest` 覆盖第 9 处：喂**真的命令**（`deleteCharBackward` 就是 Backspace 那一条、
-  `clipboardCut` 就是 ⌘X 那一条）与事务，读「正文动没动、选区进没进状态」。
+  `clipboardCut` 就是 ⌘X 那一条）与事务，读「正文动没动、选区进没进状态」；
+- `LineLayoutCachePosAtCoordsTest` 覆盖第 12 处：喂一块「比文档旧」的缓存行排版，读坐标换算给出
+  的位置（越界必须是 null，范围内照常）。与 `SelectionRowRectsTest` 共用 `TextMeasurer` 那套夹具。
 
 **指针形状、箭头角度、手势判定都测不了**——前两个是画出来的（`FoldRowCollapseTest`
 只验到「收成一行」，验不到画成什么样；`FoldClickTest` 只验到「点下去展开了」，验不到点得到多大），
