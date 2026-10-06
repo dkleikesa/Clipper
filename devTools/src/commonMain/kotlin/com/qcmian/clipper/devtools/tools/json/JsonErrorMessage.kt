@@ -1,5 +1,7 @@
 package com.qcmian.clipper.devtools.tools.json
 
+import com.qcmian.clipper.devtools.tools.textPositionAt
+
 /**
  * 把 kotlinx-serialization 的报错说成人话。
  *
@@ -21,8 +23,8 @@ internal fun jsonErrorMessage(source: String, error: Throwable): String {
     // 库里 `fail()` 一律在末尾缀 ` at path: $...`；我们只做 `parseToJsonElement`（树解析），
     // 路径恒为根，所以摘掉即可，不必显示。
     val cause = PathPattern.replace(head, "").substringAfter("Unexpected JSON token at offset $offset: ")
-    val (line, column) = lineColumn(source, offset)
-    val where = "第 $line 行 第 $column 列"
+    val at = textPositionAt(source, offset)
+    val where = "第 ${at.line} 行 第 ${at.column} 列"
     val translated = causeText(cause) ?: return "$where：$cause"
     return "$where：$translated\n原文：$head"
 }
@@ -89,25 +91,6 @@ private fun actualText(actual: String): String = when (actual) {
     "EOF" -> "输入的结尾"
     " " -> "空格"
     else -> "'$actual'"
-}
-
-/**
- * 字符下标 → 行列（都从 1 起）。
- *
- * 库的 `offset` 是 UTF-16 下标，与 Kotlin `String` 的索引一致，所以直接按 `\n` 数即可。
- * 只按 `\n` 分行：`\r\n` 里那个 `\r` 会被算进上一行末尾，行数不受影响。
- */
-private fun lineColumn(source: String, offset: Int): Pair<Int, Int> {
-    val at = offset.coerceIn(0, source.length)
-    var line = 1
-    var lineStart = 0
-    for (index in 0 until at) {
-        if (source[index] == '\n') {
-            line++
-            lineStart = index + 1
-        }
-    }
-    return line to (at - lineStart + 1)
 }
 
 private val OffsetPattern = Regex("""\bat offset (\d+)""")
