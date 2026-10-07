@@ -724,18 +724,42 @@ class ApkSignLogicTest {
     }
 
     /**
-     * APK 那一页仍走「标签 + 值」（见 `certificateRows`）：字段 + 两枚指纹，指纹标 `primary`。
+     * APK 那一页打印的是 `keytool -printcert -jarfile` 的**原文**。
+     *
+     * 格式照实测那份（拿一个 `jarsigner` 签过的 JAR 跑过那条命令）：`签名者 #1:`、空一行、
+     * `Certificate #1:`（这两个词 JDK 没本地化，就是英文），再往下是**与 `-list -v` 一字不差**的
+     * 那套证书字段。这几个字面量与空行位置正是「能跟命令行的输出对着看」的全部依据，所以逐条钉住。
      */
     @Test
-    fun `APK 那一页的证书仍是逐行标签值，指纹标主色`() {
+    fun `APK 那一页打印的是 printcert 的原文`() {
         val certificate = certOf(atUtc(2050, 1, 1).toEpochMilliseconds(), subject = "CN=demo", digestSeed = 0x11)
-        val rows = certificateRows(certificate)
+        val text = printcertText(listOf(SignerInfo(certificate)))
+        val lines = text.split("\n")
 
-        assertEquals(certificate.subject, rows.single { it.label == "所有者" }.value)
-        assertEquals("2048 位 RSA 密钥", rows.single { it.label == "主体公共密钥算法" }.value)
-        val fingerprints = rows.filter { it.primary }
-        assertEquals(listOf("SHA-256", "SHA-1"), fingerprints.map { it.label })
-        assertTrue(fingerprints.all { it.value.startsWith("11:11") }, "$fingerprints")
+        assertEquals("签名者 #1:", lines[0])
+        assertEquals("", lines[1], "签名者那一行后面空一行（实测如此）")
+        assertEquals("Certificate #1:", lines[2])
+        assertEquals("所有者: CN=demo", lines[3])
+
+        assertTrue(text.contains("证书指纹:"), text)
+        assertTrue(text.contains("SHA1: ${"11:".repeat(19)}11"), text)
+        assertTrue(text.contains("主体公共密钥算法: 2048 位 RSA 密钥"), text)
+        assertTrue(text.contains("版本: 3"), text)
+        // **没有**验签结论：`keytool` 那条命令不报它。混进来就既不像 keytool 也不像 apksigner。
+        assertTrue(!text.contains("验签"), text)
+    }
+
+    /** 多个签名者：一人一块，块间空一行，编号从 1 起（keytool 就是这么排的）。 */
+    @Test
+    fun `多个签名者各占一块`() {
+        val first = certOf(atUtc(2050, 1, 1).toEpochMilliseconds(), subject = "CN=one", digestSeed = 0x11)
+        val second = certOf(atUtc(2050, 1, 1).toEpochMilliseconds(), subject = "CN=two", digestSeed = 0x22)
+        val text = printcertText(listOf(SignerInfo(first), SignerInfo(second)))
+
+        assertTrue(text.contains("签名者 #1:"), text)
+        assertTrue(text.contains("签名者 #2:"), text)
+        assertTrue(text.indexOf("签名者 #1:") < text.indexOf("签名者 #2:"), text)
+        assertEquals(2, text.split("\n").count { it == "Certificate #1:" }, text)
     }
 
     /** UTC 的那一刻。测试里凡是「某天」都用它，免得跟着本机时区漂。 */

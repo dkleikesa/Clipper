@@ -61,6 +61,34 @@ class ApkSignDevToolTest {
      * 的输入区必须是**一整块**（见 `FileInputArea`），里面再分两个槽；粘贴按**内容**落到该去的那
      * 一格。
      */
+    /**
+     * **两页的密钥库互不相干。**
+     *
+     * 第一页看一个文件，签名那一页用它自己那个（见 `KeyStoreSession`）。原先两页共用一套「当前密钥
+     * 库」，后果有两个：签名页没有口令可填（只能先切到第一页把口令敲进去），而第一页上换个文件还会
+     * 把签名要用的钥匙顶掉。
+     */
+    @Test
+    fun `第一页放的密钥库不会跑到签名页去`() = runComposeUiTest {
+        val store = emptyKeyStoreFile("release.p12")
+        val host = FakeHost(clipboardFiles = listOf(store))
+        val pasteKey = render(host)
+
+        // 落在第一页（默认就在那一页）。
+        assertTrue(pasteKey.handle())
+        waitUntil(timeoutMillis = 10_000) { emptyKeyStoreHintShown().not() }
+
+        // 切到签名页：那一格是空的，而口令框**就在这一页上**——不必回第一页去填。
+        onNodeWithText("APK").performClick()
+        waitForIdle()
+        onNodeWithText("插进要用来签名的密钥库，或粘贴 / 打开一个").assertIsDisplayed()
+        assertTrue(
+            onAllNodesWithText("release.p12").fetchSemanticsNodes().isEmpty(),
+            "第一页放的文件不该出现在签名页",
+        )
+        onNodeWithText("密钥库口令").assertIsDisplayed()
+    }
+
     @Test
     fun `在 APK 那一页粘一个包，装进左边那一格`() = runComposeUiTest {
         val apk = tempFile("app-release.apk", zipMagicBytes())

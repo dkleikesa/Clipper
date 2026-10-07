@@ -635,6 +635,30 @@ private fun certificateKeytoolText(certificate: CertInfo): String = buildString 
     append(certificate.extensionsText)
 }
 
+/**
+ * 把 APK 的签名者渲染成 `keytool -printcert -jarfile` 的原文。
+ *
+ * 格式是**实测来的**（拿一个 `jarsigner` 签过的 JAR 跑那条命令）：`签名者 #1:` 之后空一行，接着是
+ * `Certificate #1:`——那两个词是**英文**，JDK 没把它本地化，照抄；再往下就是与 `-list -v` **一字
+ * 不差**的那套字段，因此和密钥库那一页共用 [certificateKeytoolText]。
+ *
+ * 这里**不含**验签结论（v1 / v2 / v3 验没验过、几个签名者）：`keytool` 那条命令本来就不报这些。混
+ * 进来会拼出一段既不像 keytool、也不像 apksigner 的文本，而这份文本的全部价值就是**能跟命令行的
+ * 输出对着看**。结论另有落点——面板顶上那一行。
+ */
+internal fun printcertText(signers: List<SignerInfo>): String = buildString {
+    signers.forEachIndexed { index, signer ->
+        // 多个签名者之间空一行：`keytool` 每个签名者一块，块与块之间就是一行空行。
+        if (index > 0) appendLine()
+        appendLine("签名者 #${index + 1}:")
+        appendLine()
+        appendLine("Certificate #1:")
+        append(certificateKeytoolText(signer.certificate))
+    }
+    // 末尾这一行空行也是实测的：不补它，跟真输出 diff 就总是差最后一行。
+    if (signers.isNotEmpty()) appendLine()
+}
+
 /** `2048 位 RSA 密钥`；认不出算法时只报算法名，不编一个「0 位」。 */
 private fun publicKeyAlgorithmText(certificate: CertInfo): String =
     if (certificate.publicKeyBits > 0) {

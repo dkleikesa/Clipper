@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,7 +55,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
-import com.qcmian.clipper.devtools.ui.components.DevToolResultList
+import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolSingleLineField
@@ -77,15 +78,6 @@ private const val MinValidityYears = 1
 private const val MaxValidityYears = 100
 
 /**
- * 结果列表的标签列宽度：比共用的 `DevToolResultLabelWidth`（92dp）宽一档。
- *
- * 共用的那一个是按「时间戳 / 摘要」那种两三个字的标签定的，而这个工具里最长的一条是
- * `主体公共密钥算法`（8 个汉字，12sp 下正好 96dp）。挤在 92dp 里它会被折成两行——而这一列一折，
- * 「从上往下对齐着扫」这件事就没了，证书那一页正是靠对齐才读得动。
- */
-private val ApkSignLabelWidth = 108.dp
-
-/**
  * 口令停下来多久才真去开密钥库。
  *
  * 与其它工具的 150ms 不是一回事：那边防的是「每敲一个字就重算一遍」，这边防的是**每敲一个字就
@@ -104,9 +96,41 @@ private const val PasswordDebounceMillis = 250L
  * 与 Base64 / URL 的两个方向是同一件事，所以用同一套页签。
  */
 private enum class ApkSignTab(val title: String) {
-    KeyStore("密钥库"),
+    KeyStore("KeyStore信息"),
     Apk("APK"),
     New("新建KeyStore"),
+}
+
+/**
+ * 一页上**一个**密钥库的全套状态：路径、口令（以及防抖之后那一份）、读出来的结果、选中的别名。
+ *
+ * 收成一个类，是因为它得有两份：`KeyStore信息` 那一页看一个文件，签名那一页看的是**它自己**那个
+ * （见 [Content] 里那两个实例）。原先这些是几个散着的 `var`、两页共用，后果是签名页没有口令可填
+ * ——只能先切到第一页把口令敲进去，而「我手上这个包要用哪把钥匙签」与「我在看的那个密钥库里是
+ * 什么」本来就是两件事。共用还让一个页面上的操作悄悄改掉另一个页面的内容。
+ */
+@Stable
+private class KeyStoreSession {
+    var path by mutableStateOf<String?>(null)
+    var password by mutableStateOf("")
+
+    /** 防抖之后的那一份口令；真正拿去开密钥库的是它（见 `PasswordDebounceMillis`）。 */
+    var appliedPassword by mutableStateOf("")
+    var outcome by mutableStateOf<KeyStoreOutcome?>(null)
+    var selectedAlias by mutableStateOf<String?>(null)
+    var reading by mutableStateOf(false)
+
+    /** 读出来的条目；没读出来时是空的。 */
+    val entries: List<KeyStoreEntry> get() = (outcome as? KeyStoreOutcome.Ready)?.entries.orEmpty()
+
+    /** 选中的那一条；没选中（或读不出来）时 `null`。 */
+    val selectedEntry: KeyStoreEntry? get() = entries.firstOrNull { it.alias == selectedAlias }
+
+    /** 读出来那个文件的容器类型（签名时要交给 `apksig`）。 */
+    val storeType: String? get() = (outcome as? KeyStoreOutcome.Ready)?.storeType
+
+    /** 这一次是没给口令就读的；决定「读不到证书」怎么解释，见 `CertificateAvailability`。 */
+    val readWithoutPassword: Boolean get() = (outcome as? KeyStoreOutcome.Ready)?.readWithoutPassword ?: false
 }
 
 /**
@@ -143,13 +167,11 @@ internal object ApkSignDevTool : DevTool {
     override fun Content(input: ClipItem?, host: DevToolHost) {
         var tab by remember { mutableStateOf(ApkSignTab.KeyStore) }
 
-        // 密钥库这一侧。路径与口令是**两页共用**的：签名那一页要拿同一把钥匙。
-        var keyStorePath by remember { mutableStateOf<String?>(null) }
-        var password by remember { mutableStateOf("") }
-        var appliedPassword by remember { mutableStateOf("") }
-        var keyStoreOutcome by remember { mutableStateOf<KeyStoreOutcome?>(null) }
-        var selectedAlias by remember { mutableStateOf<String?>(null) }
-        var readingKeyStore by remember { mutableStateOf(false) }
+        // 两个密钥库会话：`KeyStore信息` 那一页一个（看它里面是什么），签名那一页一个。
+        // **不共用**是有意的：两页要的是两件事，共用一个「当前密钥库」会让一页上的动作改掉另一页
+        // 看到的东西，还会让签名非去第一页填口令不可（见 `KeyStoreSession`）。
+        val viewSession = remember { KeyStoreSession() }
+        val signSession = remember { KeyStoreSession() }
 
         // APK 这一侧：路径、验签结果，以及「正在验」。
         var apkPath by remember { mutableStateOf<String?>(null) }
@@ -178,8 +200,8 @@ internal object ApkSignDevTool : DevTool {
          * 拖放与粘贴都走这里，且**不分是哪一格**：一页只有一个输入区（见 [ApkPage]），按键与拖放
          * 落下来时根本不知道用户瞄的是哪个槽，只能按内容判。
          *
-         * @param navigate 落进去之后要不要**翻到那一页**。「密钥库」那一页只有一个槽，粘进来一个
-         *   APK 没处放，替用户翻过去最省事（与条码工具「在编码页粘图就翻到解码页」同一条做法）；
+         * @param navigate 落进去之后要不要**翻到那一页**。「KeyStore信息」那一页只有一个槽，粘进来
+         *   一个 APK 没处放，替用户翻过去最省事（与条码工具「在编码页粘图就翻到解码页」同一条做法）；
          *   APK 那一页两个槽都在眼前，翻页反而让人以为自己点错了。
          */
         fun route(paths: List<String>, origin: DevToolInputOrigin, navigate: Boolean) {
@@ -188,7 +210,16 @@ internal object ApkSignDevTool : DevTool {
                 val kind = withContext(Dispatchers.Default) { documentKindOf(path) }
                 when (kind) {
                     SignInputKind.KeyStore -> {
-                        keyStorePath = path
+                        // 落到**当前这一页**那个密钥库格：在签名页拖进来一把钥匙，那是要拿它签名；
+                        // 在第一页拖进来，那是要看它里面是什么。两页各有自己的会话，不互相顶掉
+                        // （见 `KeyStoreSession`）。
+                        //
+                        // `navigate` 那条路（从剪贴板记录进来的一个密钥库）是「打开看看」，归第一页。
+                        if (!navigate && tab == ApkSignTab.Apk) {
+                            signSession.path = path
+                        } else {
+                            viewSession.path = path
+                        }
                         if (navigate) tab = ApkSignTab.KeyStore
                     }
 
@@ -208,13 +239,16 @@ internal object ApkSignDevTool : DevTool {
          * 「打开」是用户**明确点了某一格**再去挑文件的，这时替他猜「其实你想放另一个框」是多余的；
          * 挑错了就说一句（`other`），不翻页、也不塞进别的框。拖放与粘贴不走这条路（它们没有「用户
          * 点了哪一格」这个信息，见 `route`）。
+         *
+         * @param keystore 密钥库那一格归哪个会话：签名页那格是 [signSession]，第一页那格是
+         *   [viewSession]。两个槽各自独立，见 `KeyStoreSession`。
          */
-        fun routeTo(paths: List<String>, expected: SignInputKind, other: String) {
+        fun routeTo(paths: List<String>, expected: SignInputKind, other: String, keystore: KeyStoreSession) {
             val path = paths.firstOrNull() ?: return
             scope.launch {
                 val kind = withContext(Dispatchers.Default) { documentKindOf(path) }
                 when (kind) {
-                    expected -> if (expected == SignInputKind.Apk) apkPath = path else keyStorePath = path
+                    expected -> if (expected == SignInputKind.Apk) apkPath = path else keystore.path = path
                     null -> host.showStatus(unrecognizedMessage(path, DevToolInputOrigin.Open))
                     else -> host.showStatus(other)
                 }
@@ -227,8 +261,8 @@ internal object ApkSignDevTool : DevTool {
          * 与拖放 / 粘贴分开的正是这一点：那两个动作没有「用户瞄的是哪一格」这个信息，只能按内容判；
          * 而按钮自带槽位，猜反而多余。
          */
-        fun pickInto(kind: SignInputKind) {
-            host.pickFileToOpen()?.let { routeTo(listOf(it), kind, wrongCardMessage(kind)) }
+        fun pickInto(kind: SignInputKind, keystore: KeyStoreSession) {
+            host.pickFileToOpen()?.let { routeTo(listOf(it), kind, wrongCardMessage(kind), keystore) }
         }
 
         // 从剪贴板记录进来：只取**路径**，绝不读内容——密钥库与 APK 都是二进制，当文本读只会得到
@@ -237,35 +271,10 @@ internal object ApkSignDevTool : DevTool {
             input?.files?.firstOrNull()?.let { route(listOf(it), DevToolInputOrigin.Open, navigate = true) }
         }
 
-        // 口令防抖：见 `PasswordDebounceMillis`。防抖之后的那一份才拿去开密钥库。
-        LaunchedEffect(password) {
-            delay(PasswordDebounceMillis)
-            appliedPassword = password
-        }
-
-        // 开密钥库。路径或口令一变就重开一次——这就是「试着输口令」的那条路，不必另给一个按钮。
-        // 口令留空时按「只读证书」开：JKS 与 PKCS#12 都允许不校验口令读出别名与证书。
-        LaunchedEffect(keyStorePath, appliedPassword) {
-            val path = keyStorePath
-            if (path == null) {
-                keyStoreOutcome = null
-                selectedAlias = null
-                readingKeyStore = false
-                return@LaunchedEffect
-            }
-            readingKeyStore = true
-            val outcome = withContext(Dispatchers.Default) {
-                readKeyStore(path, null, appliedPassword.takeIf { it.isNotEmpty() }?.toCharArray())
-            }
-            keyStoreOutcome = outcome
-            // 重新挑一个别名：换了文件、或条目变了之后，原先选中的那个可能已经不在了。优先挑一个
-            // **能签名**的私钥条目——打开密钥库十有八九就是为了拿它去签。
-            val entries = (outcome as? KeyStoreOutcome.Ready)?.entries.orEmpty()
-            if (entries.none { it.alias == selectedAlias }) {
-                selectedAlias = entries.firstOrNull { it.isKeyEntry }?.alias ?: entries.firstOrNull()?.alias
-            }
-            readingKeyStore = false
-        }
+        // 两个会话各自读自己那个文件。两份都在这儿开着：签名那一页的密钥库不等用户切过去才读——
+        // 他可能一进来就在签名页拖进一个文件。
+        KeyStoreReadEffect(viewSession)
+        KeyStoreReadEffect(signSession)
 
         // 验签。换一个 APK 就重验一次：这一页的结论跟着文件走，留着上一个包的结论只会误导。
         LaunchedEffect(apkPath) {
@@ -280,16 +289,13 @@ internal object ApkSignDevTool : DevTool {
             verifying = false
         }
 
-        val keyStoreReady = keyStoreOutcome as? KeyStoreOutcome.Ready
-        val entries = keyStoreReady?.entries.orEmpty()
-        val selectedEntry = entries.firstOrNull { it.alias == selectedAlias }
         // 签名要五样东西齐：一个 APK、一把钥匙、一个**私钥**条目、一个口令、至少一个签名方案。
         // 一个方案都不勾时 apksig 会直接抛出来，这里先拦住——那不是一个「失败」，是一个还没填完的
-        // 表单。
+        // 表单。口令与口令那个框都在**这一页**上（见 `KeyStoreSession`）。
         val canSign = apkPath != null &&
-            keyStorePath != null &&
-            selectedEntry?.isKeyEntry == true &&
-            password.isNotEmpty() &&
+            signSession.path != null &&
+            signSession.selectedEntry?.isKeyEntry == true &&
+            signSession.password.isNotEmpty() &&
             schemes.isNotEmpty() &&
             !signing
 
@@ -301,8 +307,9 @@ internal object ApkSignDevTool : DevTool {
          */
         fun sign() {
             val apk = apkPath ?: return
-            val keystore = keyStorePath ?: return
-            val alias = selectedEntry?.alias ?: return
+            val keystore = signSession.path ?: return
+            val alias = signSession.selectedEntry?.alias ?: return
+            val storePassword = signSession.password
             scope.launch {
                 val target = host.pickFileToSave(signedFileNameOf(apk)) ?: return@launch
                 if (target == apk) {
@@ -315,12 +322,12 @@ internal object ApkSignDevTool : DevTool {
                     apkPath = apk,
                     outPath = target,
                     keystorePath = keystore,
-                    storeType = keyStoreReady?.storeType,
-                    storePassword = password.toCharArray(),
+                    storeType = signSession.storeType,
+                    storePassword = storePassword.toCharArray(),
                     keyAlias = alias,
                     // 密钥库口令与别名口令在 PKCS#12 里**必须**是同一个（格式本身就如此），JKS 里也
                     // 几乎总是同一个。这里先按同一个传；真不一样时下面的报错会说出来。
-                    keyPassword = password.toCharArray(),
+                    keyPassword = storePassword.toCharArray(),
                     schemes = schemes,
                 )
                 val outcome = withContext(Dispatchers.Default) { signApk(request) }
@@ -418,17 +425,17 @@ internal object ApkSignDevTool : DevTool {
 
             when (tab) {
                 ApkSignTab.KeyStore -> KeyStorePage(
-                    keyStorePath = keyStorePath,
-                    password = password,
-                    onPasswordChange = { password = it },
-                    outcome = keyStoreOutcome,
-                    entries = entries,
-                    selectedAlias = selectedAlias,
-                    onSelectAlias = { selectedAlias = it },
-                    readerBusy = readingKeyStore,
-                    readWithoutPassword = keyStoreReady?.readWithoutPassword ?: false,
+                    keyStorePath = viewSession.path,
+                    password = viewSession.password,
+                    onPasswordChange = { viewSession.password = it },
+                    outcome = viewSession.outcome,
+                    entries = viewSession.entries,
+                    selectedAlias = viewSession.selectedAlias,
+                    onSelectAlias = { viewSession.selectedAlias = it },
+                    readerBusy = viewSession.reading,
+                    readWithoutPassword = viewSession.readWithoutPassword,
                     onOpen = { host.pickFileToOpen()?.let { route(listOf(it), DevToolInputOrigin.Open, navigate = true) } },
-                    onClear = { keyStorePath = null },
+                    onClear = { viewSession.path = null },
                     onFiles = { paths, origin -> route(paths, origin, navigate = true); "" },
                     host = host,
                     modifier = Modifier.fillMaxWidth().weight(1f),
@@ -436,10 +443,14 @@ internal object ApkSignDevTool : DevTool {
 
                 ApkSignTab.Apk -> ApkPage(
                     apkPath = apkPath,
-                    keyStorePath = keyStorePath,
+                    keyStorePath = signSession.path,
                     verifying = verifying,
                     verifyOutcome = verifyOutcome,
-                    selectedAlias = selectedAlias,
+                    keyStorePassword = signSession.password,
+                    onKeyStorePasswordChange = { signSession.password = it },
+                    aliases = signSession.entries.map { it.alias },
+                    selectedAlias = signSession.selectedAlias,
+                    onSelectAlias = { signSession.selectedAlias = it },
                     canSign = canSign,
                     signing = signing,
                     signOutcome = signOutcome,
@@ -448,10 +459,11 @@ internal object ApkSignDevTool : DevTool {
                         schemes = if (enabled) schemes + scheme else schemes - scheme
                     },
                     onFiles = { paths, origin -> route(paths, origin, navigate = false); "" },
-                    onOpenApk = { pickInto(SignInputKind.Apk) },
-                    onOpenKeyStore = { pickInto(SignInputKind.KeyStore) },
+                    // 「打开」按钮自带槽位，落点由它定：两个都写在**签名那一侧**的会话上。
+                    onOpenApk = { pickInto(SignInputKind.Apk, signSession) },
+                    onOpenKeyStore = { pickInto(SignInputKind.KeyStore, signSession) },
                     onClearApk = { apkPath = null },
-                    onClearKeyStore = { keyStorePath = null },
+                    onClearKeyStore = { signSession.path = null },
                     onSign = ::sign,
                     host = host,
                     modifier = Modifier.fillMaxWidth().weight(1f),
@@ -759,7 +771,13 @@ private fun ApkPage(
     keyStorePath: String?,
     verifying: Boolean,
     verifyOutcome: VerifyOutcome?,
+    /** 这一页**自己**的密钥库口令（见 `KeyStoreSession`）：签名要的东西都在这一页上，不必切页。 */
+    keyStorePassword: String,
+    onKeyStorePasswordChange: (String) -> Unit,
+    /** 这一页自己那个密钥库里的别名；用来挑签名用哪把钥匙。 */
+    aliases: List<String>,
     selectedAlias: String?,
+    onSelectAlias: (String) -> Unit,
     canSign: Boolean,
     signing: Boolean,
     signOutcome: SignOutcome?,
@@ -801,7 +819,8 @@ private fun ApkPage(
                 FileSlot(
                     title = "签名 · 密钥库",
                     path = keyStorePath,
-                    emptyHint = "插进要用来签名的密钥库（口令在「密钥库」页填）",
+                    // 口令就在这一页下面（原来这里写的是「口令在第一页填」——那正是被解掉的那处耦合）。
+                    emptyHint = "插进要用来签名的密钥库，或粘贴 / 打开一个",
                     onOpen = onOpenKeyStore,
                     onClear = onClearKeyStore,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -822,7 +841,6 @@ private fun ApkPage(
 
         val ready = verifyOutcome as? VerifyOutcome.Ready
         val signers = ready?.signers.orEmpty()
-        val rows = signers.flatMapIndexed { index, signer -> signerRows(index, signer, signers.size > 1) }
         when {
             apkPath == null -> CenteredHint(
                 text = "打开一个 APK 后，这里显示它当前的签名",
@@ -836,21 +854,39 @@ private fun ApkPage(
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
 
-            rows.isEmpty() -> CenteredHint(
+            signers.isEmpty() -> CenteredHint(
                 text = "这个包里一个签名都没有——还没签过，或者签名块被整个剥掉了",
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
 
-            else -> DevToolResultList(
-                items = rows,
-                label = { it.label },
-                value = { it.value },
-                onCopy = { host.copyToClipboard(it.value) },
-                wrapValues = true,
-                primary = { it.primary },
-                labelWidth = ApkSignLabelWidth,
-                modifier = Modifier.fillMaxWidth().weight(1f),
-            )
+            // 与密钥库那一页同一个形状：**整段文本**，不是一行一个标签的列表。这份东西的形状就是
+            // 它的用途——跟 `keytool` 的输出、跟别人的截图对着看，而「逐行点一下复制」把一份完整
+            // 的东西拆成了十几份。要复制整段，用右上角那两个动作（复制 / 存文件）。
+            else -> {
+                val report = printcertText(signers)
+                DevToolCodeField(
+                    label = "结果",
+                    value = report,
+                    onValueChange = {},
+                    editable = false,
+                    // 不折行：`扩展` 那一段是十六进制转储，`0000: A4 D4 …` 与右边的 ASCII 列靠空格
+                    // 对齐——一折行，那两列就散了（同密钥库那一页）。
+                    softWrap = false,
+                    // 没有行号、不做折叠：这不是代码，行号只会平白多一列数字。
+                    lineNumbers = false,
+                    folding = false,
+                    scan = ::scanPlain,
+                    placeholder = "打开一个 APK 后，这里显示 keytool -printcert -jarfile 的内容",
+                    actions = {
+                        DevToolResultActions(
+                            value = report,
+                            host = host,
+                            suggestedFileName = "certificate.txt",
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+            }
         }
 
         Spacer(Modifier.height(10.dp))
@@ -869,6 +905,29 @@ private fun ApkPage(
                     onCheckedChange = { onToggleScheme(scheme, it) },
                 )
             }
+            // 口令与别名**都摆在这一页**：签名要的三样（包、钥匙、口令）得在这一页凑齐，按钮才亮得
+            // 起来——原先口令只在第一页能填，于是「在这个页面上把包签掉」这件事根本走不通。
+            DevToolActionSpacer()
+            Text("口令", fontSize = 12.sp, color = MaterialTheme.hintColor)
+            DevToolActionSpacer()
+            SecretField(
+                value = keyStorePassword,
+                onValueChange = onKeyStorePasswordChange,
+                placeholder = "密钥库口令",
+                modifier = Modifier.width(160.dp),
+            )
+            DevToolActionSpacer()
+            Text("别名", fontSize = 12.sp, color = MaterialTheme.hintColor)
+            DevToolActionSpacer()
+            DevToolMenuButton(
+                label = selectedAlias ?: "—",
+                options = aliases,
+                selected = selectedAlias ?: "—",
+                optionLabel = { it },
+                onSelect = onSelectAlias,
+                // 只有一个别名时不必点开一列只有一项的菜单（同第一页那一栏）。
+                enabled = aliases.size > 1,
+            )
             Spacer(Modifier.weight(1f))
             if (signing) {
                 Text("正在签…", fontSize = 12.sp, color = MaterialTheme.hintColor)
@@ -893,7 +952,7 @@ private fun ApkPage(
                 keyStorePath == null -> "再把要用的密钥库放到右边那个框里。"
                 selectedAlias == null -> "那把钥匙里没有可用的别名。"
                 schemes.isEmpty() -> "至少要勾一个签名方案（建议 v2 + v3）。"
-                !canSign -> "还要填上密钥库口令才能签名（在「密钥库」那一页）。"
+                !canSign -> "还要把密钥库口令填上（就在这一行）才能签名。"
                 else -> "签名结果写到你选的新文件，原包不动。"
             },
             fontSize = 11.sp,
@@ -1207,6 +1266,46 @@ private fun NewKeyStorePage(
     }
 }
 
+/**
+ * 把 [session] 里的路径与口令读成一个密钥库，并顺手挑一个别名。
+ *
+ * 路径或口令一变就重开一次——这就是「试着输口令」的那条路，不必另给一个按钮。口令留空时按「只读
+ * 证书」开：JKS 与 PKCS#12 都允许不校验口令读出别名与证书。
+ *
+ * 两个会话各调一次（见 [Content]）；写成函数是免得把同一段抄两遍——两处一旦有一处忘了改，症状是
+ * 「其中一页读不出来」，而这种毛病最难发现。
+ */
+@Composable
+private fun KeyStoreReadEffect(session: KeyStoreSession) {
+    // 口令防抖：见 `PasswordDebounceMillis`。防抖之后的那一份才拿去开密钥库。
+    LaunchedEffect(session.password) {
+        delay(PasswordDebounceMillis)
+        session.appliedPassword = session.password
+    }
+
+    LaunchedEffect(session.path, session.appliedPassword) {
+        val path = session.path
+        if (path == null) {
+            session.outcome = null
+            session.selectedAlias = null
+            session.reading = false
+            return@LaunchedEffect
+        }
+        session.reading = true
+        val outcome = withContext(Dispatchers.Default) {
+            readKeyStore(path, null, session.appliedPassword.takeIf { it.isNotEmpty() }?.toCharArray())
+        }
+        session.outcome = outcome
+        // 重新挑一个别名：换了文件、或条目变了之后，原先选中的那个可能已经不在了。优先挑一个
+        // **能签名**的私钥条目——打开密钥库十有八九就是为了拿它去签。
+        val entries = session.entries
+        if (entries.none { it.alias == session.selectedAlias }) {
+            session.selectedAlias = entries.firstOrNull { it.isKeyEntry }?.alias ?: entries.firstOrNull()?.alias
+        }
+        session.reading = false
+    }
+}
+
 /** 表单的标签列宽度。按最长的那条（`有效期（年）`）定。 */
 private val FormLabelWidth = 88.dp
 
@@ -1350,62 +1449,6 @@ private fun expiryHintText(expiryMillis: Long?): String = if (expiryMillis == nu
 } else {
     "到期 ${formatCertDate(expiryMillis)}（Google Play 要求晚于 2033-10-22）"
 }
-
-/**
- * 结果列表里的一行：标签 + 值，点整行复制值。
- *
- * [primary] 挑出**真正要拿走的那些**（指纹）：结果列表会把它们画成主色。证书那几行同等重要，但
- * 不是「要拿走」的对象，保持默认色。
- */
-internal class InfoRow(val label: String, val value: String, val primary: Boolean = false)
-
-/**
- * 一个签名者 → 结果行。
- *
- * @param indexed 这个包里不止一个签名者时给每组加个序号。不加的话，两组的 `所有者` / `发布者` /
- *   指纹挨着排下来，**看不出哪几行属于谁**。只有一个签名者（绝大多数包）时不加——那是白占一行。
- */
-private fun signerRows(index: Int, signer: SignerInfo, indexed: Boolean): List<InfoRow> = buildList {
-    if (indexed) add(InfoRow("签名者[${index + 1}]", signer.certificate.subject))
-    addAll(certificateRows(signer.certificate))
-}
-
-/**
- * 证书 → 结果行：字段 + 两枚指纹。
- *
- * **密钥库那一页不用它**：那边打印的是 `keytool -list -v` 的原文（见 `keytoolText`）。这里留在
- * 「标签 + 值、点一下复制」这套里，是因为 APK 这一页对应的命令行（`apksigner verify --print-certs`）
- * 本来就是逐项列出来的，而用户在这儿要拿走的通常只有一条（某张证书的某个摘要）。
- */
-internal fun certificateRows(certificate: CertInfo): List<InfoRow> = buildList {
-    addAll(certificateFieldRows(certificate))
-    add(InfoRow("SHA-256", certificate.digests.sha256.toHex(separator = ":", upperCase = true), primary = true))
-    add(InfoRow("SHA-1", certificate.digests.sha1.toHex(separator = ":", upperCase = true), primary = true))
-}
-
-/**
- * 一张证书的字段：名与序都照 `keytool -list -v` 里每张证书那一块的写法（先是所有者、发布者、
- * 序列号、两个时间，再是两张指纹）。
- *
- * 这里刻意**不把 `keytool` 那个带方括号的行标写进文档**：KDoc 会把方括号当成符号引用去找，找不到
- * 就报一句「Cannot resolve symbol」（实测踩到过）。
- */
-private fun certificateFieldRows(certificate: CertInfo): List<InfoRow> = listOf(
-    InfoRow("所有者", certificate.subject),
-    InfoRow("发布者", certificate.issuer),
-    InfoRow("序列号", certificate.serial),
-    InfoRow("生效时间", formatCertDate(certificate.notBeforeMillis)),
-    InfoRow("失效时间", formatCertDate(certificate.notAfterMillis)),
-    InfoRow("签名算法名称", certificate.signatureAlgorithm),
-    InfoRow(
-        label = "主体公共密钥算法",
-        value = if (certificate.publicKeyBits > 0) {
-            "${certificate.publicKeyBits} 位 ${certificate.publicKeyAlgorithm} 密钥"
-        } else {
-            certificate.publicKeyAlgorithm
-        },
-    ),
-)
 
 /**
  * 一页的输入区：**一个** [DevToolInputField]，里面装什么由 [content] 画。
