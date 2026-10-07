@@ -487,13 +487,13 @@ class ApkSignLogicTest {
     }
 
     /**
-     * 目标位置已经有文件时**拒绝**，且一个字节都不动它。
+     * 目标位置已经有文件、又没人给过覆盖许可时：**不写**，一个字节都不动它，但**不算失败**——
+     * 报回 [CreateOutcome.Exists]，由界面把它变成一句「再点一次就覆盖」。
      *
-     * 系统保存对话框自己会问一次「要覆盖吗」，但这一页的路径框能手敲 / 粘贴，那条路不过对话框——
-     * 而密钥库盖掉就找不回来。
+     * 与 [CreateOutcome.Failed] 分开是要紧的：界面对这两件事的动作完全不同（一个是照做，一个是去改）。
      */
     @Test
-    fun `不覆盖已存在的文件`() {
+    fun `已有文件时报「撞上了」，一个字节都不动它`() {
         val file = File.createTempFile("clipper-apksign-exists-", ".p12").also { it.deleteOnExit() }
 
         val outcome = createKeyStore(
@@ -508,10 +508,106 @@ class ApkSignLogicTest {
             ),
         )
 
-        assertTrue(outcome is CreateOutcome.Failed, "$outcome")
-        assertTrue(outcome.message.contains("已经有文件"), outcome.message)
+        assertTrue(outcome is CreateOutcome.Exists, "$outcome")
+        assertEquals(file.absolutePath, outcome.outPath)
         // 没动过它：里面就算只装着一个空文件，也不该被这次调用清掉。
         assertEquals(0, file.length())
+    }
+
+    /**
+     * 覆盖确认认的是**那个路径**，不是「名字有没有被改过」。
+     *
+     * 这一条钉的就是用户报上来的那个场景：在保存对话框里挑好文件、答了「替换」，随后把容器在
+     * `.p12` 与 `.jks` 之间来回切一次——扩展名改过去又改回来，落回的还是同一个文件。按「有没有被
+     * 改过」判，许可会在这一来一回里丢掉，于是照旧被拦下。
+     */
+    @Test
+    fun `覆盖确认跟着路径走，来回切容器不会弄丢它`() {
+        val picked = KeyStoreForm(outPath = "/tmp/k.p12", confirmedOutPath = "/tmp/k.p12")
+        assertTrue(picked.overwriteConfirmed)
+
+        // 切到 JKS 再切回来：回到原来那个文件，原先那声「要覆盖」仍然算数。
+        val roundTrip = picked.withFormat(StoreFormat.Jks).withFormat(StoreFormat.Pkcs12)
+        assertEquals("/tmp/k.p12", roundTrip.outPath)
+        assertTrue(roundTrip.overwriteConfirmed, "落回同一个文件时许可不该丢")
+
+        // 真换到另一个文件：那是另一个文件，没人问过，许可作废。
+        val switched = picked.withFormat(StoreFormat.Jks)
+        assertEquals("/tmp/k.jks", switched.outPath)
+        assertFalse(switched.overwriteConfirmed)
+
+        // 手敲 / 粘贴出来的路径本来就没有许可。
+        assertFalse(KeyStoreForm(outPath = "/tmp/k.p12").overwriteConfirmed)
+    }
+
+    /**
+     * **用户在保存对话框里答过「要覆盖」时，就照盖。**
+     *
+     * 那条问句只出现在对话框里，答案得一路带到 [createKeyStore]；不带的话，用户答了「覆盖」照样被
+     * 上面那条闸拦下，而提示还让他「换个名字」——答过一次的问题再问一遍，是最容易让人失去耐心的
+     * 一种失败。
+     */
+    @Test
+    fun `对话框里确认过覆盖就照盖`() {
+        val file = File.createTempFile("clipper-apksign-overwrite-", ".p12").also { it.deleteOnExit() }
+        // 先写点东西进去，好确认确实是被覆盖了、而不是「本来就不存在」。
+        file.writeText("之前的东西")
+
+        val outcome = createKeyStore(
+            KeyStoreRequest(
+                outPath = file.absolutePath,
+                storeType = StoreFormat.Pkcs12.keyStoreType,
+                alias = "key0",
+                password = "123456".toCharArray(),
+                algorithm = KeyAlgorithm.Rsa2048,
+                validityDays = DefaultValidityDays,
+                subject = "CN=demo",
+                overwrite = true,
+            ),
+        )
+
+        assertTrue(outcome is CreateOutcome.Done, "$outcome")
+        // 真写成了密钥库：能按口令读回来，且里面就是那把钥匙。
+        val ready = readKeyStore(file.absolutePath, null, "123456".toCharArray())
+        assertTrue(ready is KeyStoreOutcome.Ready, "$ready")
+        assertEquals(listOf("key0"), ready.entries.map { it.alias })
+    }
+
+    /**
+     * 换容器时路径的扩展名跟着换；反过来，从对话框挑回来的名字也能反推出容器。
+     *
+     * 两个方向都要有，才不会出现「面板说 PKCS#12、文件名叫 `.jks`」这种自己打自己的状态。
+     */
+    @Test
+    fun `容器与文件名扩展名互相同步`() {
+        // 换容器 → 换扩展名（四种常见写法都认）。
+        assertEquals("/tmp/k.jks", withStoreExtension("/tmp/k.p12", StoreFormat.Jks))
+        assertEquals("/tmp/k.p12", withStoreExtension("/tmp/k.jks", StoreFormat.Pkcs12))
+        assertEquals("/tmp/k.jks", withStoreExtension("/tmp/k.pfx", StoreFormat.Jks))
+        assertEquals("/tmp/k.p12", withStoreExtension("/tmp/k.keystore", StoreFormat.Pkcs12))
+        // 大小写不敏感。
+        assertEquals("/tmp/k.p12", withStoreExtension("/tmp/k.JKS", StoreFormat.Pkcs12))
+        // 没有扩展名就补一个（用户把默认名那一段删掉了）。
+        assertEquals("/tmp/mykey.jks", withStoreExtension("/tmp/mykey", StoreFormat.Jks))
+        // 目录里的点不算扩展名。
+        assertEquals("/tmp/a.b/mykey.jks", withStoreExtension("/tmp/a.b/mykey", StoreFormat.Jks))
+        // 别的扩展名是用户特意写的，不抢。
+        assertEquals("/tmp/mykey.txt", withStoreExtension("/tmp/mykey.txt", StoreFormat.Jks))
+        // 还没填路径时不动它。
+        assertEquals("", withStoreExtension("", StoreFormat.Jks))
+
+        // 名字 → 容器（只用在「刚从对话框挑了个名字」那一处）。
+        assertEquals(StoreFormat.Jks, storeFormatOfPath("/tmp/k.jks"))
+        assertEquals(StoreFormat.Jks, storeFormatOfPath("/tmp/k.keystore"))
+        assertEquals(StoreFormat.Pkcs12, storeFormatOfPath("/tmp/k.p12"))
+        assertEquals(StoreFormat.Pkcs12, storeFormatOfPath("/tmp/k.pfx"))
+        assertEquals(StoreFormat.Pkcs12, storeFormatOfPath("/tmp/K.P12"))
+        // 认不出来时交给调用方保留原选项，而不是猜一个。
+        assertNull(storeFormatOfPath("/tmp/k"))
+        assertNull(storeFormatOfPath("/tmp/k.txt"))
+
+        // 两个方向接起来是稳定的：换过去再换回来，还是原来那个名字。
+        assertEquals("/tmp/k.jks", withStoreExtension(withStoreExtension("/tmp/k.p12", StoreFormat.Jks), StoreFormat.Jks))
     }
 
     /**

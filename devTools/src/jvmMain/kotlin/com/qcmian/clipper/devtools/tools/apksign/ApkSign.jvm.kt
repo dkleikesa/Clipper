@@ -88,13 +88,11 @@ internal actual fun readKeyStore(
  * 其它地方的 `Security.getProvider` 一行都不改——为一个功能改全局的算法解析顺序不划算。
  */
 internal actual fun createKeyStore(request: KeyStoreRequest): CreateOutcome = runCatching {
-    // 已有文件一律不盖：里面可能是一把**再也拿不回来**的私钥。系统保存对话框自己会问一次「要覆盖吗」，
-    // 但这一页的路径框是能**手敲 / 粘贴**的——那条路不过对话框，也就没人问过。
-    if (File(request.outPath).exists()) {
-        return CreateOutcome.Failed(
-            "这个位置已经有文件了：${request.outPath}。" +
-                "密钥库盖掉就找不回来，换个名字，或先把旧文件挪走",
-        )
+    // 已有文件、又没人给过覆盖许可（见 `KeyStoreRequest.overwrite`）：**不写**，但也不当作失败——
+    // 里面可能是一把再也拿不回来的私钥，值得再问一句，而问话是**界面**的事（那个按钮会变成
+    // 「覆盖」）。这里只把「撞上了」这件事如实报回去。
+    if (!request.overwrite && File(request.outPath).exists()) {
+        return CreateOutcome.Exists(request.outPath)
     }
 
     val keyPair = generateKeyPair(request.algorithm)

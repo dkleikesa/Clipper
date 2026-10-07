@@ -344,9 +344,13 @@ internal object ApkSignDevTool : DevTool {
         /**
          * 建一个新密钥库。
          *
-         * 成功后**直接翻到「密钥库」那一页**，并把新文件与口令填进去：那一页会把它按 `keytool` 的
-         * 样子打出来，用户立刻看见自己刚建了什么；口令也就位了，接着就能拿去签包。**不在这里自己
-         * 再画一份结果**——同一份内容两个地方画，早晚长得不一样。
+         * 成功后**就地收尾**：结论只摆在下面那句提示里（带完整路径），这一页不翻、表单也不动——
+         * 用户多半还要接着调，或者顺手再建一个，把他甩到另一页去只会让他再切回来。这一页也不自己
+         * 画一份结果：那是「密钥库」那一页的事，同一份内容两个地方画，早晚长得不一样。
+         *
+         * 也**不**顺手把新文件填进「密钥库」那一页。建一个密钥库与读一个密钥库是两件事：那一页
+         * 是「我手上这个文件里是什么」，填进去等于替用户宣布「这就是你要看的那个文件」——而他建完
+         * 可能只是收起来，也可能接着建第二个（那时填的是哪一个？）。
          */
         fun create() {
             val problem = keyStoreRequestProblem(
@@ -365,6 +369,10 @@ internal object ApkSignDevTool : DevTool {
                 host.showStatus("有效期填 $MinValidityYears 到 $MaxValidityYears 之间的年数")
                 return
             }
+            // 覆盖许可有两种来路（见 `KeyStoreRequest.overwrite`）：保存对话框里那一句「要覆盖吗」，
+            // 或者**上一次点完拿到的是「已经有文件」**——那次点击本身就是在回答那个问题（按钮那时已
+            // 经是「覆盖」）。两种都在这里合流。
+            val overwrite = form.overwriteConfirmed || createOutcome is CreateOutcome.Exists
             scope.launch {
                 creating = true
                 createOutcome = null
@@ -376,6 +384,7 @@ internal object ApkSignDevTool : DevTool {
                     algorithm = form.algorithm,
                     validityDays = years * 365,
                     subject = form.subject,
+                    overwrite = overwrite,
                 )
                 val outcome = withContext(Dispatchers.Default) { createKeyStore(request) }
                 // 口令用完就擦：`request` 里那份数组是这次运算唯一的副本（同签名那条路）。
@@ -383,15 +392,16 @@ internal object ApkSignDevTool : DevTool {
                 creating = false
                 createOutcome = outcome
                 when (outcome) {
-                    is CreateOutcome.Done -> {
-                        host.showStatus("已创建：${outcome.outPath}")
-                        keyStorePath = outcome.outPath
-                        // 口令一并填上：PKCS#12 不给口令连证书都读不出来，跳过去只会看到一片空。
-                        password = form.password
-                        tab = ApkSignTab.KeyStore
-                    }
+                    // 只有这一句状态栏提示。**不翻页、也不往「密钥库」那一页填路径与口令**：
+                    // 建一个密钥库跟读一个密钥库是两件事，这里只负责把手上这个建出来（见这个函数的
+                    // 说明）。
+                    is CreateOutcome.Done -> host.showStatus("已创建：${outcome.outPath}")
 
                     is CreateOutcome.Failed -> host.showStatus("创建失败：${outcome.message}")
+
+                    // 不弹状态栏那一句：这事要在**面板上**说（按钮跟着变成「覆盖」），一闪而过的
+                    // 提示没法承担「再点一次」这个动作。
+                    is CreateOutcome.Exists -> Unit
                 }
             }
         }
@@ -449,12 +459,26 @@ internal object ApkSignDevTool : DevTool {
 
                 ApkSignTab.New -> NewKeyStorePage(
                     form = form,
-                    onFormChange = { form = it },
+                    // 一改表单就把上一次的结论撤掉：那个「覆盖」按钮（以及它代表的那份许可）是对
+                    // **上一个路径**说的，换了路径就不再成立。
+                    onFormChange = {
+                        form = it
+                        createOutcome = null
+                    },
                     creating = creating,
                     outcome = createOutcome,
                     onPickOutPath = {
-                        host.pickFileToSave(defaultKeyStoreFileName(form.format))?.let {
-                            form = form.copy(outPath = it)
+                        host.pickFileToSave(defaultKeyStoreFileName(form.format))?.let { picked ->
+                            form = form.copy(
+                                outPath = picked,
+                                // 那个对话框问过「要覆盖吗」，用户答过了。记下**是哪个路径**上的
+                                // 回答（见 `KeyStoreForm.confirmedOutPath`）。
+                                confirmedOutPath = picked,
+                                // 名字里的扩展名反着同步一次：用户在对话框里把它写成 `.jks`，那就是
+                                // 想要 JKS。选项跟着他改，而不是继续宣称 PKCS#12 再写一个名字与内容
+                                // 对不上的文件。
+                                format = storeFormatOfPath(picked) ?: form.format,
+                            )
                         }
                     },
                     onCreate = ::create,
@@ -486,8 +510,19 @@ internal object ApkSignDevTool : DevTool {
  * 收成一个值对象而不是散成十几个 `var`：每一格都要**同时**传给页面（漏传一项就是一处死字段），
  * 整份传就只有一个口子。
  */
-private data class KeyStoreForm(
+internal data class KeyStoreForm(
     val outPath: String = "",
+    /**
+     * 用户在**系统保存对话框**里确认过的那个路径（那里问过「要覆盖吗」，他答过了）。
+     *
+     * 存**路径本身**而不是一个布尔量：判据要的是「要写的还是不是他确认过的那一个」，而不是「名字有
+     * 没有被改过」——扩展名在 `.p12` 与 `.jks` 之间来回切一次，会经历一次改、再一次改回，落到的是
+     * 同一个文件，原先那声「要覆盖」仍然算数。（按「有没有被改过」判，来回切一次就把许可弄丢了，
+     * 那正是「选了替换还是盖不掉」的一个来路。）
+     *
+     * 手敲 / 粘贴过的路径为 `null`：那条路没人被问过。见 `KeyStoreRequest.overwrite`。
+     */
+    val confirmedOutPath: String? = null,
     val format: StoreFormat = StoreFormat.Pkcs12,
     val algorithm: KeyAlgorithm = KeyAlgorithm.Rsa2048,
     val password: String = "",
@@ -503,6 +538,13 @@ private data class KeyStoreForm(
 ) {
     /** 证书那六项拼出来的 DN（见 `subjectOf`）。 */
     val subject: String get() = subjectOf(commonName, organizationalUnit, organization, locality, state, country)
+
+    /** 这一次要写的文件，用户已经给过覆盖许可（见 [confirmedOutPath]）。 */
+    val overwriteConfirmed: Boolean get() = outPath.isNotEmpty() && outPath == confirmedOutPath
+
+    /** 换容器：路径的扩展名跟着一起换（见 `withStoreExtension`）。 */
+    fun withFormat(format: StoreFormat): KeyStoreForm =
+        copy(format = format, outPath = withStoreExtension(outPath, format))
 }
 
 /** 认不出这个文件时的交代。粘贴与打开的语气不一样：一个是从剪贴板来的，一个是用户自己挑的。 */
@@ -946,8 +988,9 @@ private fun signerText(count: Int): String = when (count) {
  * 「存哪儿」，其余是需要定下来的那几项。每一项都有默认值（见 `KeyStoreForm`），进来直接点「创建」
  * 就得到一把能用的钥匙。
  *
- * 这一页**不画结果**：建完就翻到「密钥库」那一页去看它（见 `create`）。同一份内容只在一个地方画，
- * 这里的结果区只交代「还没建」与「建失败了」。
+ * 这一页**不画结果**：那是「密钥库」那一页的事，同一份内容两个地方画，早晚长得不一样；建完也不
+ * 翻过去（见 `create`）。底部那句提示只交代这条路走到了哪一步——该点创建、撞上了已有文件、建成
+ * 了（带完整路径）、还是失败了。
  */
 @Composable
 private fun NewKeyStorePage(
@@ -981,10 +1024,30 @@ private fun NewKeyStorePage(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
         ) {
-            FormRow("保存到") {
+            // 容器格式排在**第一格**：它决定这个文件是什么，而下面「保存到」那个名字是跟着它走的
+            // （「选择…」预填的扩展名随格式变）。先定格式、再挑位置，顺序与因果一致。
+            //
+            // 两个「选项」行的说明一并交给 `hint`（即**选中那项**的说明）：选项本身只留名字，
+            // 说明列跟别的行一样落在同一个 x 上，从上往下扫的时候不必中途换一次读法。
+            FormRow("容器格式", hint = form.format.advice) {
+                DevToolSegmentedControl(
+                    options = StoreFormat.entries,
+                    selected = form.format,
+                    optionLabel = { it.title },
+                    // 走 `withFormat`：扩展名跟着换，见那个函数。
+                    onSelect = { onFormChange(form.withFormat(it)) },
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // 密钥库不要跟代码放在一起：它一旦进过版本库就等于永久泄露（历史里删不干净），而这是
+            // 整个工具唯一会写盘的地方，值得多这一句。
+            FormRow("保存到", hint = "放在项目外面，别提交进仓库") {
                 DevToolSingleLineField(
                     value = form.outPath,
-                    onValueChange = { onFormChange(form.copy(outPath = it)) },
+                    // 手敲 / 粘贴的名字不再算「确认过覆盖」：这条路不过保存对话框，没人问过用户。
+                    onValueChange = { onFormChange(form.copy(outPath = it, confirmedOutPath = null)) },
                     placeholder = "选一个保存位置",
                     modifier = Modifier.weight(1f),
                 )
@@ -994,25 +1057,11 @@ private fun NewKeyStorePage(
 
             Spacer(Modifier.height(10.dp))
 
-            // 两个「选一个」的格子。说明**写进标签**（`PKCS#12 · Android 推荐`），不另起一行：
-            // 每个选项下面挂一句说明要多六行，而这一页本来就要滚——那六行会把真正要填的几格顶到
-            // 屏幕外面去。写成「名字 · 一句话」之后，两个选项的差别同样一眼可见，还只占一行。
-            FormRow("容器格式") {
-                DevToolSegmentedControl(
-                    options = StoreFormat.entries,
-                    selected = form.format,
-                    optionLabel = { "${it.title} · ${it.advice}" },
-                    onSelect = { onFormChange(form.copy(format = it)) },
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            FormRow("加密算法") {
+            FormRow("加密算法", hint = form.algorithm.advice) {
                 DevToolSegmentedControl(
                     options = KeyAlgorithm.entries,
                     selected = form.algorithm,
-                    optionLabel = { "${it.title} · ${it.advice}" },
+                    optionLabel = { it.title },
                     onSelect = { onFormChange(form.copy(algorithm = it)) },
                 )
             }
@@ -1026,12 +1075,12 @@ private fun NewKeyStorePage(
             //
             // 只填一次（不像 Android Studio 那样密钥库与别名各一对）：默认容器 PKCS#12 在格式上
             // 就要求两者相同，摆两对只会让人以为它们可以不一样。
-            FormRow("密码") {
+            FormRow("密码", hint = "至少 6 位，签名与读密钥库都要它") {
                 SecretField(
                     value = form.password,
                     onValueChange = { onFormChange(form.copy(password = it)) },
                     placeholder = "至少 6 位",
-                    modifier = Modifier.width(FormFieldWidth),
+                    modifier = Modifier.width(FormPasswordWidth),
                 )
                 DevToolActionSpacer()
                 Text("确认", fontSize = 12.sp, color = MaterialTheme.hintColor)
@@ -1042,13 +1091,16 @@ private fun NewKeyStorePage(
                     // 不给占位符：左边那个「确认」已经说清了要做什么，再写一句「再敲一遍」是在教
                     // 用户做一件他已经知道的事。
                     placeholder = "",
-                    modifier = Modifier.width(FormFieldWidth),
+                    modifier = Modifier.width(FormPasswordWidth),
                 )
             }
 
             Spacer(Modifier.height(8.dp))
 
-            FormRow("别名") {
+            // 说明说**它是什么**，不说「签名时用它挑密钥」：那是它的**用途**，而这里正在建第一把，
+            // 眼前根本没有可挑的东西——上一版这么写，第一个读到的人就问「挑什么？」。用途改由
+            // 后半句交代场景（库里不止一把时），既说清为什么要有这个名字，也不逼他现在就理解。
+            FormRow("别名", hint = "这把钥匙的名字；库里放多把时靠它区分") {
                 DevToolSingleLineField(
                     value = form.alias,
                     onValueChange = { onFormChange(form.copy(alias = it)) },
@@ -1059,9 +1111,13 @@ private fun NewKeyStorePage(
 
             Spacer(Modifier.height(8.dp))
 
-            // 到期日单独一行挂在下面。原先它与按钮挤在同一行，把「创建」顶到了窗口最右边、与这张表
-            // 完全脱节——那张图里最扎眼的一处。
-            FormRow("有效期（年）") {
+            // 到期日排在有效期那一行的**说明列**里（原先单独一行挂在下面）。它本来就是那一格的
+            // 结论，摆在同一行才看得出是谁的；早于 Play 那条线时还要标红——藏起来就等于没说。
+            FormRow(
+                label = "有效期（年）",
+                hint = expiryHintText(expiryMillis),
+                hintIsError = expiryMillis != null && expiryMillis < PlayKeyDeadlineMillis,
+            ) {
                 DevToolSingleLineField(
                     value = form.validityYears,
                     onValueChange = { onFormChange(form.copy(validityYears = it)) },
@@ -1069,11 +1125,6 @@ private fun NewKeyStorePage(
                     modifier = Modifier.width(64.dp),
                 )
             }
-            FormHint(
-                text = expiryHintText(expiryMillis),
-                // 早于 Play 那条线时标红：这条结论当场就能用，藏起来就等于没说。
-                isError = expiryMillis != null && expiryMillis < PlayKeyDeadlineMillis,
-            )
 
             Spacer(Modifier.height(14.dp))
 
@@ -1083,74 +1134,81 @@ private fun NewKeyStorePage(
             // 五格空着，用户一定会问「这些要不要填」——就在这儿回答，别让他去猜、也别让他去试。
             FormHint("除了姓名，其余都可以不填")
 
-            CertificateField("姓名", form.commonName) { onFormChange(form.copy(commonName = it)) }
-            CertificateField("部门", form.organizationalUnit) { onFormChange(form.copy(organizationalUnit = it)) }
-            CertificateField("组织", form.organization) { onFormChange(form.copy(organization = it)) }
-            CertificateField("城市或地区", form.locality) { onFormChange(form.copy(locality = it)) }
-            CertificateField("省份", form.state) { onFormChange(form.copy(state = it)) }
-            CertificateField("国家代码", form.country) { onFormChange(form.copy(country = it)) }
+            CertificateField("姓名", "证书上的名字（CN）", form.commonName) {
+                onFormChange(form.copy(commonName = it))
+            }
+            CertificateField("部门", "组织下面的部门（OU）", form.organizationalUnit) {
+                onFormChange(form.copy(organizationalUnit = it))
+            }
+            CertificateField("组织", "公司 / 团队（O）", form.organization) {
+                onFormChange(form.copy(organization = it))
+            }
+            CertificateField("城市或地区", "城市（L）", form.locality) {
+                onFormChange(form.copy(locality = it))
+            }
+            CertificateField("省份", "省 / 州（ST）", form.state) {
+                onFormChange(form.copy(state = it))
+            }
+            CertificateField("国家代码", "两位，如 CN（C）", form.country) {
+                onFormChange(form.copy(country = it))
+            }
         }
 
         // 动作行钉在底部：说明与按钮**同一行**，说明在左、可能折行（占掉剩余宽度），按钮在右。
+        // 撞上已有的文件：这是**在问一句**，而不是报错——按钮已经变成「覆盖」，再点一次就写下去。
+        val askingOverwrite = outcome is CreateOutcome.Exists
         val footerNote = when {
             creating -> "正在生成密钥对、签证书、写文件…"
             outcome is CreateOutcome.Failed -> outcome.message
-            // 建完会自动翻到「密钥库」那一页，所以这一支其实只在「翻回来」时看得到——留着比删掉好：
-            // 那时用户多半正是想再建一个。
+            outcome is CreateOutcome.Exists ->
+                "这个位置已经有文件了。要覆盖它就再点一次——密钥库盖掉就找不回来"
+            // 建完不翻页（见 `create()`），所以这一句就是用户看到的**结果**：成功，以及它在哪。
             outcome is CreateOutcome.Done -> "已创建 ${outcome.outPath}"
             problem != null -> problem
             else -> ""
         }
         // 只有**真试过并且失败**才用错误色。表单还没填完不算「错」——那张表一打开就红着一句
-        // 「先选一个保存位置」，读起来是在训人，而它其实只是「下一步该点哪儿」。
+        // 「先选一个保存位置」，读起来是在训人，而它其实只是「下一步该点哪儿」；「已经有文件」
+        // 也不是错，照它做就行。
         val footerIsError = outcome is CreateOutcome.Failed
 
         Spacer(Modifier.height(10.dp))
         DevToolSectionDivider()
         Spacer(Modifier.height(10.dp))
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = footerNote,
-                fontSize = 11.sp,
-                color = if (footerIsError) MaterialTheme.colorScheme.error else MaterialTheme.hintColor,
-                // 占掉剩余宽度：长句子在这一行里折行，不会把按钮挤走、也不会被省略号吃掉。
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(12.dp))
-            DevToolButton(
-                title = if (creating) "创建中…" else "创建",
-                onClick = onCreate,
-                // **点得动**：填得不对时点一下，左边那句就换成「哪儿不对」。原先这个按钮一直灰着，
-                // 而解释它为什么灰的提示在窗口最底下、常常看不见——一个点不动又不说明原因的按钮
-                // 是最难受的一种控件。
-                enabled = !creating,
-                primary = true,
-            )
-        }
+        // 按钮**自己占一行**，摆在提示上面，左缘与整张表的标签列对齐。
+        //
+        // 之前它与那句提示挤在同一行：提示吃掉剩余宽度、按钮被顶到窗口最右边，隔着大半屏空白，跟
+        // 上面那张表是断开的（「位置那么偏」）。挪到自己一行之后，「填完 → 点创建 → 读下面那句
+        // 结果」是从上往下的一条线，而这句结果本来就是在说这次点击。
+        DevToolButton(
+            // 撞上已有文件时按钮就叫「覆盖」：这一下点下去要发生什么，写在按钮上，而不是让用户从
+            // 提示里自己推。
+            title = when {
+                creating -> "创建中…"
+                askingOverwrite -> "覆盖"
+                else -> "创建"
+            },
+            onClick = onCreate,
+            // **点得动**：填得不对时点一下，下面那句就换成「哪儿不对」。原先这个按钮一直灰着，
+            // 而解释它为什么灰的提示在窗口最底下、常常看不见——一个点不动又不说明原因的按钮
+            // 是最难受的一种控件。
+            enabled = !creating,
+            primary = true,
+        )
+
+        Spacer(Modifier.height(6.dp))
+
+        Text(
+            text = footerNote,
+            fontSize = 11.sp,
+            color = if (footerIsError) MaterialTheme.colorScheme.error else MaterialTheme.hintColor,
+        )
     }
 }
 
 /** 表单的标签列宽度。按最长的那条（`有效期（年）`）定。 */
 private val FormLabelWidth = 88.dp
-
-/**
- * 挂在某格下面的说明（「保存到」下面那句容器规矩、有效期下面那个到期日）。
- *
- * 缩进到标签列右侧，才读得出它是**上面那一格**的说明、而不是下一行的标签。
- *
- * 用到的这两处**都不许写 Markdown 记号**：这些字是原样画出来的，`**` 与反引号会一个不落地显示
- * 出来（占位符里踩过一次，图里看得很清楚）。
- */
-@Composable
-private fun FormHint(text: String, isError: Boolean = false) {
-    Text(
-        text = text,
-        fontSize = 11.sp,
-        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.hintColor,
-        modifier = Modifier.padding(start = FormLabelWidth, top = 4.dp),
-    )
-}
 
 /**
  * 表单里一个输入格的宽度。
@@ -1161,12 +1219,44 @@ private fun FormHint(text: String, isError: Boolean = false) {
 private val FormFieldWidth = 300.dp
 
 /**
- * 表单的一行：左边一列固定宽度的标签，右边是控件。
+ * 密码那两个框的宽度。
  *
- * 标签列宽度固定，右边各项的左缘才对齐——与结果列表那一列同一个道理。
+ * 比别的格窄：它们**并排两个**还要在右边留出说明列的位置，两个 [FormFieldWidth] 会顶出去。窄一点
+ * 也不碍事——里面只有点，不读内容。
+ */
+private val FormPasswordWidth = 170.dp
+
+/**
+ * 输入列的宽度：**固定**，说明列才起得来。
+ *
+ * 说明排在输入框**后面**，而它要能从上往下对齐着扫，起点就不能跟着每行的控件宽度跑：`密码` 那一行
+ * 是两个框，`加密算法` 那一行是一个分段控件，各自宽度都不同。所以把内容这一格钉成固定宽度（控件
+ * 本身仍在里面左对齐），说明列于是落在同一个 x 上。
+ *
+ * 420dp 是按这一页最宽的一行定的（`密码` 那两个框 + 中间那个「确认」）。
+ */
+private val FormContentWidth = 420.dp
+
+/** 输入列与说明列之间的间隔。 */
+private val FormHintGap = 14.dp
+
+/**
+ * 表单的一行：标签列 + 输入列 + 说明列。
+ *
+ * 说明放在**输入框后面**，不另起一行：只有一两条时「下一行」那种写法还行，一旦每格都有说明，满页
+ * 就是「说明 → 输入 → 说明 → 输入」，上下两组谁属于谁要靠位置猜。并到一行之后，每一行自成一条
+ * 「这项叫什么 → 填什么 → 什么意思」，从上往下读就是完整的。
+ *
+ * [hint] 里**不许写 Markdown 记号**：这些字是原样画出来的，`**` 与反引号会一个不落地显示出来
+ * （占位符里踩过一次，图里看得很清楚）。
  */
 @Composable
-private fun FormRow(label: String, content: @Composable RowScope.() -> Unit) {
+private fun FormRow(
+    label: String,
+    hint: String? = null,
+    hintIsError: Boolean = false,
+    content: @Composable RowScope.() -> Unit,
+) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = label,
@@ -1174,19 +1264,57 @@ private fun FormRow(label: String, content: @Composable RowScope.() -> Unit) {
             color = MaterialTheme.hintColor,
             modifier = Modifier.width(FormLabelWidth),
         )
-        content()
+        // 定宽的一栏把控件围住：控件自己在里面左对齐，说明列的起点因此与控件宽度无关。
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.width(FormContentWidth),
+        ) {
+            content()
+        }
+        if (hint != null) {
+            Text(
+                text = hint,
+                fontSize = 11.sp,
+                color = if (hintIsError) MaterialTheme.colorScheme.error else MaterialTheme.hintColor,
+                modifier = Modifier.padding(start = FormHintGap),
+            )
+        }
     }
 }
 
 /**
- * 一格里的一张证书项。六项除了标签与取值完全是同一件事，收成一处免得写六遍一样的行。
+ * 挂在**一块表头下面**的说明（目前只有「证书」那一块：那五格要不要填，是整组的问题，不属于任何
+ * 单独一格）。
+ *
+ * 单格的说明走 [FormRow] 的 `hint`，不在下面另起一行。
+ */
+@Composable
+private fun FormHint(text: String) {
+    Text(
+        text = text,
+        fontSize = 11.sp,
+        color = MaterialTheme.hintColor,
+        modifier = Modifier.padding(start = FormLabelWidth, top = 4.dp),
+    )
+}
+
+/**
+ * 一格里的一张证书项。六项除了标签、说明与取值完全是同一件事，收成一处免得写六遍一样的行。
  *
  * 宽度用 [FormFieldWidth] 而不是铺满：六格铺满会拉成六条通栏横条，读起来像六块区域而不是一张表；
  * 而这一页只有「保存到」那一行需要占满（路径长）。
+ *
+ * [hint] 里那个括号是这几格存在的理由：`部门` / `组织` 这两个中文词谁也分不出区别，而它们在
+ * 证书里差着 DN 的一层——把 `OU` / `O` 摆出来，对得上别人给的规格，也对得上 keytool 的输出。
  */
 @Composable
-private fun CertificateField(label: String, value: String, onValueChange: (String) -> Unit) {
-    FormRow(label) {
+private fun CertificateField(
+    label: String,
+    hint: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+) {
+    FormRow(label, hint = hint) {
         DevToolSingleLineField(
             value = value,
             onValueChange = onValueChange,

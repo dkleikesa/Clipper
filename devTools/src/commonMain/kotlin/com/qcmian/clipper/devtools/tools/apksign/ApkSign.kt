@@ -252,13 +252,24 @@ internal sealed interface SignOutcome {
 internal enum class KeyAlgorithm(
     val title: String,
     /**
-     * 选它意味着什么，**给不熟悉这几个缩写的人看**——界面上紧跟名字，是选项标签的一部分。
+     * 选它意味着什么，**给不熟悉这几个缩写的人看**——显示在选项右边那一列（表单的说明列），给的是
+     * 当前选中那一项的说法。
      *
-     * 短，是因为它只能占一行：摆成四个选项、每个下面再挂一句长说明，下面的输入格就被顶到屏幕外
-     * 去了（这一页本来就要滚）。四个字能说清的差别就别写一句。
+     * 半句说**适用范围**、半句说它和别的差在哪：
      *
-     * 只写对得上事实的差别：「通行程度」「快慢」「密钥长短」。刻意**不写**「Android x 起支持」
-     * 这类版本号——那是另一个量级的事实核查，而这里只需要让人能选下来。
+     *  - 适用范围就是那些版本号，两个 [signatureAlgorithm] 各对应一种；数字的出处是 apksig 自己的
+     *    `SignatureAlgorithm` 表（`mJcaSigAlgMinSdkVersion` 一列）——AOSP 用它决定**能不能给这个
+     *    包签名**，也就是「哪些 Android 版本验得了」：`SHA256withRSA` 是 `INITIAL_RELEASE`(API 1)，
+     *    `SHA256withECDSA` 是 `HONEYCOMB`(API 11)。v2 / v3 那种带签名的块两边一样，都是 `N`(API
+     *    24)，所以差别只在 v1（JAR 签名）那一层。
+     *  - 另一半必须是别的差别：只写适用范围的话，`RSA 2048` 与 `RSA 4096` 会一模一样、
+     *    `EC P-256` 与 `EC P-384` 也是——那一列就不再帮人做选择了。
+     *
+     * 短，是因为它只占一行、且一列要对齐：四个选项各挂一句长说明，说明列会被撑得很宽，窗口一窄
+     * 就折行——而这一列的价值全在「从上往下对齐着扫」上。
+     *
+     * **不写 Play 收不收**：官方那张签名页只说有效期要过 2033-10-22 与口令强度，对算法一个字没有。
+     * 没有出处的话不进这里——它会被当成事实读。
      */
     val advice: String,
     /** 交给 `KeyPairGenerator` 的算法名。 */
@@ -270,10 +281,10 @@ internal enum class KeyAlgorithm(
     /** **这张证书自己**用的签名算法（谁给它盖的章）。 */
     val signatureAlgorithm: String,
 ) {
-    Rsa2048("RSA 2048", "最通行", "RSA", 2048, null, "SHA256withRSA"),
-    Rsa4096("RSA 4096", "强度更高", "RSA", 4096, null, "SHA256withRSA"),
-    EcP256("EC P-256", "密钥短、快", "EC", 256, "secp256r1", "SHA256withECDSA"),
-    EcP384("EC P-384", "更强", "EC", 384, "secp384r1", "SHA384withECDSA"),
+    Rsa2048("RSA 2048", "Android 全版本；最常用", "RSA", 2048, null, "SHA256withRSA"),
+    Rsa4096("RSA 4096", "Android 全版本；强度更高、更慢", "RSA", 4096, null, "SHA256withRSA"),
+    EcP256("EC P-256", "Android 3.0 起；密钥短、签名快", "EC", 256, "secp256r1", "SHA256withECDSA"),
+    EcP384("EC P-384", "Android 3.0 起；强度更高", "EC", 384, "secp384r1", "SHA384withECDSA"),
 }
 
 /**
@@ -282,16 +293,67 @@ internal enum class KeyAlgorithm(
  * `PKCS#12` 排在前：它是行业标准（JDK 9 起 `KeyStore` 的默认类型），而 `JKS` 只在对接老工具时
  * 才需要——它的私钥是拿 `PBEWithMD5AndTripleDES` 加密的，`keytool` 自己都会在末尾提醒换掉。
  *
- * [advice] 写在选项标签里（`PKCS#12 · Android 推荐`），两个选项的差别一眼可见——`JKS` 的 3DES
- * 那点细节不进标签（太长），它在两处本来就会露出来：读一个 JKS 时那段 `Warning:`，以及 `keytool`。
+ * [advice] 显示在**选项右边那一列**（即表单的说明列，见 `FormRow`），给的是**当前选中**那一项的
+ * 说法：一条说**它是什么**，另一条说**什么时候才该选它**——后者才是真正要回答的问题（默认已经落
+ * 在 PKCS#12 上，用户要做的是判断「我要不要改」）。
+ *
+ * 刻意不写「Android 推荐」这种话：Android Studio 那张新建对话框产出的就是 `.jks`，说 Android 推荐
+ * PKCS#12 与用户手边看到的东西是反的。建议来自 **JDK / keytool**（JDK 9 起 `KeyStore` 的默认类型，
+ * 且会打印迁移提示），不是 Android。`JKS` 的 3DES 那点细节也不进标签（太长），它在两处本来就会
+ * 露出来：读一个 JKS 时那段 `Warning:`，以及 `keytool`。
  */
 internal enum class StoreFormat(
     val title: String,
     val advice: String,
     val keyStoreType: String,
+    /** 文件名惯用的扩展名（不含点）。认与写用的是同一份，见 [storeFormatOfPath] / [withStoreExtension]。 */
+    val extension: String,
 ) {
-    Pkcs12("PKCS#12", "Android 推荐", "PKCS12"),
-    Jks("JKS", "Java 通用", "JKS"),
+    Pkcs12("PKCS#12", "行业标准", "PKCS12", "p12"),
+    Jks("JKS", "老格式，只在对接老工具时用", "JKS", "jks"),
+}
+
+/** 密钥库文件认得的扩展名。`pfx` 是 PKCS#12 在 Windows 那边的写法，`keystore` 是老项目里的惯用名。 */
+private val KeyStoreExtensions = setOf("p12", "pfx", "jks", "keystore")
+
+/**
+ * 路径的扩展名暗示的是哪一种容器；认不出来（没有扩展名、或别的扩展名）时 `null`。
+ *
+ * 只用在**用户刚从保存对话框里挑了个名字**那一处：他在那儿把名字写成 `.jks`，就是想要 JKS——面板
+ * 跟着改过来，总比继续宣称 `PKCS#12`、再写一个内容与名字对不上的文件好。
+ *
+ * 这**不是**一条「扩展名决定容器」的规矩：容器始终由选项说了算，这里只是让选项追上用户已经做出的
+ * 选择。路径框里手敲的名字走的是另一条路（那边不动）——对话框那一次是**明确的选择**，敲字不是。
+ */
+internal fun storeFormatOfPath(outPath: String): StoreFormat? =
+    when (outPath.substringAfterLast('/').substringAfterLast('.', "").lowercase()) {
+        "jks", "keystore" -> StoreFormat.Jks
+        "p12", "pfx" -> StoreFormat.Pkcs12
+        else -> null
+    }
+
+/**
+ * 把路径的扩展名换成这个容器的扩展名。
+ *
+ * 换容器时用（见 `KeyStoreForm.withFormat`）：容器由**选项**说了算，路径的扩展名只是它的投影——
+ * 切了容器而名字还写着另一个，等于留一句自己打自己的话。
+ *
+ * 三种情况分开处理：
+ *  - 名字本来就是密钥库的扩展名（[KeyStoreExtensions]）→ 换掉；
+ *  - 名字没有扩展名（`/tmp/mykey`）→ 补上（这里多半是用户删掉了默认名里那一段）；
+ *  - 名字是别的扩展名（`/tmp/mykey.txt`）→ **不动**：那是用户特意写的，不抢。
+ *
+ * 只看**最后一段**，所以 `/Users/a.b/mykey` 里那个点不算扩展名。
+ */
+internal fun withStoreExtension(outPath: String, format: StoreFormat): String {
+    if (outPath.isBlank()) return outPath
+    val name = outPath.substringAfterLast('/')
+    val dot = name.lastIndexOf('.')
+    // 没有扩展名（`mykey`），或者整段名字就是个 `.jks` 这样的隐藏文件：都当没有扩展名，补一个。
+    if (dot <= 0) return "$outPath.${format.extension}"
+    if (name.substring(dot + 1).lowercase() !in KeyStoreExtensions) return outPath
+    // `take` 到那个点（含）为止，再接到新扩展名上。
+    return outPath.take(outPath.length - name.length + dot + 1) + format.extension
 }
 
 /**
@@ -311,6 +373,14 @@ internal class KeyStoreRequest(
     val validityDays: Int,
     /** 主题，keytool 的 `-dname`：RFC 2253 的 `CN=…, O=…, C=…`。 */
     val subject: String,
+    /**
+     * 这一次要写的文件，用户**已经给过覆盖许可**。
+     *
+     * 许可是两处来的：系统保存对话框里那句「要覆盖吗」（用户答过了），或者上一次点「创建」拿到的是
+     * [CreateOutcome.Exists]、这次点的是那个已变成「覆盖」的按钮。默认 `false`——路径框能手敲、能
+     * 手粘，那条路没有人问过用户，而盖掉一个可能装着**再也拿不回来的私钥**的文件不能算数。
+     */
+    val overwrite: Boolean = false,
 )
 
 /** 新建的结果。 */
@@ -318,6 +388,17 @@ internal sealed interface CreateOutcome {
     class Done(val outPath: String) : CreateOutcome
 
     class Failed(val message: String) : CreateOutcome
+
+    /**
+     * 目标位置已经有文件，而这一次**没有人**给过覆盖许可。
+     *
+     * 它不是失败：**能**盖，只是要再问一句（那里面可能是一把再也拿不回来的私钥）。交给界面去问
+     * ——面板上那个按钮这时候变成「覆盖」，再点一次就带着 [KeyStoreRequest.overwrite] 回来。
+     *
+     * 与 [Failed] 分开是有意的：两者在界面上要做的事完全不同（一个是「再点一次就行」，一个是「去
+     * 改点什么」）。混成一句话让界面去认字符串，就等着哪天改一个字全坏掉。
+     */
+    class Exists(val outPath: String) : CreateOutcome
 }
 
 /** 新建一个密钥库，写到 [KeyStoreRequest.outPath]。 */
@@ -743,10 +824,7 @@ internal fun keyStoreRequestProblem(
  * 扩展名不影响能不能用（容器类型看魔数，不看名字），但它是「这个文件是什么」唯一一眼能看出来的
  * 那点信息，写错只是给以后添一次误解。
  */
-internal fun defaultKeyStoreFileName(format: StoreFormat): String = when (format) {
-    StoreFormat.Pkcs12 -> "release-key.p12"
-    StoreFormat.Jks -> "release-key.jks"
-}
+internal fun defaultKeyStoreFileName(format: StoreFormat): String = "release-key.${format.extension}"
 
 /**
  * 另存为时预填的文件名：`app-release.apk` → `app-release-signed.apk`。
