@@ -64,6 +64,16 @@ kotlin {
         // 不认识平台。将来要接别的平台，补一个 actual 即可，界面一行都不用动。
         jvmMain.dependencies {
             implementation(libs.zxing.core)
+
+            // APK 签名 / 验签（见 `tools/apksign/`）。与 ZXing 同类：apksig 是 Java 库（AOSP 的
+            // `apksigner` 内核），没有 KMP 制品，只能落在 jvmMain；而它签名要用 `java.util.zip`
+            // 与 `java.security`，本来也只有 JVM 给得出。零传递依赖，不把 Android SDK 拖进来。
+            implementation(libs.apksig)
+
+            // 新建密钥库时签那张自签证书。同样只有 JVM 版本（bcprov / bcpkix 都不出 KMP 制品），
+            // 而且**刻意不用全局注册提供方**（`Security.addProvider`）：那会改掉整个进程里
+            // `Signature.getInstance` 的解析顺序，为一个功能改全局不划算。用法见 `ApkSign.jvm.kt`。
+            implementation(libs.bcpkix)
         }
 
         // 代码显示层里能脱离组合环境的部分（JSON 扫描器、显示变换与偏移映射）直接单测：

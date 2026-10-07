@@ -1,4 +1,11 @@
 [versions]
+# APK 签名 / 验签：AOSP 的 apksig，也就是 `apksigner` 的内核。纯 Java、**零传递依赖**，
+# 桌面端因此不必装 Android SDK 就能签名。版本号跟 AGP 走（同一个发布线）。
+apksig = "9.4.1"
+# 新建密钥库时签那张自签证书。JDK **没有**公开的「造一张 X.509 证书」API（`CertAndKeyGen` /
+# `X509CertImpl` 都在不导出的 `sun.security.x509` 里，JDK 17 起连反射都进不去），所以用
+# BouncyCastle。密钥对本身仍是 JDK 的 `KeyPairGenerator` 生成，只有「签证书」这一步走它。
+bcpkix = "1.86"
 androidx-lifecycle = "2.11.0-beta01"
 composeMultiplatform = "1.11.1"
 jna = "5.14.0"
@@ -26,6 +33,11 @@ kotlincrypto-hash = "0.8.0"
 zxing = "3.5.3"
 
 [libraries]
+# APK 签名 / 验签：`ApkSigner` 与 `ApkVerifier` 都在里面，v1 / v2 / v3 三种方案齐全。
+apksig = { module = "com.android.tools.build:apksig", version.ref = "apksig" }
+# 新建密钥库：`X509v3CertificateBuilder` / `JcaContentSignerBuilder` 在 bcpkix 里，
+# `bcprov`（密码学原语）是它的传递依赖，不用单独写。
+bcpkix = { module = "org.bouncycastle:bcpkix-jdk18on", version.ref = "bcpkix" }
 androidx-lifecycle-viewmodelCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
 androidx-lifecycle-runtimeCompose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "composeMultiplatform" }
