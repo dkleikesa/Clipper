@@ -212,7 +212,7 @@ fun ApplicationScope.DatabaseUnlockWindow(onUnlocked: () -> Unit) {
                                         password = it
                                         error = null
                                     },
-                                    label = { Text("口令") },
+                                    label = { Text("密码") },
                                     singleLine = true,
                                     enabled = !working,
                                     isError = message != null,
@@ -228,7 +228,7 @@ fun ApplicationScope.DatabaseUnlockWindow(onUnlocked: () -> Unit) {
                                     // 的说明（与设置页「历史上限」的 supportingText 同款）。
                                     supportingText = {
                                         Text(
-                                            text = message ?: "口令不会保存，每次启动都需要输入。",
+                                            text = message ?: "密码不会保存，每次启动都需要输入。",
                                             color = if (message != null) colors.error else MaterialTheme.hintColor,
                                         )
                                     },

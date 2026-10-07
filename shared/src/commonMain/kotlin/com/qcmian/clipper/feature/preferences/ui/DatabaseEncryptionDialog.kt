@@ -94,7 +94,7 @@ internal fun DatabaseEncryptionDialog(
 
                 PasswordField(
                     value = password,
-                    label = if (prompt.enabled) "新口令" else "当前口令",
+                    label = if (prompt.enabled) "新密码" else "当前密码",
                     enabled = !prompt.working,
                     onValueChange = {
                         password = it
@@ -104,7 +104,7 @@ internal fun DatabaseEncryptionDialog(
                 if (prompt.enabled) {
                     PasswordField(
                         value = confirmation,
-                        label = "确认口令",
+                        label = "确认密码",
                         enabled = !prompt.working,
                         onValueChange = {
                             confirmation = it
