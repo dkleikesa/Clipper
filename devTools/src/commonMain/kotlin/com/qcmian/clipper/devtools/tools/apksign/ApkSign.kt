@@ -208,6 +208,15 @@ internal sealed interface VerifyOutcome {
         val signers: List<SignerInfo>,
         val errors: List<String>,
         val warnings: List<String>,
+        /**
+         * 这个包的**密钥轮替链**（proof-of-rotation）；没轮替过时是空的，顺序是**原始证书在前、
+         * 当前在末位**（apksig 的排法：每一代都为自己的下一代作证）。
+         *
+         * 与 [signers] 有重叠但各有各的用途：[signers] 只放「当前真正在签的那一张」（`keytool
+         * -printcert -jarfile` 也只打它，结果区要跟那份原文逐字对齐），链上更早的那几张只在这里
+         * 露出来——而各平台注册要的常常正是最早那张。
+         */
+        val rotation: List<CertInfo>,
     ) : VerifyOutcome
 
     /** 读不了这个文件（不是 ZIP、截断、不是 APK）。 */
@@ -230,14 +239,63 @@ internal class SignRequest(
     val keyAlias: String,
     val keyPassword: CharArray,
     val schemes: Set<SignScheme>,
+    /**
+     * 签名时当作包的 `minSdkVersion` 用；`null` = **让 apksig 自己去包里读**——工具走的就是这一条
+     * （它读的是 `AndroidManifest.xml` 里那个值，与 `apksigner` 不指定 `--min-sdk-version` 时一样）。
+     *
+     * 摆在这里是给测试当入口（同 `GlobalHotKeyController` 的 `now`）：没有真包时，apksig 会停在
+     * 「读不到 `AndroidManifest.xml`」上，而轮替那一路的分档要一个值才走得下去。
+     */
+    val minSdkVersion: Int? = null,
+    /**
+     * 密钥轮替：把包从 [RotationRequest] 里那把**当前密钥**接到上面这把新钥上；不做轮替时为 `null`。
+     */
+    val rotation: RotationRequest? = null,
+)
+
+/**
+ * 密钥轮替里的「当前密钥」——这个包**现在**用的那把钥。
+ *
+ * 为什么轮替非要有它，而且非要有它的**私钥**：新钥要合法地接替旧钥，靠的是旧钥亲笔签下「旧 → 新」
+ * 这一跳（apksig 的 proof-of-rotation 就是这么一段一段攒起来的）。没有旧私钥，这一步根本无从谈起
+ * ——这是轮替最容易被误解的地方：它不是「换一把钥重新签一遍」。
+ *
+ * 它还多担一件事：**低版本那一层仍由它签**（v1 / v2 / 3.0），所以没升级到 Android 13 的设备看到的
+ * 还是它们本来就认识的那把钥，照样能更新（见 `signApk` 里的说明）。
+ */
+internal class RotationRequest(
+    val keystorePath: String,
+    /** `null` = 按魔数认（见 [storeTypeFromMagic]）。 */
+    val storeType: String?,
+    val storePassword: CharArray,
+    val keyAlias: String,
+    val keyPassword: CharArray,
 )
 
 /** 签名的结果。 */
 internal sealed interface SignOutcome {
-    class Done(val outPath: String) : SignOutcome
+    /**
+     * 签好了。
+     *
+     * [lineage] 是这次轮替攒出来的**整条轮替链**（没轮替时为 `null`）：它已经写进包里，但**该单独再
+     * 存一份**——「以后再接着轮替」用的就是它（见 `lineageFileNameOf`）。
+     */
+    class Done(val outPath: String, val lineage: ByteArray? = null) : SignOutcome
 
     class Failed(val message: String) : SignOutcome
 }
+
+/**
+ * 轮替链存到哪：**紧挨着签出来的包**，名字在包的完整文件名后面接 `.lineage`
+ * （`app-release-signed.apk.lineage`）。
+ *
+ * 与 v4 的 `.idsig` 同一套摆法（`app.apk` 配 `app.apk.idsig`）：看到其中一半，就知道另一半在哪。
+ *
+ * 它**不是签名时的输入**（链在签名那一刻由两把钥现造，见 `rotationLineage`），只是把「旧钥接过新钥」
+ * 这件事单独留一份档：以后再要接着轮替，apksig 得先有整条老链（那个包还在的话，也能用
+ * `SigningCertificateLineage.readFromApkFile` 从包里读回来）。所以两边各存一份，谁还在都行。
+ */
+internal fun lineageFileNameOf(signedApkPath: String): String = "$signedApkPath.lineage"
 
 /**
  * 新建密钥库时能挑的密钥规格——只给 Android 生态里真在用的这四种。
@@ -667,6 +725,35 @@ private fun publicKeyAlgorithmText(certificate: CertInfo): String =
         certificate.publicKeyAlgorithm
     }
 
+/** 轮替链上的一行：一种写法（`原始·SHA-256`）配那一串指纹。 */
+internal class RotationFingerprint(val label: String, val value: String)
+
+/**
+ * 轮替链要摆出来的那几行：**一行一种写法**，标签里写清这张证书在链上的位置。
+ *
+ * 为什么要标「原始 / 当前」：这两张的指纹长得几乎一样，而各平台注册要的是哪一张并不统一（Google
+ * Play 那份认原始那张，Firebase 这类填当前那张）。靠肉眼在结果区里数「第几块证书」去分辨，抄错一个
+ * 字节就要重跑一趟——位置必须写在标签里。
+ *
+ * 两枚摘要都给：`keytool` 只给 SHA1 / SHA256，而各平台要的恰好在这两枚之间来回（老平台要 SHA-1，
+ * 新的要 SHA-256）。
+ *
+ * 标签短到一行放得下（标签列只有 92dp）：`第2张·SHA-256` 已经贴着上限，所以中间那段也不加空格。
+ *
+ * 纯函数，所以 `jvmTest` 不必造一个真轮替过的包就能把「哪一行是谁」钉住。
+ */
+internal fun rotationFingerprints(chain: List<CertInfo>): List<RotationFingerprint> = buildList {
+    chain.forEachIndexed { index, certificate ->
+        val who = when (index) {
+            0 -> "原始"
+            chain.lastIndex -> "当前"
+            else -> "第${index + 1}张"
+        }
+        add(RotationFingerprint("$who·SHA-1", certificate.digests.sha1.toHex(separator = ":")))
+        add(RotationFingerprint("$who·SHA-256", certificate.digests.sha256.toHex(separator = ":")))
+    }
+}
+
 private const val HexUpper = "0123456789ABCDEF"
 private const val HexLower = "0123456789abcdef"
 
@@ -841,6 +928,56 @@ internal fun keyStoreRequestProblem(
 
     else -> subjectProblem(subject)
 }
+
+/**
+ * 轮替这一栏还差什么；齐全时返回 `null`。纯函数，所以 `jvmTest` 不必造密钥库就能把每一条钉住。
+ *
+ * 话术里说的 `KeyStore` 就是页面上那一行的名字（轮替时它是「这个包现在用的」那一把，另一行叫
+ * `新KeyStore`，见 `ApkSignDevTool` 里那个 `newKeyName`）。
+ *
+ * 判据里唯一不显然的是最后一条：**它必须是这个包现在签名用的那把**。选错了在签名那一刻**不会报
+ * 任何错**——apksig 照样能造出一条从这把钥出发的链、签出一个处处合法的包——但那条链的起点不是设备
+ * 认得的那张证书，于是升级会被平台拒掉，而且是在包发出去之后才知道。所以这里当面比一次。
+ *
+ * @param apkSigner 这个包**现在**的签名证书；包还没签名、或没读出来时为 `null`。
+ * @param alreadyRotated 这个包**已经轮替过**（链上不止一代）。
+ * @param currentEntry 选中的那把 `KeyStore` 条目；没读出来时为 `null`。
+ * @param keystoreFailed 那把钥的 KeyStore 读不出来（具体原因在状态栏，这里只说这一件事）。
+ */
+internal fun rotationProblem(
+    apkSigner: CertInfo?,
+    alreadyRotated: Boolean,
+    keystorePath: String?,
+    keystoreFailed: Boolean,
+    currentEntry: KeyStoreEntry?,
+    password: String,
+): String? = when {
+    // 排在只比它轻的那些判据前面：包已经轮替过是**做什么都没用**的一条，先说了不必让人白填一遍。
+    alreadyRotated -> "这个包已经轮替过一次，本工具只做第一次轮替"
+
+    apkSigner == null -> "轮替要从一个已经签过名的包接过去——这个包现在没有签名"
+
+    keystorePath == null -> "需要选 KeyStore——这个包现在用的那把"
+
+    keystoreFailed -> "KeyStore 无法读取"
+
+    currentEntry == null || !currentEntry.isKeyEntry -> "KeyStore 里没有可用于签名的私钥条目"
+
+    password.isEmpty() -> "需要填写 KeyStore 的密码"
+
+    !sameCertificate(apkSigner, currentEntry.certificate) -> "KeyStore 和这个包现在的签名对不上"
+
+    else -> null
+}
+
+/**
+ * 两份摘要指的是不是同一张证书。
+ *
+ * 比摘要而不是比证书本身：走到这一层时两边都只剩 [CertInfo]（读密钥库与验签各转了一次），手里没有
+ * `X509Certificate` 可留。SHA-256 认错一张证书的概率可以当零。
+ */
+internal fun sameCertificate(a: CertInfo?, b: CertInfo?): Boolean =
+    a != null && b != null && a.digests.sha256.contentEquals(b.digests.sha256)
 
 /**
  * 新建时保存对话框里预填的文件名：跟着容器走——`PKCS#12` 给 `.p12`，`JKS` 给 `.jks`。

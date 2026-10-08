@@ -3,6 +3,7 @@ package com.qcmian.clipper.devtools.tools.apksign
 import com.android.apksig.ApkSigner
 import com.android.apksig.ApkVerifier
 import com.android.apksig.KeyConfig
+import com.android.apksig.SigningCertificateLineage
 import java.io.File
 import java.io.IOException
 import java.math.BigInteger
@@ -184,8 +185,11 @@ internal actual fun verifyApk(path: String): VerifyOutcome = runCatching {
     // 密钥轮换过的包会带一条「证书链」（lineage），普通包没有。有链时取链上**末位**——那是当前
     // 真正在签的那一张，也正是 `--print-certs` 报的那张；没有链（绝大多数包）时用
     // `signerCertificates`，那是按签名块报出来的一组。
-    val lineage = result.signingCertificateLineage
-    val certificates = lineage?.certificatesInLineage?.lastOrNull()?.let(::listOf)
+    //
+    // 整条链一并交出去（`rotation`）：末位那张在结果区的原文里已经有了，**更早的那几张只在这里
+    // 露得出来**，而各平台注册要的常常正是最早那张（见 `VerifyOutcome.Ready.rotation`）。
+    val lineage = result.signingCertificateLineage?.certificatesInLineage.orEmpty()
+    val certificates = lineage.lastOrNull()?.let(::listOf)
         ?: result.signerCertificates
     VerifyOutcome.Ready(
         verified = result.isVerified,
@@ -199,32 +203,124 @@ internal actual fun verifyApk(path: String): VerifyOutcome = runCatching {
         // ——`apksigner` 打出来的那一行正是它。
         errors = result.errors.map { it.toString() },
         warnings = result.warnings.map { it.toString() },
+        rotation = lineage.map { it.toCertInfo() },
     )
 }.getOrElse { VerifyOutcome.Failed(it.readableVerifyMessage()) }
 
-/** 给一个 APK 签名（见 `ApkSign.kt` 里对 [SignRequest] 的说明）。 */
+/**
+ * 给一个 APK 签名（见 `ApkSign.kt` 里对 [SignRequest] 的说明）。
+ *
+ * 轮替那一路（`request.rotation != null`）要说几句，因为它与「换一把钥重签」看着像、其实不是：
+ *
+ *  - 新钥要合法地接替旧钥，靠的是**旧钥亲笔签下「旧 → 新」这一跳**，那一段就是 `SigningCertificateLineage`
+ *    （apksig 的 proof-of-rotation）。所以这里必须同时拿到两把私钥，缺一不可；
+ *  - 签的时候把**两个**签名者一起交出去，让 apksig 自己去分档（见 `DefaultApkSignerEngine.setTargetedSignerConfigs`）：
+ *    它按链上的顺序排好，把**末位**那个（＝新钥）拆成「定向签名者」，从 `rotation-min-sdk-version`
+ *    起用它 + 链；剩下那些（旧钥）留在原处，继续签 v1 / v2 / 3.0。于是低版本设备看到的是它们本来
+ *    就认识的那把旧钥（照样能升级），只有装到那个版本及以上的设备才认新钥；
+ *  - 那个分档值**不去动它**，用 apksig 的默认（Android 13 / API 33，见 `DEFAULT_ROTATION_MIN_SDK_VERSION`）。
+ *    调小它（≤32）会让「认新钥」的起点提前到 Android 9，而 apksig 自己的注释说那条路是留给
+ *    「以前轮替过的包继续轮替」的——本工具只做第一次轮替，没有改它的理由。
+ */
 internal actual fun signApk(request: SignRequest): SignOutcome = runCatching {
-    val store = loadKeyStore(request.keystorePath, request.storeType, request.storePassword)
-    val key = store.getKey(request.keyAlias, request.keyPassword) as? PrivateKey
-        ?: throw SignFailure("别名「${request.keyAlias}」下没有可用的私钥")
-    val chain = store.getCertificateChain(request.keyAlias)
-        .orEmpty()
-        .filterIsInstance<X509Certificate>()
-    if (chain.isEmpty()) throw SignFailure("别名「${request.keyAlias}」下没有证书链")
-
+    val (key, chain) = loadSignerKey(
+        keystorePath = request.keystorePath,
+        storeType = request.storeType,
+        storePassword = request.storePassword,
+        alias = request.keyAlias,
+        keyPassword = request.keyPassword,
+    )
     // 走 `KeyConfig.Jca` 这一支而不是直接塞 `PrivateKey` 的那个重载：后者已被标记废弃（apksig 把
     // 「本机私钥」与「云端 KMS 里的私钥」拆成了两支），而这里用的正是本机这一支。
     val signer = ApkSigner.SignerConfig.Builder(request.keyAlias, KeyConfig.Jca(key), chain).build()
-    ApkSigner.Builder(listOf(signer))
+
+    // 轮替要解析两次「私钥 + 证书链」：一次造链（要旧钥的私钥去签「旧 → 新」那一跳），一次交给签名器
+    // （低版本那一层由它签，见上面那段说明）。
+    val rotation = request.rotation?.let { current ->
+        val (currentKey, currentChain) = loadSignerKey(
+            keystorePath = current.keystorePath,
+            storeType = current.storeType,
+            storePassword = current.storePassword,
+            alias = current.keyAlias,
+            keyPassword = current.keyPassword,
+            label = "当前密钥",
+        )
+        val lineage = rotationLineage(
+            currentKey = currentKey,
+            currentCertificate = currentChain.first(),
+            newKey = key,
+            newCertificate = chain.first(),
+        )
+        ApkSigner.SignerConfig.Builder(current.keyAlias, KeyConfig.Jca(currentKey), currentChain)
+            .build() to lineage
+    }
+
+    // 旧钥在前、新钥在后：引擎按链上的顺序排，末位那个才是被定向的新钥（见上面那段说明）。
+    val builder = ApkSigner.Builder(listOfNotNull(rotation?.first, signer))
         .setInputApk(File(request.apkPath))
         .setOutputApk(File(request.outPath))
         .setV1SigningEnabled(SignScheme.V1 in request.schemes)
         .setV2SigningEnabled(SignScheme.V2 in request.schemes)
         .setV3SigningEnabled(SignScheme.V3 in request.schemes)
-        .build()
-        .sign()
-    SignOutcome.Done(request.outPath)
+    // 不给就是让 apksig 去包里读（见 `SignRequest.minSdkVersion`）。
+    request.minSdkVersion?.let(builder::setMinSdkVersion)
+    // 链只存在于 v3 块里：这一句自己会把 v3 打开（apksig 那个 setter 的头一件事就是它）。反过来，
+    // 「给了多个签名者却没开 v3」apksig 会直接抛（`DefaultApkSignerEngine.build` 里那一条）——所以
+    // 界面把「轮替」与 v3 绑在一起，取消 v3 就等于取消轮替。
+    rotation?.second?.let(builder::setSigningCertificateLineage)
+    builder.build().sign()
+    SignOutcome.Done(request.outPath, rotation?.second?.bytes)
 }.getOrElse { SignOutcome.Failed(it.readableSignMessage()) }
+
+/**
+ * 把「旧钥 → 新钥」这一跳签成一条轮替链。
+ *
+ * 两把**私钥**都要：这一跳由旧钥**亲笔**签名（新钥只是被认的一方），这正是 proof-of-rotation 的
+ * 全部含义——没有旧私钥，谁都能宣称自己接替了别人。
+ *
+ * 顺序是 apksig 定的（`Builder(旧, 新)` 造出来的链，`certificatesInLineage` 就是从旧排到新，实测过
+ * 9.4.1），而界面上的「原始 / 当前」正是按这个顺序标的（见 `rotationFingerprints`）——所以它值得
+ * 有一条测试盯着（`ApkSignLogicTest` 里那条不必有 APK）。
+ *
+ * 抽成函数也是为了测试能走到**同一条**代码路径：就地写在 `signApk` 里的话，那条测试就只能复刻一遍
+ * 这里的写法，测的就不是这里了。
+ */
+internal fun rotationLineage(
+    currentKey: PrivateKey,
+    currentCertificate: X509Certificate,
+    newKey: PrivateKey,
+    newCertificate: X509Certificate,
+): SigningCertificateLineage = SigningCertificateLineage.Builder(
+    // 链里这两个签名者同样走 `KeyConfig.Jca`：`(PrivateKey, X509Certificate)` 那个构造器已被 apksig
+    // 标成废弃（它把「本机私钥」与「云端 KMS 里的私钥」拆成了两支，与签名器那边一致）。
+    SigningCertificateLineage.SignerConfig.Builder(KeyConfig.Jca(currentKey), currentCertificate).build(),
+    SigningCertificateLineage.SignerConfig.Builder(KeyConfig.Jca(newKey), newCertificate).build(),
+).build()
+
+/**
+ * 从一个密钥库的某个别名下取出**私钥与它的证书链**——签名要的正是这两样。
+ *
+ * 抽出来是因为轮替要取两次（新钥一次、当前密钥一次），而两处的报错口径必须一致：同一件事在两把钥
+ * 上给出两种说法，读的人会以为它们不是一回事。
+ *
+ * @param label 报错时怎么称呼这把钥。新钥那一侧用默认的「别名」——那是原来就有的说法，也仍然准确
+ *   （用户填的就是个别名）。
+ */
+private fun loadSignerKey(
+    keystorePath: String,
+    storeType: String?,
+    storePassword: CharArray,
+    alias: String,
+    keyPassword: CharArray,
+    label: String = "别名",
+): Pair<PrivateKey, List<X509Certificate>> {
+    val store = loadKeyStore(keystorePath, storeType, storePassword)
+    val key = store.getKey(alias, keyPassword) as? PrivateKey
+        ?: throw SignFailure("$label「$alias」下没有可用的私钥")
+    val chain = store.getCertificateChain(alias).orEmpty().filterIsInstance<X509Certificate>()
+    if (chain.isEmpty()) throw SignFailure("$label「$alias」下没有证书链")
+    return key to chain
+}
 
 /**
  * 能直接给用户看的失败：消息本身就是那句话。

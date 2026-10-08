@@ -1,10 +1,18 @@
 package com.qcmian.clipper.devtools.tools.apksign
 
+import com.android.apksig.ApkVerifier
+import com.android.apksig.SigningCertificateLineage
 import java.io.File
 import java.security.KeyStore
+import java.security.MessageDigest
+import java.security.PrivateKey
 import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import javax.security.auth.x500.X500Principal
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -17,10 +25,13 @@ import kotlinx.datetime.toInstant
 /**
  * 签名工具里那几处**纯逻辑**的回归。
  *
- * 不去驱动真的 apksig：那要造一个带二进制 `AndroidManifest.xml` 的真 APK 当夹具，代价远大于它
- * 能守住的那点东西（签名算法本身是 AOSP 的实现，不是我们写的）。这里钉的是我们自己写的那几段——
- * 而它们恰好是最容易悄悄错的地方：十六进制排版（错一位就是一个看起来很像、但注册不过的指纹）、
- * 魔数分流（错了就把 APK 送去当密钥库开）、以及结果列表里那几行该不该出现。
+ * 不去驱动真的 apksig：签名那几条绕不开一个带二进制 `AndroidManifest.xml` 的真 APK 当夹具，代价
+ * 远大于它守得住的那点东西（签名算法本身是 AOSP 的实现，不是我们写的）。这里钉的是我们自己写的那
+ * 几段——而它们恰好是最容易悄悄错的地方：十六进制排版（错一位就是一个看起来很像、但注册不过的
+ * 指纹）、魔数分流（错了就把 APK 送去当密钥库开）、以及结果列表里那几行该不该出现。
+ *
+ * **唯一的例外是轮替链**：它只跟两对证书有关，不必有包就能真跑一遍 apksig，而它的顺序正是界面上
+ * 「原始 / 当前」两个标签的依据——值得盯着（见 `轮替链从旧钥排到新钥，且能存能读`）。
  */
 class ApkSignLogicTest {
 
@@ -287,6 +298,23 @@ class ApkSignLogicTest {
         chain = listOfNotNull(certificate),
         creationDateMillis = null,
     )
+
+    /**
+     * 从密钥库里取出某个别名的**私钥与证书**——轮替链的两头各要这么一份。
+     *
+     * 这里直接用 `java.security.KeyStore`，不走 `readKeyStore`：那个给的是面向界面的 `CertInfo`
+     * （只有摘要与文本），而造链要的是原始对象（`PrivateKey` / `X509Certificate`）。
+     */
+    private fun signerOf(
+        path: String,
+        alias: String,
+        password: String,
+    ): Pair<PrivateKey, X509Certificate> {
+        val store = KeyStore.getInstance("PKCS12")
+        File(path).inputStream().use { store.load(it, password.toCharArray()) }
+        val key = store.getKey(alias, password.toCharArray()) as PrivateKey
+        return key to (store.getCertificate(alias) as X509Certificate)
+    }
 
     /**
      * 「扩展」那一段是从 JDK 那份 `toString()` 里**切**出来的（见 `extensionsTextOf`），而这一段只有
@@ -760,6 +788,216 @@ class ApkSignLogicTest {
         assertTrue(text.contains("签名者 #2:"), text)
         assertTrue(text.indexOf("签名者 #1:") < text.indexOf("签名者 #2:"), text)
         assertEquals(2, text.split("\n").count { it == "Certificate #1:" }, text)
+    }
+
+    /**
+     * 轮替链的每一行：**第一张标「原始」、最后一张标「当前」**，中间那张按序号，每张给两枚指纹。
+     *
+     * 为什么标位置这件事值得单钉一条：这两张证书的指纹长得几乎一样，而各平台注册要的是哪一张并不
+     * 统一（Google Play 那份认**原始**那张，Firebase 这类填**当前**那张）。标反了就等于把人往错的
+     * 方向送，而光看指纹是看不出来的。
+     *
+     * 顺序一并钉住：apksig 的 `getCertificatesInLineage()` 是**最早那张在前**（它自己的说明：每一代
+     * 为自己的下一代作证），当前那张在末位——`verifyApk` 取末位当「当前签名者」正是靠这条。
+     */
+    @Test
+    fun `轮替链按原始在前标出每张证书的位置`() {
+        val chain = listOf(
+            certOf(0, digestSeed = 0x11),
+            certOf(0, digestSeed = 0x22),
+            certOf(0, digestSeed = 0x33),
+        )
+
+        val rows = rotationFingerprints(chain)
+
+        assertEquals(
+            listOf(
+                "原始·SHA-1", "原始·SHA-256",
+                "第2张·SHA-1", "第2张·SHA-256",
+                "当前·SHA-1", "当前·SHA-256",
+            ),
+            rows.map { it.label },
+        )
+        // 值是拿去粘进平台控制台的那串：`keytool` 的写法（大写、冒号分隔），与结果区原文里的一致。
+        assertEquals("11:".repeat(19) + "11", rows[0].value)
+        assertEquals("11:".repeat(31) + "11", rows[1].value)
+        assertEquals("33:".repeat(19) + "33", rows[4].value)
+        // 当前那张与结果区原文里的是**同一串**（同一枚摘要、同一种写法），别让人在两处看到两种样子。
+        assertEquals("33:".repeat(31) + "33", rows[5].value)
+    }
+
+    /** 没轮替过：什么行都不排（界面上整块不出现，由调用方判空）。 */
+    @Test
+    fun `没有轮替链时排不出任何一行`() {
+        assertEquals(emptyList(), rotationFingerprints(emptyList()))
+    }
+
+    /**
+     * 轮替那一栏：缺什么就说什么，一条不落。逐句钉住是因为**每条都对应一个不同的动作**——「没选
+     * 密钥库」要去选一个，「和这个包现在的签名对不上」要去换一把，含混成一句「填得不对」等于没说。
+     */
+    @Test
+    fun `轮替缺什么就说什么`() {
+        val apkSigner = certOf(0, digestSeed = 0x11)
+        fun problem(
+            apk: CertInfo? = apkSigner,
+            rotated: Boolean = false,
+            path: String? = "/tmp/old.p12",
+            failed: Boolean = false,
+            entry: KeyStoreEntry? = entryOf(certOf(0, digestSeed = 0x11)),
+            password: String = "secret",
+        ) = rotationProblem(apk, rotated, path, failed, entry, password)
+
+        assertNull(problem(), "填齐了就不该有话")
+
+        // 已经轮替过：这条排在最前，因为它做什么都没用——先说了，省得人白填一遍。
+        assertEquals(
+            "这个包已经轮替过一次，本工具只做第一次轮替",
+            problem(rotated = true),
+        )
+        // 包还没签名：轮替没有起点。
+        assertEquals(
+            "轮替要从一个已经签过名的包接过去——这个包现在没有签名",
+            problem(apk = null),
+        )
+        assertEquals("需要选 KeyStore——这个包现在用的那把", problem(path = null))
+        assertEquals("KeyStore 无法读取", problem(failed = true))
+        // 有别名、但那条是个只放证书的条目：签名要的是私钥（`keytool` 里那两个条目类型就是这么分的）。
+        assertEquals(
+            "KeyStore 里没有可用于签名的私钥条目",
+            problem(entry = KeyStoreEntry("demo", isKeyEntry = false, chain = emptyList(), creationDateMillis = null)),
+        )
+        assertEquals("需要填写 KeyStore 的密码", problem(password = ""))
+        // 选错了钥：这一条在签名那一刻**不会报任何错**，只会签出一个平台不认的包（见 `rotationProblem`）。
+        assertEquals(
+            "KeyStore 和这个包现在的签名对不上",
+            problem(entry = entryOf(certOf(0, digestSeed = 0x22))),
+        )
+
+        assertFalse(sameCertificate(null, apkSigner), "少一边就不算同一张")
+    }
+
+    /**
+     * 轮替签出来的包：**老版本那一层仍由旧钥签**（新钥从 Android 13 起才接手）。
+     *
+     * 这是整个轮替功能的承重墙：如果 v2 / 3.0 那一层被新钥签了，没升级到 Android 13 的设备认的还是
+     * 它们装的旧证书，会直接拒升级（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`）——而签名那一刻**什么错
+     * 都不报**。所以这一条不看 apksig 的文档，直接拿签出来的包按平台版本验一遍。
+     *
+     * 「Android 13 起认新钥」（v3.1 那一档）**这里验不了**：验到那一档时 apksig 要读包里的
+     * `targetSdkVersion` 才能决定用哪一档签名者，而夹具是个裸 ZIP、没有 `AndroidManifest.xml`
+     * （真包当然有）。这里能钉住的是**老版本那一层归旧钥**——也就是最不能错的那一半；另外把链从
+     * 包里读回来，钉住「链确实被写进了签名块」。
+     */
+    @Test
+    fun `轮替签出来的包 老版本那一层仍是旧钥`() {
+        val oldPath = createInto("old", "secret", KeyAlgorithm.Rsa2048)
+        val newPath = createInto("new", "secret", KeyAlgorithm.Rsa2048)
+        val oldCert = signerOf(oldPath, "old", "secret").second
+        val newCert = signerOf(newPath, "new", "secret").second
+
+        val source = File.createTempFile("clipper-apksign-", ".zip").also { it.deleteOnExit() }
+        ZipOutputStream(source.outputStream()).use { zip ->
+            zip.putNextEntry(ZipEntry("hello.txt"))
+            zip.write("hi".toByteArray())
+            zip.closeEntry()
+        }
+        val signedPath = File.createTempFile("clipper-apksign-", ".apk").also { it.deleteOnExit() }.absolutePath
+        val outcome = signApk(
+            SignRequest(
+                apkPath = source.absolutePath,
+                outPath = signedPath,
+                keystorePath = newPath,
+                storeType = null,
+                storePassword = "secret".toCharArray(),
+                keyAlias = "new",
+                keyPassword = "secret".toCharArray(),
+                schemes = setOf(SignScheme.V2, SignScheme.V3),
+                // 夹具是个裸 ZIP：没有 `AndroidManifest.xml` 可读，只能把 minSdk 明说（见
+                // `SignRequest.minSdkVersion`）。
+                minSdkVersion = 24,
+                rotation = RotationRequest(
+                    keystorePath = oldPath,
+                    storeType = null,
+                    storePassword = "secret".toCharArray(),
+                    keyAlias = "old",
+                    keyPassword = "secret".toCharArray(),
+                ),
+            ),
+        )
+        // 失败时把**那句话**打出来：`SignOutcome.Failed` 没有 `toString()`，只报类名等于没说。
+        assertTrue(outcome is SignOutcome.Done, (outcome as? SignOutcome.Failed)?.message.orEmpty())
+        assertTrue(outcome.lineage != null, "轮替要带回一条链（见 `lineageFileNameOf`）")
+
+        // 链是**签名参数**（`setSigningCertificateLineage`，见 `signApk`）：apksig 把它写进 v3.1 块里
+        // 新钥那个签名者的 `proof-of-rotation` 属性——**设备认轮替认的就是包里这一份**，旁边那份
+        // `.lineage` 只是同一串字节的副本（设备根本不看文件）。
+        //
+        // 所以这里从**签好的包**里把链读回来：读得到，就说明参数确实传进去了、也写进签名块了。
+        // `readFromApkFile` 只解析 APK 签名块（v3.1 / v3.0 的 proof-of-rotation 属性），不碰
+        // `AndroidManifest.xml`，所以裸 ZIP 夹具也走得通。
+        with(SigningCertificateLineage.readFromApkFile(File(signedPath))) {
+            assertEquals(2, certificatesInLineage.size, "换一次钥就是两张证书")
+            assertContentEquals(oldCert.encoded, certificatesInLineage.first().encoded, "包里的链起于旧钥")
+            assertContentEquals(newCert.encoded, certificatesInLineage.last().encoded, "包里的链止于新钥")
+        }
+
+        // 按 **API 24** 验（只有 v2 那一层）：签名的必须是旧钥——没升到 Android 13 的设备认的就是它。
+        // 再高的档验不了：只要验到 v3，apksig 就要读包里的 `targetSdkVersion`（它据此决定 v3.1 那一档
+        // 生不生效），而夹具是个裸 ZIP、没有 `AndroidManifest.xml`（真包当然有，所以工具那条路不必管）。
+        val legacy = verifyAt(signedPath, platform = 24)
+        assertContentEquals(oldCert.encoded, legacy.signerCertificates.single().encoded, "老版本那一层是旧钥")
+    }
+
+    /**
+     * 按**指定**的平台版本验一遍（上下限都钉成同一个）。
+     *
+     * 必须钉住区间：`ApkVerifier` 不指定时要把各个平台版本都验过来，而它据此读的是包里的
+     * `AndroidManifest.xml`——夹具是个裸 ZIP，没有那个文件（真包当然有，工具那条路因此不必给值）。
+     */
+    private fun verifyAt(path: String, platform: Int): ApkVerifier.Result =
+        ApkVerifier.Builder(File(path))
+            .setMinCheckedPlatformVersion(platform)
+            .setMaxCheckedPlatformVersion(platform)
+            .build()
+            .verify()
+            .also { assertTrue(it.isVerified, "${it.errors}") }
+
+    /** 轮替链存到包旁边：`.lineage` 接在包的**完整文件名**后面（同 v4 的 `.idsig` 那个摆法）。 */
+    @Test
+    fun `轮替链的文件名紧挨着包`() {
+        assertEquals(
+            "/tmp/app-release-signed.apk.lineage",
+            lineageFileNameOf("/tmp/app-release-signed.apk"),
+        )
+    }
+
+    /**
+     * 轮替链：**旧钥在前、新钥在末位**，而且是能存能读的一份字节。
+     *
+     * 这是本文件里唯一一条真驱动 apksig 的用例，因为它**不需要 APK 夹具**——链只跟两对证书有关
+     * （对比签名那几条：绕不开一个带二进制 `AndroidManifest.xml` 的真包，代价远大于它守得住的东西）。
+     *
+     * 值得跑真的，是因为这个顺序来自 apksig、不是我们能定的，而界面上「原始 / 当前」两个标签正是按
+     * 它标的（见 `rotationFingerprints`）——排反了就会把「原始」标到新钥头上，而各平台注册要的恰好
+     * 是原始那张。`bytes` 那一份是工具写到包旁边的 `.lineage`，所以顺带验一下它读得回来。
+     */
+    @Test
+    fun `轮替链从旧钥排到新钥，且能存能读`() {
+        val old = signerOf(createInto("old", "secret", KeyAlgorithm.Rsa2048), "old", "secret")
+        val new = signerOf(createInto("new", "secret", KeyAlgorithm.Rsa2048), "new", "secret")
+
+        val lineage = rotationLineage(old.first, old.second, new.first, new.second)
+
+        val chain = lineage.certificatesInLineage
+        assertEquals(2, chain.size, "换一次钥就是两张证书")
+        // 比 **DER**：两张证书的主题串是一样的（都是 `CN=demo`），只有公钥不同——拿主题去断言等于没测。
+        assertContentEquals(old.second.encoded, chain.first().encoded, "第一张是旧钥")
+        assertContentEquals(new.second.encoded, chain.last().encoded, "末位是新钥")
+
+        val reread = SigningCertificateLineage.readFromBytes(lineage.bytes)
+        assertEquals(2, reread.certificatesInLineage.size)
+        assertContentEquals(new.second.encoded, reread.certificatesInLineage.last().encoded)
     }
 
     /** UTC 的那一刻。测试里凡是「某天」都用它，免得跟着本机时区漂。 */
