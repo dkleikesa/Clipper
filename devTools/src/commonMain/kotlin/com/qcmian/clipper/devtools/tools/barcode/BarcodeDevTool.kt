@@ -46,7 +46,6 @@ import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.api.readBytesOrNull
 import com.qcmian.clipper.devtools.api.writeBytesFile
-import com.qcmian.clipper.devtools.api.writeTextFile
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolDirection
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
@@ -55,6 +54,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
+import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolResultList
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolSlider
@@ -868,23 +868,10 @@ private fun DecodedField(hit: BarcodeHit, host: DevToolHost, modifier: Modifier)
         scan = ::scanPlain,
         modifier = modifier,
         actions = {
-            DevToolFieldAction(
-                kind = ClipperIconKind.SAVE,
-                tooltip = "保存为文本文件",
-                onClick = {
-                    host.pickFileToSave("decoded.txt")?.let { path ->
-                        host.showStatus(
-                            if (writeTextFile(path, hit.text)) "已保存到 $path"
-                            else "写不进这个位置：$path"
-                        )
-                    }
-                },
-            )
-            Spacer(Modifier.width(4.dp))
-            DevToolFieldAction(
-                kind = ClipperIconKind.COPY,
-                tooltip = "复制",
-                onClick = { host.copyToClipboard(hit.text) },
+            DevToolResultActions(
+                value = hit.text,
+                host = host,
+                suggestedFileName = "decoded.txt",
             )
         },
     )
