@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
@@ -24,8 +23,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,6 +30,7 @@ import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
+import com.qcmian.clipper.devtools.ui.components.DevToolSingleLineField
 import kotlin.time.Instant
 import kotlinx.datetime.offsetAt
 
@@ -94,7 +92,14 @@ internal fun TimeZonePicker(
             onDismissRequest = ::close,
             modifier = Modifier.width(MenuWidth),
         ) {
-            ZoneSearchField(query = query, onQueryChange = { query = it })
+            DevToolSingleLineField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = "搜索时区，如 Shanghai、New_York",
+                // 菜单里的搜索框不要那层「实底 + 描边」的壳：外观交给 `DropdownMenu` 自己。
+                bordered = false,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             HorizontalDivider(color = colors.outline.copy(alpha = 0.5f))
 
@@ -130,35 +135,6 @@ internal fun TimeZonePicker(
             }
         }
     }
-}
-
-@Composable
-private fun ZoneSearchField(query: String, onQueryChange: (String) -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    BasicTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        singleLine = true,
-        textStyle = TextStyle(fontSize = 13.sp, color = colors.onSurface),
-        cursorBrush = SolidColor(colors.primary),
-        modifier = Modifier.fillMaxWidth(),
-        decorationBox = { innerTextField ->
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
-            ) {
-                if (query.isEmpty()) {
-                    Text(
-                        text = "搜索时区，如 Shanghai、New_York",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.hintColor,
-                    )
-                }
-                innerTextField()
-            }
-        },
-    )
 }
 
 /** 列表里的一行：勾选列 + 时区 ID + 它当前的 UTC 偏移（编号）。 */

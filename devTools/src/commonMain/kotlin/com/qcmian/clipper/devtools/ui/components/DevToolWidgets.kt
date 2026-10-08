@@ -42,6 +42,8 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -431,15 +433,22 @@ fun DevToolToggle(
 }
 
 /**
- * 单行文本输入框：高度与工具栏控件一致、有实底、聚焦时描主色边，文字垂直居中。
+ * 单行文本输入框：**项目里唯一的单行输入实现**，各变体只差参数。
  *
  * 与 `DevToolCodeField`（代码编辑框）刻意不同：那个要装多行、要行号与滚动条，天然是「一块区域」；
- * 这里的值只有一行（时间戳的格式模板、Hash 待对拍的摘要），用轻量输入框才贴切，文字也居得中。
+ * 这里的值只有一行（时间戳的格式模板、Hash 待对拍的摘要、时区搜索），用轻量输入框才贴切。
  *
  * 底色与边框是刻意选的：**实底 + 聚焦高亮**才读得出「这里能敲字」。若跟 [DevToolMenuButton] 那种
  * 下拉一样用透明底 + 一股描边，两者就长得一模一样，让人以为它也是只读的。
  *
+ * 两处变体收敛在这里，各自不能另立一份实现（样式一分叉，同一个面板里就会出现两种输入框）：
+ *  - [secret]：口令这类不能明文的输入，字打成点；
+ *  - [bordered]：嵌在菜单 / 弹层里的搜索框，本身**不要壳**（无实底、无描边、不限高），外面那层
+ *    容器负责外观。
+ *
  * @param placeholder 空内容时的占位提示。
+ * @param secret 打点显示（`PasswordVisualTransformation`）。口令框一律走这一档。
+ * @param bordered 是否带「实底 + 描边 + 固定 30dp 高」那副壳。`false` 是无框输入，只要文字与光标。
  */
 @Composable
 internal fun DevToolSingleLineField(
@@ -447,6 +456,8 @@ internal fun DevToolSingleLineField(
     onValueChange: (String) -> Unit,
     placeholder: String,
     modifier: Modifier = Modifier,
+    secret: Boolean = false,
+    bordered: Boolean = true,
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(6.dp)
@@ -461,22 +472,34 @@ internal fun DevToolSingleLineField(
         textStyle = TextStyle(fontSize = 13.sp, color = colors.onSurface),
         cursorBrush = SolidColor(colors.primary),
         interactionSource = interaction,
+        visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
         modifier = modifier
-            .height(DevToolControlHeight)
             // 鼠标移进来要变**文本光标**：这框能敲字，而光标是「这里能敲」最直接的那句提示。
             // 摆在这一串的最前面：它的作用范围就是这一格整块（放到 `padding` 之后就只剩文字那一小块）。
             .pointerHoverIcon(PointerIcon.Text)
-            .clip(shape)
-            .background(codeColors.editorBackground)
-            .border(
-                width = 1.dp,
-                color = if (focused) colors.primary else colors.outline.copy(alpha = 0.6f),
-                shape = shape,
-            )
-            .padding(horizontal = 12.dp),
+            .then(
+                if (bordered) {
+                    Modifier
+                        .height(DevToolControlHeight)
+                        .clip(shape)
+                        .background(codeColors.editorBackground)
+                        .border(
+                            width = 1.dp,
+                            color = if (focused) colors.primary else colors.outline.copy(alpha = 0.6f),
+                            shape = shape,
+                        )
+                        .padding(horizontal = 12.dp)
+                } else {
+                    Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
+                }
+            ),
         decorationBox = { innerTextField ->
-            // 撑满整块高度再居中：`BasicTextField` 自己只占文字那一行，不这么做文字会贴在顶上。
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
+            // 有壳时撑满整块高度再居中：`BasicTextField` 自己只占文字那一行，不这么做文字会贴在顶上。
+            // 无壳时高度就是文字本身，铺满宽度即可。
+            Box(
+                modifier = if (bordered) Modifier.fillMaxSize() else Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.CenterStart,
+            ) {
                 if (value.isEmpty()) {
                     Text(
                         text = placeholder,

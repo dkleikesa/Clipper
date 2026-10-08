@@ -1,9 +1,5 @@
 package com.qcmian.clipper.devtools.tools.apksign
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,8 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,18 +27,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.ui.code.DevToolCodeField
-import com.qcmian.clipper.core.ui.code.rememberCodeColors
 import com.qcmian.clipper.core.ui.code.scanPlain
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
@@ -167,7 +154,8 @@ private class KeyStoreSession {
  * 它走保存对话框、且强制换一个输出名（见 [signedFileNameOf]），永远不会盖掉输入的那个包。
  *
  * 口令这一路刻意收着走：
- *  - 口令框是个只打点、**没有任何复制入口**的输入框（见 [SecretField]）。这个应用本身就是剪贴板
+ *  - 口令框是个只打点、**没有任何复制入口**的输入框（见 `DevToolSingleLineField(secret = true)`）。
+ *    这个应用本身就是剪贴板
  *    管理器，口令一旦进历史，就等于把私钥的口子留在常驻列表里；
  *  - 传给平台那一层的口令是 `CharArray`，签名一结束就地填零（见 `sign()`），不留一份等 GC 的
  *    `String` 副本。
@@ -863,10 +851,11 @@ private fun KeyStorePage(
         Row(verticalAlignment = Alignment.CenterVertically) {
             // 两个标签都走 `RowLabel`：与上面那一格的文件行同一个宽度，字段左缘才对得齐。
             RowLabel("密码")
-            SecretField(
+            DevToolSingleLineField(
                 value = password,
                 onValueChange = onPasswordChange,
                 placeholder = "可留空",
+                secret = true,
                 modifier = Modifier.width(200.dp),
             )
             DevToolActionSpacer()
@@ -1323,10 +1312,11 @@ private fun KeyStoreRow(
         Spacer(Modifier.width(16.dp))
         Text("密码", fontSize = 12.sp, color = MaterialTheme.hintColor)
         DevToolActionSpacer()
-        SecretField(
+        DevToolSingleLineField(
             value = password,
             onValueChange = onPasswordChange,
             placeholder = "$label 密码",
+            secret = true,
             modifier = Modifier.width(160.dp),
         )
         DevToolActionSpacer()
@@ -1557,21 +1547,23 @@ private fun NewKeyStorePage(
             // 只填一次（不像 Android Studio 那样密钥库与别名各一对）：默认容器 PKCS#12 在格式上
             // 就要求两者相同，摆两对只会让人以为它们可以不一样。
             FormRow("密码", hint = "至少 6 位，签名与读 KeyStore 都要它") {
-                SecretField(
+                DevToolSingleLineField(
                     value = form.password,
                     onValueChange = { onFormChange(form.copy(password = it)) },
                     placeholder = "至少 6 位",
+                    secret = true,
                     modifier = Modifier.width(FormPasswordWidth),
                 )
                 DevToolActionSpacer()
                 Text("确认", fontSize = 12.sp, color = MaterialTheme.hintColor)
                 DevToolActionSpacer()
-                SecretField(
+                DevToolSingleLineField(
                     value = form.confirmPassword,
                     onValueChange = { onFormChange(form.copy(confirmPassword = it)) },
                     // 不给占位符：左边那个「确认」已经说清了要做什么，再写一句「再敲一遍」是在教
                     // 用户做一件他已经知道的事。
                     placeholder = "",
+                    secret = true,
                     modifier = Modifier.width(FormPasswordWidth),
                 )
             }
@@ -1894,67 +1886,6 @@ private fun RowLabel(text: String) {
         fontSize = 12.sp,
         color = MaterialTheme.hintColor,
         modifier = Modifier.width(RowLabelWidth),
-    )
-}
-
-/**
- * 口令输入框。
- *
- * 刻意不复用共用的 `DevToolSingleLineField`：那一个是明文显示的，而口令框在这个应用里格外敏感
- * ——应用本身就是剪贴板管理器，窗口常被投屏、截图分享。这里只多一件事：
- * `PasswordVisualTransformation` 把字打成点。其余（高度、底色、聚焦描边）与那个控件保持一致，
- * 避免同一面板内出现两种输入框样式。
- *
- * 也**不带**任何复制动作：口令进不了系统剪贴板，是从这里断掉的。
- */
-@Composable
-private fun SecretField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(6.dp)
-    val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
-    val codeColors = rememberCodeColors()
-
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        singleLine = true,
-        textStyle = TextStyle(fontSize = 13.sp, color = colors.onSurface),
-        cursorBrush = SolidColor(colors.primary),
-        interactionSource = interaction,
-        visualTransformation = PasswordVisualTransformation(),
-        modifier = modifier
-            // 与工具栏控件同高（30dp）：这一行里它还挨着标签与别名下拉，高矮不一会参差。
-            .height(30.dp)
-            // 鼠标移进来变**文本光标**（同 `DevToolSingleLineField`）：能敲字就得让人看出来。
-            .pointerHoverIcon(PointerIcon.Text)
-            .clip(shape)
-            .background(codeColors.editorBackground)
-            .border(
-                width = 1.dp,
-                color = if (focused) colors.primary else colors.outline.copy(alpha = 0.6f),
-                shape = shape,
-            )
-            .padding(horizontal = 12.dp),
-        decorationBox = { innerTextField ->
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
-                if (value.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.hintColor,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                innerTextField()
-            }
-        },
     )
 }
 
