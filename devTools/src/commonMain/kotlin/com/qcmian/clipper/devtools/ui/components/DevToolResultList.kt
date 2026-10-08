@@ -110,16 +110,20 @@ fun <T> DevToolResultList(
  *
  * 整行可点即复制：值有长有短，让人精确拖选一段很容易选歪，点整行则没有落点要求。复制图标只在
  * 悬停时出现——平时不占视觉重量，「这一行能点」靠底色变化表达。
+ *
+ * 对模块内可见（不是 `private`）：**不在滚动列表里的结果行**也要用它——签名工具那条密钥轮替链就是
+ * 几行定长的「标签 + 指纹」（见 `ApkSignDevTool.RotationChain`），自己再画一份的话，同一份东西会
+ * 长出两套行距与悬停表现。
  */
 @Composable
-private fun DevToolResultRow(
+internal fun DevToolResultRow(
     labelText: String,
     valueText: String,
-    primary: Boolean,
-    wrapValue: Boolean,
-    enabled: Boolean,
-    labelWidth: Dp,
     onCopy: () -> Unit,
+    primary: Boolean = false,
+    wrapValue: Boolean = false,
+    enabled: Boolean = true,
+    labelWidth: Dp = DevToolResultLabelWidth,
 ) {
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }

@@ -53,12 +53,14 @@ import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.LocalDevToolPasteKey
+import com.qcmian.clipper.devtools.api.writeBytesFile
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolFileField
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
+import com.qcmian.clipper.devtools.ui.components.DevToolResultRow
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolSingleLineField
@@ -81,7 +83,7 @@ private const val MaxValidityYears = 100
  * 路径或口令停下来多久才真去开密钥库。
  *
  * 两份输入都要防抖：**每敲一个字就重开一次密钥库**（读一次磁盘 + 解一遍），而且在还没敲完的时候
- * 就已经闪了几轮「读不了」。250ms 足够盖住盲打。
+ * 就已经闪了几轮「无法读取」。250ms 足够盖住盲打。
  *
  * 打开 / 拖入 / 粘贴那种**完整的**选择不走防抖，见 `KeyStoreSession.choosePath`。
  */
@@ -119,7 +121,7 @@ private class KeyStoreSession {
      * **防抖之后**的那一份路径；读盘、判「能不能签」、真签名用的都是它。
      *
      * 用户可以在框里直接敲路径（见 `KeyStoreReadEffect`），敲一下就读一次磁盘是不行的：每敲一个
-     * 字都去开一次文件，路径还没敲完就已经闪了几轮「读不了」。所以敲出来的路径先停在 [path]，过
+     * 字都去开一次文件，路径还没敲完就已经闪了几轮「无法读取」。所以敲出来的路径先停在 [path]，过
      * 一小会儿没再动才落到这里。
      *
      * 打开 / 拖入 / 粘贴 / 清除走 [choosePath]，**立刻**生效——那不是「正在敲字」。
@@ -192,11 +194,14 @@ internal object ApkSignDevTool : DevTool {
     override fun Content(input: ClipItem?, host: DevToolHost) {
         var tab by remember { mutableStateOf(ApkSignTab.KeyStore) }
 
-        // 两个密钥库会话：`KeyStore信息` 那一页一个（看它里面是什么），签名那一页一个。
-        // **不共用**是有意的：两页要的是两件事，共用一个「当前密钥库」会让一页上的动作改掉另一页
-        // 看到的东西，还会让签名非去第一页填口令不可（见 `KeyStoreSession`）。
+        // 三个密钥库会话：`KeyStore信息` 那一页一个（看它里面是什么），签名那一页两个——一把是
+        // **`新KeyStore`**（签完之后这个包用它是「新身份」），一把是轮替时的 **`KeyStore`**（这个包
+        // 现在用的那把，低版本那一层仍由它签，见 `RotationRequest`）。**不共用**是有意的：三处要的是
+        // 三件事，共用一个「当前密钥库」会让一处的动作改掉另一处看到的东西，还会让签名非去第一页填
+        // 口令不可（见 `KeyStoreSession`）。
         val viewSession = remember { KeyStoreSession() }
         val signSession = remember { KeyStoreSession() }
+        val currentSession = remember { KeyStoreSession() }
 
         // APK 这一侧：路径、**防抖之后**的那一份、验签结果，以及「正在验」。
         //
@@ -207,10 +212,15 @@ internal object ApkSignDevTool : DevTool {
         var verifyOutcome by remember { mutableStateOf<VerifyOutcome?>(null) }
         var verifying by remember { mutableStateOf(false) }
 
-        // 签名：勾了哪几个方案、正在签、上一次签的结果。
+        // 签名：勾了哪几个方案、正在签、上一次签的结果；以及这一次要不要把包从 `KeyStore` 轮替到
+        // `新KeyStore`。
         var schemes by remember { mutableStateOf(SignScheme.entries.toSet()) }
         var signing by remember { mutableStateOf(false) }
         var signOutcome by remember { mutableStateOf<SignOutcome?>(null) }
+        var rotating by remember { mutableStateOf(false) }
+
+        /** 轮替链没写出来时的那个路径；`null` 表示没这回事（见 `sign` 里那一小段）。 */
+        var lineageProblem by remember { mutableStateOf<String?>(null) }
 
         // 新建页的表单。放在**这里**而不是页面内部：切换页签会让页面离开组合、状态随之丢失，而
         // 填写中途查看其他页是常见操作。整份表单收成一个值对象，修改哪一项就替换哪一项。
@@ -306,10 +316,11 @@ internal object ApkSignDevTool : DevTool {
             input?.files?.firstOrNull()?.let { route(listOf(it), navigate = true) }
         }
 
-        // 两个会话各自读取对应的文件。两份都在此生效：签名页的密钥库不等到用户切页才读——用户可能
+        // 三个会话各自读取对应的文件。三份都在此生效：签名页的两把钥都不等用户切页才读——用户可能
         // 一开始就在签名页拖入文件。
         KeyStoreReadEffect(viewSession)
         KeyStoreReadEffect(signSession)
+        KeyStoreReadEffect(currentSession)
 
         // 状态栏左段那份「内容从哪来」**不要**（空串是「这一段我不要」，见 `DevToolHost.reportSource`）：
         // 这个工具整页都是**文件**，「来自文件 · 路径」在这里没有信息量——用户要看的是这个密钥库 /
@@ -320,7 +331,7 @@ internal object ApkSignDevTool : DevTool {
         // 页面里不再复述同一句话（原先签名按钮下方还有一行，已删除）。
         //
         // 报的是当前页签的状态：切换页签即更换，恢复正常时为 `null`（清除）。一页存在多个问题时按
-        // 「先输入、后结果」排序，以分号连接，每段带主体名——否则同时出现两个「读不了」时无法判断
+        // 「先输入、后结果」排序，以分号连接，每段带主体名——否则同时出现两个「无法读取」时无法判断
         // 该处理哪一个。
         //
         // **只说「读这个文件的结果」，不说「还差什么才能签名」**：这一页最常见的用法是**只看一个包
@@ -332,8 +343,13 @@ internal object ApkSignDevTool : DevTool {
 
             ApkSignTab.Apk -> listOfNotNull(
                 (signSession.outcome as? KeyStoreOutcome.Failed)?.let { "KeyStore 无法读取：${it.message}" },
+                (currentSession.outcome as? KeyStoreOutcome.Failed)
+                    ?.takeIf { rotating }?.let { "KeyStore 无法读取：${it.message}" },
                 (verifyOutcome as? VerifyOutcome.Failed)?.let { "APK 无法读取：${it.message}" },
                 (signOutcome as? SignOutcome.Failed)?.let { "签名失败：${it.message}" },
+                // 包签出来了、链没写出来：这件事与「签名成不成功」无关，但它得一直挂着——以后再要
+                // 接着轮替，先得有这么一条链（见 `lineageFileNameOf`）。
+                lineageProblem?.let { "轮替链没写成：$it" },
             ).takeIf { it.isNotEmpty() }?.joinToString("；")
 
             ApkSignTab.New ->
@@ -391,12 +407,45 @@ internal object ApkSignDevTool : DevTool {
             verifying = false
         }
 
+        /** 这个包**现在**的签名证书；没签名、或没读出来时为 `null`（轮替要靠它认 `KeyStore` 对不对）。 */
+        val apkSigner = (verifyOutcome as? VerifyOutcome.Ready)?.signers?.firstOrNull()?.certificate
+
+        /**
+         * 轮替这一栏还差什么；没勾轮替时恒为 `null`（判据本身是纯函数，见 `rotationProblem`）。
+         *
+         * 其中一条是硬的：**已经轮替过的包不给再轮一次**。本工具只做第一次轮替——再轮一次要在链上
+         * 再挂一代，而且低版本那一层得继续由**原始**那把钥签（否则 28–32 的设备认的还是原始证书，
+         * 会直接拒升级），那是 apksig 另一套「按 API 分档的定向签名者」的用法。这个工具做不了，
+         * 就不该让人签出一个会被平台拒掉的包。
+         */
+        val rotationMissing = if (!rotating) {
+            null
+        } else {
+            rotationProblem(
+                apkSigner = apkSigner,
+                alreadyRotated = (verifyOutcome as? VerifyOutcome.Ready)?.rotation?.isNotEmpty() == true,
+                keystorePath = currentSession.appliedPath,
+                keystoreFailed = currentSession.outcome is KeyStoreOutcome.Failed,
+                currentEntry = currentSession.selectedEntry,
+                password = currentSession.password,
+            )
+        }
+
+        /**
+         * 用来签名的那把钥在页面上叫什么。**不轮替时只有一把，就叫 `KeyStore`**；轮替时它是要**换上**
+         * 的那把，改叫 `新KeyStore`（另一把「这个包现在用的」才叫 `KeyStore`，见 `ApkPage`）。
+         *
+         * 下面的报错话术跟着它走：名字与行标签对不上时，「需要选一个 KeyStore」在轮替的那一页上指哪
+         * 一把都说得通，而这两件事要做的事完全不同（一把去选、一把去换）。
+         */
+        val newKeyName = if (rotating) "新KeyStore" else "KeyStore"
+
         /**
          * 还差什么才能签名；齐全时 `null`。
          *
-         * 签名要五样东西齐：一个 APK、一把钥匙、一个**私钥**条目、一个密码、至少一个签名方案。
-         * 一个方案都不勾时 apksig 会直接抛出来，这里先拦住——那不是一个「失败」，是一个还没填完的
-         * 表单。
+         * 签名要五样东西齐：一个 APK、一把钥匙、一个**私钥**条目、一个密码、至少一个签名方案；勾了
+         * 轮替则还要一组 `KeyStore`（见 [rotationProblem]）。一个方案都不勾时 apksig 会直接抛出来，
+         * 这里先拦住——那不是一个「失败」，是一个还没填完的表单。
          *
          * 它**只在点下签名按钮那一刻**被读（见 [sign]），不进状态栏：这一页最常见的用法是只看一个
          * 包的签名情况，把「你要先选一个 KeyStore」常驻在那儿，对只看的人是一句无关的话。按钮因此
@@ -404,11 +453,12 @@ internal object ApkSignDevTool : DevTool {
          */
         val signProblem: String? = when {
             appliedApkPath == null -> "需要先选一个 APK"
-            signSession.appliedPath == null -> "需要选一个 KeyStore 用于签名"
-            signSession.outcome is KeyStoreOutcome.Failed -> "这个 KeyStore 无法读取，换一个再签"
-            signSession.selectedEntry?.isKeyEntry != true -> "这个 KeyStore 里没有可用于签名的私钥条目"
-            signSession.password.isEmpty() -> "需要填写 KeyStore 密码才能签名"
+            signSession.appliedPath == null -> "需要选一个 $newKeyName 用于签名"
+            signSession.outcome is KeyStoreOutcome.Failed -> "这个 $newKeyName 无法读取，换一个再签"
+            signSession.selectedEntry?.isKeyEntry != true -> "这个 $newKeyName 里没有可用于签名的私钥条目"
+            signSession.password.isEmpty() -> "需要填写 $newKeyName 的密码才能签名"
             schemes.isEmpty() -> "至少需要勾选一个签名方案（建议 v2 + v3）"
+            rotationMissing != null -> rotationMissing
             else -> null
         }
 
@@ -436,14 +486,34 @@ internal object ApkSignDevTool : DevTool {
             val keystore = signSession.appliedPath ?: return
             val alias = signSession.selectedEntry?.alias ?: return
             val storePassword = signSession.password
+            // 轮替那一头同样用**防抖之后**的路径与它挑好的别名（同上面两条说明）：链要用这把钥的
+            // 私钥签，拿错了就是一条起错头的链。下面这两个 `?: return` 与上面那几条一样只是兜底
+            // ——缺东西在 `signProblem` 那一关就说完了，走不到这儿。
+            val currentKeyStore = if (rotating) currentSession.appliedPath ?: return else null
+            val currentAlias = if (rotating) currentSession.selectedEntry?.alias ?: return else null
+            val currentStoreType = currentSession.storeType
+            val currentStorePassword = currentSession.password
             scope.launch {
                 val target = host.pickFileToSave(signedFileNameOf(apk)) ?: return@launch
                 if (target == apk) {
                     host.showStatus("输出不能就是原文件——换个名字，原包要留着")
                     return@launch
                 }
+                // 口令数组到**真动手**这一刻才建（同新钥那一条）：上面两个提前返回都没建过它。
+                val current = if (currentKeyStore != null && currentAlias != null) {
+                    RotationRequest(
+                        keystorePath = currentKeyStore,
+                        storeType = currentStoreType,
+                        storePassword = currentStorePassword.toCharArray(),
+                        keyAlias = currentAlias,
+                        keyPassword = currentStorePassword.toCharArray(),
+                    )
+                } else {
+                    null
+                }
                 signing = true
                 signOutcome = null
+                lineageProblem = null
                 val request = SignRequest(
                     apkPath = apk,
                     outPath = target,
@@ -455,18 +525,39 @@ internal object ApkSignDevTool : DevTool {
                     // 总是一致。这里先按同一个传入；两者确实不同时，下方报错会指出。
                     keyPassword = storePassword.toCharArray(),
                     schemes = schemes,
+                    rotation = current,
                 )
                 val outcome = withContext(Dispatchers.Default) { signApk(request) }
-                // 口令用完就擦：`request` 里那两份数组是这次运算唯一的副本。
+                // 口令用完就擦：`request` 里那几份数组是这次运算唯一的副本（轮替时是四份）。
                 request.storePassword.fill('\u0000')
                 request.keyPassword.fill('\u0000')
+                request.rotation?.storePassword?.fill('\u0000')
+                request.rotation?.keyPassword?.fill('\u0000')
                 signing = false
                 signOutcome = outcome
                 // 只报**成功**那一声：它是「刚刚发生了什么」，一闪而过没关系。失败那句不在这里报——
                 // 整句原因统一由状态栏右段常驻地说（见 `Content` 里那段），这里再说一遍就是两处重复。
-                if (outcome is SignOutcome.Done) host.showStatus("已签好：${outcome.outPath}")
+                if (outcome is SignOutcome.Done) {
+                    // 轮替链另存一份（见 `lineageFileNameOf`）：以后再要接着轮替，先得有这么一条链，
+                    // 所以值得从包里拿出来单独放。写不成**不影响这次签名**——链也在包里——所以只
+                    // 如实说一句，由状态栏右段常驻地挂着（临时提示会飘走，那是个要处理的遗留问题）。
+                    val lineage = outcome.lineage
+                    var lineagePath: String? = null
+                    if (lineage != null) {
+                        val path = lineageFileNameOf(outcome.outPath)
+                        if (writeBytesFile(path, lineage)) lineagePath = path else lineageProblem = path
+                    }
+                    host.showStatus(
+                        when {
+                            lineagePath != null -> "已签好：${outcome.outPath}；轮替链：$lineagePath"
+                            lineageProblem != null -> "已签好：${outcome.outPath}（轮替链没能另存，见状态栏）"
+                            else -> "已签好：${outcome.outPath}"
+                        }
+                    )
+                }
                 // 把**刚生成的包**放入输入位：本页结论跟随文件，上面那个 effect 会重新验签一次，
-                // 用户立即看到本次签名是否成功。文件名带 `-signed`，不会与输入文件混淆。
+                // 用户立即看到本次签名是否成功。文件名带 `-signed`，不会与输入文件混淆。轮替过的包
+                // 还能在结果区上方看到刚接出来的那条链（见 `RotationChain`）。
                 if (outcome is SignOutcome.Done) chooseApk(outcome.outPath)
             }
         }
@@ -578,17 +669,41 @@ internal object ApkSignDevTool : DevTool {
                     signing = signing,
                     schemes = schemes,
                     onToggleScheme = { scheme, enabled ->
-                        schemes = if (enabled) schemes + scheme else schemes - scheme
+                        // 轮替要 v3（链只存在于 v3 块里）。取消 v3 就等于取消轮替——**说一声**，
+                        // 无声地无视那一下点击比取消更糟。
+                        if (scheme == SignScheme.V3 && !enabled && rotating) {
+                            rotating = false
+                            host.showStatus("轮替要用 v3 签名，已一并取消轮替")
+                        } else {
+                            schemes = if (enabled) schemes + scheme else schemes - scheme
+                        }
                     },
+                    rotating = rotating,
+                    onToggleRotation = { enabled ->
+                        rotating = enabled
+                        // 勾上轮替顺手把 v3 带上：链只在 v3 块里，而「勾了轮替却少个 v3」本就是个
+                        // 填不完的表单——顺手补齐比事后报一句「还差 v3」清楚。
+                        if (enabled) schemes = schemes + SignScheme.V3
+                    },
+                    currentKeyStorePath = currentSession.path,
+                    onCurrentKeyStorePathChange = { currentSession.path = it },
+                    currentKeyStorePassword = currentSession.password,
+                    onCurrentKeyStorePasswordChange = { currentSession.password = it },
+                    currentAliases = currentSession.entries.map { it.alias },
+                    currentSelectedAlias = currentSession.selectedAlias,
+                    onSelectCurrentAlias = { currentSession.selectedAlias = it },
                     // 两个输入框上的拖放：**拖到哪一行就落在哪一行**（落点由用户指定的格决定，见
                     // `routeTo`）。不再按内容转移到另一个框——转移会让人以为拖入的内容丢失，而内容
                     // 不符本就该由该格说明。
                     onDropInto = { paths, kind -> routeTo(paths, kind, signSession) },
-                    // 「打开」按钮自带槽位，落点由它定：两个都写在**签名那一侧**的会话上。
+                    onDropIntoCurrent = { paths -> routeTo(paths, SignInputKind.KeyStore, currentSession) },
+                    // 「打开」按钮自带槽位，落点由它定：都写在**签名那一侧**的会话上。
                     onOpenApk = { pickInto(SignInputKind.Apk, signSession) },
                     onOpenKeyStore = { pickInto(SignInputKind.KeyStore, signSession) },
+                    onOpenCurrentKeyStore = { pickInto(SignInputKind.KeyStore, currentSession) },
                     onClearApk = { chooseApk(null) },
                     onClearKeyStore = { signSession.choosePath(null) },
+                    onClearCurrentKeyStore = { currentSession.choosePath(null) },
                     onSign = ::sign,
                     host = host,
                     modifier = Modifier.fillMaxWidth().weight(1f),
@@ -907,8 +1022,28 @@ private fun ApkPage(
     signing: Boolean,
     schemes: Set<SignScheme>,
     onToggleScheme: (SignScheme, Boolean) -> Unit,
+    /** 这一次要不要把包从 `KeyStore` 轮替到 `新KeyStore`（见 `RotationRequest`）。 */
+    rotating: Boolean,
+    onToggleRotation: (Boolean) -> Unit,
+    /**
+     * `KeyStore` 那一行（轮替时才画）的三样，与 `新KeyStore` 那一行**同构**（同 `KeyStoreRow`）。
+     *
+     * 收在同一个页面里是因为轮替要把两把钥摆在一起看：哪把是「现在用的」、哪把是要换上的，分开摆
+     * 就得靠记忆对上号（见 `RotationRequest`——它要的正是这两把的私钥）。
+     */
+    currentKeyStorePath: String?,
+    onCurrentKeyStorePathChange: (String) -> Unit,
+    currentKeyStorePassword: String,
+    onCurrentKeyStorePasswordChange: (String) -> Unit,
+    currentAliases: List<String>,
+    currentSelectedAlias: String?,
+    onSelectCurrentAlias: (String) -> Unit,
     /** 文件拖到了**哪一行**就落到哪一行（见 `routeTo`）。 */
     onDropInto: (List<String>, SignInputKind) -> Unit,
+    /** 拖到「当前密钥」那一行。 */
+    onDropIntoCurrent: (List<String>) -> Unit,
+    onOpenCurrentKeyStore: () -> Unit,
+    onClearCurrentKeyStore: () -> Unit,
     onOpenApk: () -> Unit,
     onOpenKeyStore: () -> Unit,
     onClearApk: () -> Unit,
@@ -986,6 +1121,15 @@ private fun ApkPage(
             // 它的用途——跟 `keytool` 的输出、跟别人的截图对着看，而「逐行点一下复制」把一份完整
             // 的东西拆成了十几份。要复制整段，用右上角那两个动作（复制 / 存文件）。
             else -> {
+                // 轮替链排在原文**上方**，且**只在这一支里**画：它是关于眼前这个包的结论之一（这个包
+                // 轮替过、链上有谁），先看事实再往下看凭证原文；而在上面那几支（正在验、无法读取、一个
+                // 签名都没有）里，`ready` 还是**上一个包**留下的那一份——摆出来就成了拿旧包的链说这个
+                // 包。这一支的判据是「眼前这份结果非空」，两者同时成立。
+                val rotation = ready?.rotation.orEmpty()
+                if (rotation.isNotEmpty()) {
+                    RotationChain(chain = rotation, host = host)
+                    Spacer(Modifier.height(8.dp))
+                }
                 val report = printcertText(signers)
                 DevToolCodeField(
                     label = "结果",
@@ -1016,59 +1160,11 @@ private fun ApkPage(
         DevToolSectionDivider()
         Spacer(Modifier.height(10.dp))
 
-        // 下面是**签名那一栏**：签一个包要的东西全在这儿——密钥库、口令、别名、签名方案、按钮。
+        // 下面是**签名那一栏**：签一个包要的东西全在这儿——签名方案、密钥库、口令、别名、按钮。
         // 上面那两块（输入卡、签名信息）回答「我在看什么」，这一栏回答「我要它变成什么」。
         //
-        // 「用哪把钥匙」的三项（KeyStore、口令、别名）排在同一行：它们是同一个决定的三个部分——换
-        // 一个库，口令与别名随之更换——分成两三行会让人需要上下对照才能确认它们同属一组。
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            RowLabel("KeyStore")
-            // 这一格使用共用的文件控件（见 `DevToolFileField`）：路径框、拖入落点、打开 / 清除绑定
-            // 在一起。图标必须紧邻路径框——曾经把它放在该行另一端，紧挨「密码」与「别名」，结果被
-            // 读成「清空密码」。
-            DevToolFileField(
-                value = keyStorePath.orEmpty(),
-                // 也可以**直接输入路径**（该路径走防抖，见 `KeyStoreSession`）：路径已在别处拿到
-                // 时，可以省去打开对话框这一步。
-                onValueChange = onKeyStorePathChange,
-                placeholder = "拖拽、粘贴、打开KeyStore文件，或输入路径",
-                host = host,
-                onDropFiles = { paths -> onDropInto(paths, SignInputKind.KeyStore) },
-                onOpen = onOpenKeyStore,
-                onClear = onClearKeyStore,
-                clearTooltip = "清除 KeyStore",
-                // 宽度给这一行**剩余**的部分：右缘因此与文件名长短无关，两个动作位置固定。
-                modifier = Modifier.weight(1f),
-            )
-            // 这里的空隙**定宽**（不是 `weight`）：余量全归上面那个框，路径才铺得开。原先这里也放了
-            // 一个 `weight(1f)`，两处抢，各分一半——框只拿到一半宽，长路径被截在文件名上。
-            //
-            // 定宽还有一层用处：它把「密码 / 别名」与那两个图钉隔开，谁也不会以为垃圾桶清的是密码。
-            Spacer(Modifier.width(16.dp))
-            Text("密码", fontSize = 12.sp, color = MaterialTheme.hintColor)
-            DevToolActionSpacer()
-            SecretField(
-                value = keyStorePassword,
-                onValueChange = onKeyStorePasswordChange,
-                placeholder = "KeyStore 密码",
-                modifier = Modifier.width(160.dp),
-            )
-            DevToolActionSpacer()
-            Text("别名", fontSize = 12.sp, color = MaterialTheme.hintColor)
-            DevToolActionSpacer()
-            DevToolMenuButton(
-                label = selectedAlias ?: "—",
-                options = aliases,
-                selected = selectedAlias ?: "—",
-                optionLabel = { it },
-                onSelect = onSelectAlias,
-                // 只有一个别名时不必点开一列只有一项的菜单（同第一页那一栏）。
-                enabled = aliases.size > 1,
-            )
-        }
-
-        Spacer(Modifier.height(8.dp))
-
+        // 这一栏从上往下就是做这件事的顺序：**先定要写哪几层签名方案**，再定用哪把（轮替时是两把）
+        // 钥匙，最后按按钮。
         Row(verticalAlignment = Alignment.CenterVertically) {
             RowLabel("签名方案")
             // 三个开关而不是「全选 / 自选」两档：它们本来就可以任意组合，用复选框说出来最直白
@@ -1092,6 +1188,71 @@ private fun ApkPage(
 
         Spacer(Modifier.height(10.dp))
 
+        // 密钥轮替的开关排在**两把钥上面**：它管的就是「这里要填一把还是两把」，摆在它们下面等于让
+        // 开关去管它上面的东西。
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RowLabel("密钥轮替")
+            DevToolToggle(
+                title = "换成新KeyStore",
+                checked = rotating,
+                onCheckedChange = onToggleRotation,
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        if (rotating) {
+            // 两把钥**贴在一起**、且长得**一模一样**（同 `KeyStoreRow`）：它们是同一个决定的两头（把手
+            // 上这个包交给谁签），摆成一个样子才读得出「这两把要一起填」。
+            //
+            // 「现在的」排在前面，是因为轮替这件事的读法就是从上往下：这个包现在是 `KeyStore` 签的，
+            // 我要把它换成 `新KeyStore`——开关底下这两行正好是那句话的两半。
+            KeyStoreRow(
+                label = "KeyStore",
+                path = currentKeyStorePath,
+                onPathChange = onCurrentKeyStorePathChange,
+                password = currentKeyStorePassword,
+                onPasswordChange = onCurrentKeyStorePasswordChange,
+                aliases = currentAliases,
+                selectedAlias = currentSelectedAlias,
+                onSelectAlias = onSelectCurrentAlias,
+                onDropFiles = onDropIntoCurrent,
+                onOpen = onOpenCurrentKeyStore,
+                onClear = onClearCurrentKeyStore,
+                host = host,
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+
+        // 不轮替时它就是原来那一行（`KeyStore`）；轮替时它是要**换上**的那把，名字跟着改。
+        KeyStoreRow(
+            label = if (rotating) "新KeyStore" else "KeyStore",
+            path = keyStorePath,
+            onPathChange = onKeyStorePathChange,
+            password = keyStorePassword,
+            onPasswordChange = onKeyStorePasswordChange,
+            aliases = aliases,
+            selectedAlias = selectedAlias,
+            onSelectAlias = onSelectAlias,
+            onDropFiles = { paths -> onDropInto(paths, SignInputKind.KeyStore) },
+            onOpen = onOpenKeyStore,
+            onClear = onClearKeyStore,
+            host = host,
+        )
+
+        if (rotating) {
+            Spacer(Modifier.height(4.dp))
+            // 两件在界面上看不出来的事：新钥**从哪个版本起**才算数，以及那份链还落了一个文件。
+            Text(
+                text = "新KeyStore 从 Android 13 起生效，更老的版本仍用 KeyStore 验，所以都能升级；" +
+                    "轮替链会写进包，并另存到包旁边（.lineage）。",
+                fontSize = 11.sp,
+                color = MaterialTheme.hintColor,
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
+
         // 按钮**独占一行**、左缘与标签列对齐（同「新建KeyStore」页）：与开关同行时会被挤到窗口
         // 最右侧，与前文脱节。
         //
@@ -1103,6 +1264,82 @@ private fun ApkPage(
             primary = true,
             enabled = !signing,
             onClick = onSign,
+        )
+    }
+}
+
+/**
+ * 「一把钥」那一行：KeyStore 路径 + 密码 + 别名。
+ *
+ * 抽出来是因为这一页有两处**必须长得一模一样**的这种行——`新KeyStore`（签名要用的那把）与轮替时的
+ * `KeyStore`（这个包现在用的那把）。两处各写一遍的话，日后改一处（比如给密码框换个宽度）另一处不会
+ * 跟着变，而它们上下紧贴着摆，差一点点都看得出来（同 `DevToolFileField` 的来历）。
+ *
+ * [label] 由调用方给，而且**只给名字**：下面三个占位符 / 悬浮说明都按它拼（`拖拽、粘贴、打开$label
+ * 文件…`），于是「这一行叫什么」只有一个出处——名字是读的人区分这两行**唯一**的东西，跟着别处漂就
+ * 等于指错行。
+ *
+ * 「用哪把钥匙」的三项排在同一行：它们是同一个决定的三个部分——换一个库，密码与别名随之更换——分成
+ * 两三行会让人需要上下对照才能确认它们同属一组。
+ */
+@Composable
+private fun KeyStoreRow(
+    label: String,
+    path: String?,
+    onPathChange: (String) -> Unit,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    aliases: List<String>,
+    selectedAlias: String?,
+    onSelectAlias: (String) -> Unit,
+    onDropFiles: (List<String>) -> Unit,
+    onOpen: () -> Unit,
+    onClear: () -> Unit,
+    host: DevToolHost,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        RowLabel(label)
+        // 这一格使用共用的文件控件（见 `DevToolFileField`）：路径框、拖入落点、打开 / 清除绑定在一起。
+        // 图标必须紧邻路径框——曾经把它放在该行另一端，紧挨「密码」与「别名」，结果被读成「清空密码」。
+        DevToolFileField(
+            value = path.orEmpty(),
+            // 也可以**直接输入路径**（该路径走防抖，见 `KeyStoreSession`）：路径已在别处拿到时，可以
+            // 省去打开对话框这一步。
+            onValueChange = onPathChange,
+            // `$` 后面跟汉字要加花括号：`$label文件` 被当成一个标识符，编译不过（踩过）。
+            placeholder = "拖拽、粘贴、打开${label}文件，或输入路径",
+            host = host,
+            onDropFiles = onDropFiles,
+            onOpen = onOpen,
+            onClear = onClear,
+            clearTooltip = "清除 $label",
+            // 宽度给这一行**剩余**的部分：右缘因此与文件名长短无关，两个动作位置固定。
+            modifier = Modifier.weight(1f),
+        )
+        // 这里的空隙**定宽**（不是 `weight`）：余量全归上面那个框，路径才铺得开。原先这里也放了一个
+        // `weight(1f)`，两处抢，各分一半——框只拿到一半宽，长路径被截在文件名上。
+        //
+        // 定宽还有一层用处：它把「密码 / 别名」与那两个图钉隔开，谁也不会以为垃圾桶清的是密码。
+        Spacer(Modifier.width(16.dp))
+        Text("密码", fontSize = 12.sp, color = MaterialTheme.hintColor)
+        DevToolActionSpacer()
+        SecretField(
+            value = password,
+            onValueChange = onPasswordChange,
+            placeholder = "$label 密码",
+            modifier = Modifier.width(160.dp),
+        )
+        DevToolActionSpacer()
+        Text("别名", fontSize = 12.sp, color = MaterialTheme.hintColor)
+        DevToolActionSpacer()
+        DevToolMenuButton(
+            label = selectedAlias ?: "—",
+            options = aliases,
+            selected = selectedAlias ?: "—",
+            optionLabel = { it },
+            onSelect = onSelectAlias,
+            // 只有一个别名时不必点开一列只有一项的菜单（同第一页那一栏）。
+            enabled = aliases.size > 1,
         )
     }
 }
@@ -1174,6 +1411,39 @@ private fun VerifyConclusion(
                 color = MaterialTheme.hintColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/**
+ * 密钥轮替链：**只在包真带 proof-of-rotation 时画**（调用方判，见 `ApkPage`）。
+ *
+ * 为什么值得单独一块：`keytool -printcert -jarfile` **只打当前那张证书**（结果区就是它的原文，逐字
+ * 对齐），于是「这个包轮替过」以及「更早那几张的指纹」在界面上完全看不见——而各平台注册要的常常
+ * 正是最早那张。链其实一直在手里（`verifyApk` 早就读到了），原先只用它取末位证书，其余几张被丢掉。
+ *
+ * 每行整行可点即复制（与结果列表同一套行，见 `DevToolResultRow`）：指纹是一长串十六进制，让人精确
+ * 拖选一段很容易选歪。
+ */
+@Composable
+private fun RotationChain(chain: List<CertInfo>, host: DevToolHost) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            // 起个「共 N 张」是为了让人一眼看出轮替过几次：两张 = 换过一次钥。
+            text = "密钥轮替 · 链上共 ${chain.size} 张证书（原始 → 当前）",
+            fontSize = 11.sp,
+            color = MaterialTheme.hintColor,
+            // 与下面每行标签的起点对齐：那一行的内边距就是 8dp（见 `DevToolResultRow`）。说明文字比
+            // 它管的几行靠左，读起来像在说上面的东西。
+            modifier = Modifier.padding(start = 8.dp),
+        )
+        Spacer(Modifier.height(2.dp))
+        rotationFingerprints(chain).forEach { row ->
+            DevToolResultRow(
+                labelText = row.label,
+                valueText = row.value,
+                onCopy = { host.copyToClipboard(row.value) },
             )
         }
     }
@@ -1607,14 +1877,14 @@ private fun expiryHintText(expiryMillis: Long?): String = if (expiryMillis == nu
     "到期 ${formatCertDate(expiryMillis)}（Google Play 要求晚于 2033-10-22）"
 }
 
-/** 并排的输入行共用的标签宽度：按最长的一条（`KeyStore`，八个半角字符）定。 */
-private val RowLabelWidth = 64.dp
+/** 并排的输入行共用的标签宽度：按最长的一条（`新KeyStore`，一个汉字 + 九个半角）定。 */
+private val RowLabelWidth = 80.dp
 
 /**
- * 一行输入左边的标签（`KeyStore` / `密码` / `别名` / `签名方案`）。
+ * 一行输入左边的标签（`KeyStore` / `新KeyStore` / `密码` / `别名` / `签名方案`）。
  *
  * 与「新建KeyStore」那一页的标签列同一个用途：各行左缘对齐，从上往下扫的时候不必一行行找回起点。
- * 三处文件格（签名页两处、KeyStore 信息页一处）与下面那些口令 / 别名行**共用这一份宽度**，所以
+ * 几处文件格（签名页三处、KeyStore 信息页一处）与下面那些密码 / 别名行**共用这一份宽度**，所以
  * 同一条轴上不会出现两个起点——左边一列参差不齐时，读的人会先去找对齐关系，而不是内容。
  */
 @Composable
