@@ -253,6 +253,46 @@ class ApkSignDevToolTest {
     }
 
     /**
+     * 空文件：只说**一次**读不了。
+     *
+     * 这一条钉的是实测踩到的样子——原来拼出来的是
+     * 「KeyStore 无法读取：无法读取该 KeyStore：not enough content」，同一句话说了两遍。空文件
+     * （JDK 抛 `Tag number over 30 is not supported`）与文本文件、截断的 DER 头是**同一族**失败，
+     * 都该报「不是有效的 JKS / PKCS#12 文件」；断言整行，因为用户看到的就是这一行。
+     */
+    @Test
+    fun `空密钥库文件只报一次读不了`() = runComposeUiTest {
+        val empty = tempFile("empty.p12", ByteArray(0))
+        val host = FakeHost()
+        render(host)
+        onNodeWithText("APK").performClick()
+        waitForIdle()
+
+        onNodeWithText("拖拽、粘贴、打开KeyStore文件，或输入路径").performTextInput(empty)
+        waitUntil(timeoutMillis = 10_000) { host.reported != null }
+        assertEquals("KeyStore 无法读取：不是有效的 JKS / PKCS#12 文件", host.reported)
+    }
+
+    /**
+     * 截断的 DER 头：JDK 抛的 `EOFException` **连消息都没有**。
+     *
+     * 不按「抛它的代码在哪」判的话，这一支会拼成「KeyStore 无法读取：EOFException」——整句里没有
+     * 一个用户用得上的信息。它与空文件、文本文件是同一族（见 `isDerParseFailure`）。
+     */
+    @Test
+    fun `截断的密钥库文件也报不是有效的密钥库`() = runComposeUiTest {
+        val truncated = tempFile("truncated.p12", byteArrayOf(0x30, 0x82.toByte(), 0x01, 0x02))
+        val host = FakeHost()
+        render(host)
+        onNodeWithText("APK").performClick()
+        waitForIdle()
+
+        onNodeWithText("拖拽、粘贴、打开KeyStore文件，或输入路径").performTextInput(truncated)
+        waitUntil(timeoutMillis = 10_000) { host.reported != null }
+        assertEquals("KeyStore 无法读取：不是有效的 JKS / PKCS#12 文件", host.reported)
+    }
+
+    /**
      * 只看一个包时，状态栏**不提签名缺什么**。
      *
      * 这一页最常见的用法是打开一个包看它签没签；此时常驻一句「需要选一个 KeyStore 用于签名」，与

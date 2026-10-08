@@ -375,14 +375,10 @@ private fun Throwable.readableKeyStoreMessage(): String {
         text.contains("password was incorrect") || text.contains("password verification failed") ->
             "KeyStore 密码不正确；仅查看证书时可将密码留空"
 
-        text.contains("invalid keystore format") || text.contains("unrecognized keystore") ->
-            "不是有效的 JKS / PKCS#12 文件"
-
-        // PKCS#12 那一侧的「读不出来」。DER 结构不对时 JDK 抛的是解析层的话——实测拿一个**文本
-        // 文件**当 `.p12` 读，得到的是 `DerInputStream.getLength(): lengthTag=109, too big.`。它与
-        // 上面那一支是同一件事（这压根不是密钥库），只是外层包了一句 `IOException`，看不出这个意思；
-        // 原样抛给用户等于没解释。
-        text.contains("derinputstream") || text.contains("lengthtag") || text.contains("derlength") ->
+        // 「这东西根本不是密钥库」两种来路：容器头就不对（JKS 那一侧），或者 PKCS#12 的 DER 解析
+        // 走不下去（见 `isDerParseFailure`）。
+        text.contains("invalid keystore format") || text.contains("unrecognized keystore") ||
+            root.isDerParseFailure() ->
             "不是有效的 JKS / PKCS#12 文件"
 
         text.contains("integrity check failed") || text.contains("tampered") ->
@@ -391,11 +387,34 @@ private fun Throwable.readableKeyStoreMessage(): String {
         text.contains("no such file") || text.contains("filenotfound") || text.contains("not found") ->
             "文件不存在"
 
-        // 剩下的说不清是哪一种：**框一句人话**再把原话带上。裸着一句 JDK 的话（类名、偏移量）用户
-        // 读不出「跟这个文件有没有关系」。
-        else -> root.message?.takeIf { it.isNotBlank() }?.let { "无法读取该 KeyStore：$it" }
-            ?: "无法读取该 KeyStore"
+        // 剩下的说不清是哪一种：**原样带回去，不再自己套一层框**。状态栏那一句本来就已经说清了主体
+        // （「KeyStore 无法读取：…」），这里再框一次就成了同一句话说两遍——实测拼出来的是
+        // 「KeyStore 无法读取：无法读取该 KeyStore：not enough content」。
+        else -> root.message?.takeIf { it.isNotBlank() } ?: root::class.simpleName.orEmpty()
     }
+}
+
+/**
+ * 这个异常是不是「DER 结构读不下去」——也就是这东西根本不是密钥库。
+ *
+ * 判据是**抛它的那几行代码在哪**，不是它说了什么英文。同一件事 JDK 有好几种说法，实测三种夹具
+ * 各不相同：空文件 → `Tag number over 30 is not supported`，文本文件 →
+ * `DerInputStream.getLength(): lengthTag=63, too big.`，截断的 DER 头 → `EOFException`（**连
+ * 消息都没有**）。逐句列表只能跟着 JDK 的措辞跑，一换版本就漏；而它们全都从
+ * `sun.security.util` 里那套 DER 解析器抛出来（`DerValue` / `DerInputStream` / `IOUtils`），
+ * 这一点是稳的。
+ *
+ * 查整条 `cause` 链而不只是最里层：包错的层不一定在最里面。层数与自引用按 [`rootCause`] 那套
+ * 兜住——真出环时应当判「不是」，而不是把界面拖死。
+ */
+private fun Throwable.isDerParseFailure(): Boolean {
+    var current: Throwable? = this
+    repeat(8) {
+        val throwable = current ?: return false
+        if (throwable.stackTrace.any { it.className.startsWith("sun.security.util.") }) return true
+        current = throwable.cause?.takeIf { it !== throwable }
+    }
+    return false
 }
 
 /**

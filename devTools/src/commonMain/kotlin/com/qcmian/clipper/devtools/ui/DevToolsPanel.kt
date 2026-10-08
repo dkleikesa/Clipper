@@ -50,7 +50,6 @@ import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
-import com.qcmian.clipper.devtools.api.DataTypes
 import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
@@ -59,7 +58,6 @@ import com.qcmian.clipper.devtools.api.DevToolPasteKey
 import com.qcmian.clipper.devtools.api.LocalDevToolPasteKey
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.registry.DevToolsRegistry
-import com.qcmian.clipper.core.ui.code.CodeFieldEngine
 import com.qcmian.clipper.core.ui.code.DefaultCodeFieldEngine
 import com.qcmian.clipper.core.ui.code.LocalCodeFieldEngine
 import com.qcmian.clipper.core.ui.code.next
@@ -155,9 +153,9 @@ fun DevToolsPanel(
     }
 
     var selectedId by remember { mutableStateOf<String?>(null) }
-    // 代码框用哪一套实现。放在面板这一层：状态栏那枚开关改它，工具里的代码框读它。
-    // 初值取 `DefaultCodeFieldEngine`，与「没人提供局部值」时的兜底是同一个出处。
-    var engine by remember { mutableStateOf(DefaultCodeFieldEngine) }
+    // 代码框用哪一套实现。固定在默认实现上：曾有一枚开关摆在状态栏右端（点一下换下一档），用户
+    // 反馈那是面板自身的技术选项、与状态无关，已删除。工具里的代码框仍读这个局部值。
+    val engine = DefaultCodeFieldEngine
     // 用户自己点过工具没有（换一条记录就重置）。探测挪到后台之后结果可能晚到，那时用户说不定
     // 早就在用了——不能让它把用户点好的选择顶掉。换一条记录时重新允许自动推荐。
     var pickedByUser by remember(item) { mutableStateOf(false) }
@@ -336,7 +334,7 @@ fun DevToolsPanel(
 
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
-                    // 引擎开关在这里生效：工具里所有代码框都读这个局部值（见 `LocalCodeFieldEngine`）。
+                    // 工具里的代码框都读这个局部值（见 `LocalCodeFieldEngine`）。
                     // 粘贴入口跟着一起放进来：工具的输入区靠它把处理函数登记给窗口层（见
                     // `DevToolPasteKey`——按键只发给焦点路径上的节点，卡片一上来就没有焦点节点了）。
                     CompositionLocalProvider(
@@ -355,12 +353,9 @@ fun DevToolsPanel(
                 val toolStatus = reportedStatus.value?.takeIf { it.first == effectiveSelectedId }?.second
                 val toolSource = reportedSource.value?.takeIf { it.first == effectiveSelectedId }?.second
                 ToolStatusBar(
-                    type = detected?.firstOrNull(),
                     source = sourceLabel(item, openedFiles.value, toolSource),
                     message = status.value,
                     toolStatus = toolStatus,
-                    engine = engine,
-                    onEngineChange = { engine = it },
                 )
             }
         }
@@ -598,24 +593,26 @@ private fun ToolContent(
 }
 
 /**
- * 窗口底部的状态栏：左边是「这段内容是什么」，右边是「它有多大」。
+ * 窗口底部的状态栏：一行**状态**文字。
  *
  * 只铺在内容区下面（不横跨侧边栏），侧边栏因此一直延伸到窗口底边，读起来是一条完整的竖栏。
  *
- * 临时提示占的是**来源那一段的位置**：它曾经是浮在内容上的一枚气泡（`StatusToast`），正好压在
- * 最后几行代码上。同一块地方轮流显示「这段内容从哪来」和「刚刚做了什么」，两件事不会同时需要。
+ * 一行里只显示一句话，优先级：临时提示（刚刚发生了什么）＞ 来源说明 ＞ 工具报告的常驻状态。
+ * 来源为空（工具明确表示不要这一段，见 `DevToolHost.reportSource` 的空串约定）时，常驻状态顶到
+ * 左段——否则 `weight(1f)` 撑开的空白会把状态推到右端，看起来像放错了位置。左段有内容时，常驻
+ * 状态仍排右端（数量这类短信息）。
+ *
+ * 这里曾经还有两样东西，均已删除：左端的类型圆点与类型名——它说明面板把内容认成了什么，而用户
+ * 已经在对应工具里、侧边栏也高亮着，既重复又难看出含义；右端的代码框引擎开关——那是面板自身的
+ * 技术选项，与工具状态无关。
  */
 @Composable
 private fun ToolStatusBar(
-    /** 最具体的探测结果；没有输入或没匹配上时为 `null`。 */
-    type: String?,
-    /** 左段那句「这段内容从哪来」；已由调用方算好，状态栏不关心它从何而来。 */
+    /** 左段那句「这段内容从哪来」；已由调用方算好，状态栏不关心它从何而来。空串表示不显示。 */
     source: String,
     message: String?,
+    /** 工具报告的常驻状态；没有时为 `null`。 */
     toolStatus: String?,
-    /** 当前代码框实现，以及切换它的入口。 */
-    engine: CodeFieldEngine,
-    onEngineChange: (CodeFieldEngine) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     Column {
@@ -625,62 +622,21 @@ private fun ToolStatusBar(
                 .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (type != null) {
-                Box(Modifier.size(5.dp).clip(CircleShape).background(colors.primary))
-                Spacer(Modifier.width(6.dp))
-                Text(typeLabel(type), fontSize = 10.sp, color = colors.primary)
-                Spacer(Modifier.width(12.dp))
-            }
+            val left = message ?: source
+            val right = toolStatus?.takeIf { left.isNotEmpty() }
             Text(
-                text = message ?: source,
+                text = left.ifEmpty { toolStatus.orEmpty() },
                 fontSize = 10.sp,
-                // 提示用主色，与左边那枚类型圆点一起成为「刚发生的事」；常驻的来源说明是灰的。
+                // 临时提示用主色（「刚刚发生的事」）；常驻内容一律用次级色。
                 color = if (message != null) colors.primary else MaterialTheme.hintColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            if (toolStatus != null) {
+            if (right != null) {
                 Spacer(Modifier.width(12.dp))
-                Text(toolStatus, fontSize = 10.sp, color = MaterialTheme.hintColor, maxLines = 1)
+                Text(right, fontSize = 10.sp, color = MaterialTheme.hintColor, maxLines = 1)
             }
-            Spacer(Modifier.width(12.dp))
-            EngineToggle(engine = engine, onChange = onEngineChange)
-        }
-    }
-}
-
-/**
- * 引擎开关：显示当前实现的名字，点一下换下一档。
- *
- * 摆在状态栏最右端，因为它是**看这个面板的人**的开关（换一套实现对比功能），不属于任何一件工具、
- * 也不该去挤工具栏那一行；放这里不额外占任何高度。
- *
- * 「编辑框」三个字留着而不是只写实现名：单独一个「原生」在状态栏里说不清是什么东西。
- */
-@Composable
-private fun EngineToggle(engine: CodeFieldEngine, onChange: (CodeFieldEngine) -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    HoverTooltip(
-        text = "代码框实现：${engine.label}（点击切换）",
-        positioning = TooltipAnchorPosition.Above,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(if (hovered) colors.onSurface.copy(alpha = 0.08f) else Color.Transparent)
-                .hoverable(interaction)
-                .clickable(interactionSource = interaction, indication = null) {
-                    onChange(engine.next())
-                }
-                .padding(horizontal = 6.dp, vertical = 2.dp),
-        ) {
-            Text("编辑框", fontSize = 10.sp, color = MaterialTheme.hintColor)
-            Spacer(Modifier.width(5.dp))
-            Text(engine.label, fontSize = 10.sp, color = colors.primary)
         }
     }
 }
@@ -704,8 +660,13 @@ private fun EngineToggle(engine: CodeFieldEngine, onChange: (CodeFieldEngine) ->
  *
  * 没有文件时才轮到 [reported]：那是工具说的「内容从哪来」（当前时间 / 文本输入…）——面板自己
  * 判断不了这些，因为都发生在工具内部（见 `DevToolHost.reportSource` 与 `DevToolReportSource`）。
+ *
+ * **空串是「这一段我不要」**，排在文件前面判：工具比面板清楚自己这一页需不需要来源（android 签名
+ * 工具整页都是文件，说「来自文件」对它没有信息量）。`null` 才是「交回面板判断」，两者不是一件事。
  */
 private fun sourceLabel(item: ClipItem?, openedFiles: List<String>, reported: String?): String {
+    if (reported != null && reported.isEmpty()) return ""
+
     val files = openedFiles.ifEmpty { item?.files.orEmpty() }
     if (files.isNotEmpty()) {
         val first = files.first()
@@ -735,12 +696,4 @@ private fun groupTools(tools: List<DevTool>): List<Pair<DevToolGroup, List<DevTo
         if (inGroup.isEmpty()) null else group to inGroup
     }
 
-private fun typeLabel(name: String): String = when (name) {
-    DataTypes.JSON -> "JSON"
-    DataTypes.XML -> "XML"
-    DataTypes.URL -> "链接"
-    DataTypes.TIMESTAMP -> "时间戳"
-    DataTypes.BASE64 -> "Base64"
-    DataTypes.TEXT -> "文本"
-    else -> name
-}
+
