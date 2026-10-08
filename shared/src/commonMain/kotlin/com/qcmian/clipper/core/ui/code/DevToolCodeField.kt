@@ -11,12 +11,10 @@ package com.qcmian.clipper.core.ui.code
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,17 +45,14 @@ import com.monkopedia.kodemirror.commands.defaultKeymap
 import com.monkopedia.kodemirror.commands.history
 import com.monkopedia.kodemirror.language.bracketMatching
 import com.monkopedia.kodemirror.language.foldGutter
-import com.monkopedia.kodemirror.state.ChangeSpec
 import com.monkopedia.kodemirror.state.Compartment
 import com.monkopedia.kodemirror.state.DocPos
 import com.monkopedia.kodemirror.state.Extension
 import com.monkopedia.kodemirror.state.SelectionSpec
 import com.monkopedia.kodemirror.state.TransactionSpec
-import com.monkopedia.kodemirror.state.asInsert
 import com.monkopedia.kodemirror.state.extensionListOf
 import com.monkopedia.kodemirror.view.EditorSession
 import com.monkopedia.kodemirror.view.EditorTheme
-import com.monkopedia.kodemirror.view.KodeMirror
 import com.monkopedia.kodemirror.view.LocalContentTextStyle
 import com.monkopedia.kodemirror.view.drawSelection
 import com.monkopedia.kodemirror.view.editable
@@ -266,7 +261,16 @@ fun DevToolCodeField(
             CodeFieldHeader(label = label, actions = actions)
             Spacer(Modifier.height(6.dp))
         }
-        Box(
+        // 编辑区**必须有有界高度**：KodeMirror 自己滚，拿到无界约束时它会按整篇文档的高度铺开。
+        // 横竖两条滚动条都由 KodeMirror 自己画在正文之上（竖向那条是本仓库内联时补的，上游只画了
+        // 横向——见 `:kodemirror` 的 README）。这一侧因此不必外挂任何东西。
+        //
+        // 正文与右键菜单都归 `CodeFieldEditor`：菜单只能挂在**这一块**上——它的 offset 以这一块
+        // 为锚，点在哪就开在哪。
+        CodeFieldEditor(
+            session = session,
+            editable = editable,
+            filePaste = filePaste,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -274,12 +278,7 @@ fun DevToolCodeField(
                 .background(codeColors.editorBackground)
                 .border(1.dp, scheme.outline.copy(alpha = 0.6f), shape)
                 .then(filePasteInterceptor(session, filePaste, editable)),
-        ) {
-            // **必须有有界高度**：KodeMirror 自己滚，拿到无界约束时它会按整篇文档的高度铺开。
-            // 横竖两条滚动条都由 KodeMirror 自己画在正文之上（竖向那条是本仓库内联时补的，
-            // 上游只画了横向——见 `:kodemirror` 的 README）。这一侧因此不必外挂任何东西。
-            KodeMirror(session = session, modifier = Modifier.fillMaxSize())
-        }
+        )
     }
 }
 
@@ -348,6 +347,8 @@ private fun switchableExtensions(
  * 拦截是必要的：系统对「复制的文件」只提供**文件名**这一种文本表示，
  * 不拦的话粘进来永远只有文件名。挂在外层 Box 上即可——预览事件从根往下走，装订线里那个负责收
  * 键盘的隐藏输入框还没轮到处理，先经过这里。
+ *
+ * 菜单里的「粘贴」走的是同一个钩子、同一段插入规则（见 [insertAtCursor]）。
  */
 private fun filePasteInterceptor(
     session: EditorSession,
@@ -359,18 +360,7 @@ private fun filePasteInterceptor(
         if (event.type != KeyEventType.KeyDown || event.key != Key.V) return@onPreviewKeyEvent false
         if (!event.isMetaPressed && !event.isCtrlPressed) return@onPreviewKeyEvent false
         val content = filePaste() ?: return@onPreviewKeyEvent false
-        // 插入规则：选区被替换掉，光标落在插入内容之后。
-        val selection = session.state.selection.main
-        session.dispatch(
-            TransactionSpec(
-                changes = ChangeSpec.Single(
-                    from = selection.from,
-                    to = selection.to,
-                    insert = content.asInsert(),
-                ),
-                selection = SelectionSpec.CursorSpec(selection.from + content.length),
-            )
-        )
+        session.insertAtCursor(content)
         true
     }
 }
