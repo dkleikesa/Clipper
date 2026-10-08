@@ -61,6 +61,9 @@ private val TabIndicatorHeight = 2.dp
  *
  * @param options 有几页，声明顺序即从左到右的顺序。
  * @param optionLabel 每页上的短名。
+ * @param baseline 是否自己画那条横贯的基线。嵌进**别的行**里时（输入区把它摆在标题行中段，
+ *   见 `DevToolInputField`）传 `false`：那条线得由整行来画，否则它只到页签为止，右边那排动作
+ *   就落在线的外面。
  */
 @Composable
 fun <T> DevToolTabBar(
@@ -69,11 +72,12 @@ fun <T> DevToolTabBar(
     optionLabel: (T) -> String,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
+    baseline: Boolean = true,
 ) {
     val colors = MaterialTheme.colorScheme
     // 每一页一份交互源：悬停高亮各算各的。页数恒定，按页数记忆即可。
     val interactions = remember(options.size) { List(options.size) { MutableInteractionSource() } }
-    val baseline = colors.outline.copy(alpha = 0.5f)
+    val baselineColor = colors.outline.copy(alpha = 0.5f)
     val indicator = colors.primary
 
     Row(
@@ -84,8 +88,9 @@ fun <T> DevToolTabBar(
             // 读起来是「这一页是从这条线上翻开的」。若把线画成页签下面的另一个 Box，选中的那一段
             // 底下会多出一条灰线，看着像两条。
             .drawBehind {
+                if (!baseline) return@drawBehind
                 val y = size.height - 0.5.dp.toPx()
-                drawLine(baseline, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                drawLine(baselineColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {

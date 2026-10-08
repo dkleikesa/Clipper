@@ -53,6 +53,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
 import com.qcmian.clipper.devtools.ui.components.imageInputName
 import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
+import com.qcmian.clipper.devtools.ui.components.DevToolSourceCard
 import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
@@ -66,8 +67,13 @@ import kotlinx.coroutines.withContext
 /** 正文停下来多久才重算。与 JSON / XML / 数学工具取同一个值。 */
 private const val EvaluateDebounceMillis = 150L
 
-/** 输入区高度：比时间戳工具高一些，编码多行文本时一屏能看个大概。 */
-private val InputFieldHeight = 120.dp
+/**
+ * 输入区高度：比时间戳工具高一些，编码多行文本时一屏能看个大概。
+ *
+ * 这一份要装下**两页里更高的那一页**（翻页时占的地方不动）：文件页 = 标题行 + 一条可敲的路径
+ * + 来源卡片，卡片里还得放得下缩略图与它那两行字。
+ */
+private val InputFieldHeight = 160.dp
 
 /**
  * 编码时一次读入的文件上限；与 `readBytesOrNull` 的默认值一致，超过就提示而不是硬读。
@@ -82,8 +88,15 @@ private val MaxInputFileBytes = 16L * 1024 * 1024
  *
  * 刻意用普通类而不是 `data class`：它的相等性按**引用**算，重算的键一眼就能认出「换了份输入」
  * ——`ByteArray` 放进数据类本来也是按引用比较，那样写只是让人误以为在比值。
+ *
+ * [path] 是磁盘上的**绝对路径**，只在来源真的落在一个文件上时才有（[origin] 是剪贴板图片时没有）；
+ * 卡片与状态栏靠它说清「编的是哪个文件」——光有文件名，同名的两个文件分不出来。
  */
-private class Base64Source(val name: String, val bytes: ByteArray) {
+private class Base64Source(
+    val name: String,
+    val bytes: ByteArray,
+    val path: String? = null,
+) {
     val imageKind: ImageKind? = Base64Format.imageKindOf(bytes)
 }
 
@@ -328,7 +341,8 @@ internal object Base64DevTool : DevTool {
                     // **剪贴板里的图片**四路输入都从这一个口子进。载入文件 / 图片之后就换成那张
                     // 来源卡片。
                     DevToolInputField(
-                        label = "输入 · 文本",
+                        // 框名不必再说「文本 / 文件」：标题行里那道切换已经说着了。
+                        label = "输入",
                         value = encodeText,
                         onValueChange = {
                             encodeText = it
@@ -354,22 +368,18 @@ internal object Base64DevTool : DevTool {
                             encodeText = ""
                             encodeTyped = false
                         },
-                        // 清空不是「手打」，但也别留着上一档的手打标记。
+                        // 两种形态各清各的：清文本不动文件、清文件不动文本——切回去还能接着用。
+                        // 清空也不算「手打」，别留着上一档的手打标记。
                         onClear = {
                             encodeText = ""
                             encodeTyped = false
                         },
-                        sourceCard = if (loadedFile != null) {
-                            { cardModifier ->
-                                FileSourceCard(
-                                    source = loadedFile,
-                                    onReplace = { host.pickFileToOpen()?.let(::applyPath) },
-                                    onClear = { source = null },
-                                    modifier = cardModifier,
-                                )
-                            }
-                        } else {
-                            null
+                        onClearSource = { source = null },
+                        hasSource = loadedFile != null,
+                        // 文件页那行路径：钉在来源自己身上，工具因此不必另存一份路径字符串。
+                        sourcePath = loadedFile?.path.orEmpty(),
+                        sourceCard = { cardModifier ->
+                            FileSourceCard(source = loadedFile, modifier = cardModifier)
                         },
                         modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
                     )
@@ -505,7 +515,7 @@ private fun loadFile(path: String, mode: DevToolDirection): Loaded {
         ?: return Loaded.Failure(
             "读不了这个文件（超过 ${Base64Format.humanSize(MaxInputFileBytes)}，或不是普通文件）：$path"
         )
-    return Loaded.Binary(Base64Source(name, bytes))
+    return Loaded.Binary(Base64Source(name, bytes, path))
 }
 
 private fun saveText(host: DevToolHost, value: String, suggestedName: String) {
@@ -747,86 +757,33 @@ private fun ImageResult(
 }
 
 /**
- * 编码侧载入了文件：用一张卡片替掉输入框，说清楚「这次编的是这个文件」。
- *
- * 卡片上必须留着**换文件**与**回到文本**这两条路：它一旦替掉文本框，用户就没有别的入口了——
- * 「换一个文件」靠 [onReplace]（再拖一个文件、粘一张图片进来也走 `DevToolInputField` 那两条路），
- * 「回去打字」靠 [onClear]。
+ * 编码侧的**文件页**：载入了文件就把「这次编的是这个文件」摆出来——缩略图 + 文件名 + 体积；
+ * 空着则给一句落点提示。长相见 [DevToolSourceCard]，绝对路径在它上方那条可敲的路径行里
+ * （归 `DevToolInputField`）。
  */
 @Composable
-private fun FileSourceCard(
-    source: Base64Source,
-    onReplace: () -> Unit,
-    onClear: () -> Unit,
-    modifier: Modifier,
-) {
-    val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(6.dp)
-    val codeColors = rememberCodeColors()
-    val thumbnail = rememberThumbnail(source)
-
-    Column(
-        modifier = modifier
-            .clip(shape)
-            .background(codeColors.editorBackground)
-            .border(1.dp, colors.outline.copy(alpha = 0.6f), shape)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("输入 · 文件", fontSize = 13.sp, color = MaterialTheme.hintColor)
-            Spacer(Modifier.weight(1f))
-            DevToolFieldAction(
-                kind = ClipperIconKind.FOLDER,
-                tooltip = "更换文件（也可以直接把文件拖进来）",
-                onClick = onReplace,
-            )
-            Spacer(Modifier.width(4.dp))
-            DevToolFieldAction(
-                kind = ClipperIconKind.TRASH,
-                tooltip = "清除文件，回到文本输入",
-                onClick = onClear,
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (thumbnail != null) {
-                Image(
-                    bitmap = thumbnail,
-                    contentDescription = null,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.size(52.dp).clip(RoundedCornerShape(4.dp)),
-                )
-                Spacer(Modifier.width(10.dp))
-            }
-            Column {
-                Text(
-                    text = source.name,
-                    fontSize = 13.sp,
-                    color = colors.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = listOfNotNull(
-                        source.imageKind?.label,
-                        Base64Format.humanSize(source.bytes.size.toLong()),
-                    ).joinToString(" · "),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.hintColor,
-                )
-            }
-        }
-    }
+private fun FileSourceCard(source: Base64Source?, modifier: Modifier) {
+    DevToolSourceCard(
+        name = source?.name,
+        detail = source?.let {
+            listOfNotNull(
+                it.imageKind?.label,
+                Base64Format.humanSize(it.bytes.size.toLong()),
+            ).joinToString(" · ")
+        },
+        thumbnail = rememberThumbnail(source),
+        emptyHint = "把文件拖进来，或打开 / 粘贴一个文件（图片、任意二进制）",
+        modifier = modifier,
+    )
 }
 
 /** 图片文件的缩略图。解码挪到后台：几兆的图在组合里同步解会让窗口顿一下。 */
 @Composable
-private fun rememberThumbnail(source: Base64Source): ImageBitmap? {
-    if (source.imageKind == null) return null
-    val bitmap by produceState<ImageBitmap?>(null, source) {
+private fun rememberThumbnail(source: Base64Source?): ImageBitmap? {
+    val bytes = source?.takeIf { it.imageKind != null }?.bytes ?: return null
+    val bitmap by produceState<ImageBitmap?>(null, bytes) {
         value = withContext(Dispatchers.Default) {
-            runCatching { source.bytes.decodeToImageBitmap() }.getOrNull()
+            runCatching { bytes.decodeToImageBitmap() }.getOrNull()
         }
     }
     return bitmap

@@ -58,6 +58,7 @@ import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolResultList
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolSlider
+import com.qcmian.clipper.devtools.ui.components.DevToolSourceCard
 import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
 import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.imageInputName
@@ -72,8 +73,12 @@ private const val EvaluateDebounceMillis = 150L
 /** 输入区高度：与 Base64 工具一致，多行文本一屏能看个大概。 */
 private val InputFieldHeight = 120.dp
 
-/** 解码页输入区（那张码图卡片）的高度：装得下预览，也给下面的结果区留出地方。 */
-private val DecodeImageHeight = 150.dp
+/**
+ * 解码页输入区（那张码图卡片）的高度：装得下预览与「文件名 + 尺寸」两行，也给下面的结果区留出
+ * 地方。比原先多出来的那一截，是标题行（框名 + 打开 / 清除）与**那行可敲的路径**都搬到卡片
+ * **外面**之后占掉的。
+ */
+private val DecodeImageHeight = 202.dp
 
 /**
  * 解码页一次读入的图片上限。
@@ -137,6 +142,8 @@ private class BarcodeImageInput(
     val name: String,
     val bytes: ByteArray,
     val origin: DevToolInputOrigin?,
+    /** 磁盘上的**绝对路径**，只在图来自一个文件时才有（剪贴板里的图没有）。 */
+    val path: String? = null,
 )
 
 /**
@@ -197,11 +204,16 @@ internal object BarcodeDevTool : DevTool {
         val measurer = rememberTextMeasurer()
         val scope = rememberCoroutineScope()
 
-        // 把一张图安置到解码页上（拖入 / 粘贴 / 打开都走这里）。名字与字节是唯一的输入：预览与
-        // 认码都从它算出来（见下面那个 effect）。
-        fun applyImageBytes(name: String, bytes: ByteArray, origin: DevToolInputOrigin?) {
+        // 把一张图安置到解码页上（拖入 / 粘贴 / 打开都走这里）。名字、字节与路径是全部输入：
+        // 预览与认码都从它算出来（见下面那个 effect）。
+        fun applyImageBytes(
+            name: String,
+            bytes: ByteArray,
+            origin: DevToolInputOrigin?,
+            path: String? = null,
+        ) {
             mode = DevToolDirection.Decode
-            imageInput = BarcodeImageInput(name, bytes, origin)
+            imageInput = BarcodeImageInput(name, bytes, origin, path)
         }
 
         // 读一个文件并按**码图**安置：认码要的是原始字节（图片正是二进制）。同步读——与 Base64
@@ -213,7 +225,7 @@ internal object BarcodeDevTool : DevTool {
                 host.showStatus("读不了这个文件（超过 32MB，或不是普通文件）：$path")
                 return
             }
-            applyImageBytes(name, bytes, DevToolInputOrigin.Open)
+            applyImageBytes(name, bytes, DevToolInputOrigin.Open, path)
         }
 
         // 从剪贴板条目打开：带进来的是**图**（截图、从浏览器复制的图片）就直接落在解码页——认它
@@ -236,7 +248,7 @@ internal object BarcodeDevTool : DevTool {
                 val name = path.substringAfterLast('/').ifBlank { path }
                 val bytes = withContext(Dispatchers.Default) { readBytesOrNull(path, MaxInputImageBytes) }
                 if (bytes != null && withContext(Dispatchers.Default) { decodeImageOrNull(bytes) != null }) {
-                    applyImageBytes(name, bytes, origin = null)
+                    applyImageBytes(name, bytes, origin = null, path = path)
                     return@LaunchedEffect
                 }
             }
@@ -529,11 +541,13 @@ internal object BarcodeDevTool : DevTool {
                 // 解码页：输入是一张**码图**，输出是图里认出来的内容。
                 DevToolDirection.Decode -> {
                     DevToolInputField(
-                        // 卡片替掉文本框之后，这几个文本框参数不再画出来（值留空即可）。
-                        label = "",
+                        label = "输入 · 码图",
                         value = "",
                         onValueChange = {},
                         host = host,
+                        // 这一页没有可敲的正文，摆一个编辑框只会让人以为能粘一段字进去：
+                        // 只留文件页，于是也不显示「文本 / 文件」两页签。
+                        allowText = false,
                         // 打开 / 拖入的**文件**：读原始字节（图片正是二进制）。返回空串表示「已经
                         // 安置好了」，控件不必再往文本框里填什么（这一页也没有文本框）。
                         onFiles = { paths, _ ->
@@ -544,15 +558,17 @@ internal object BarcodeDevTool : DevTool {
                         onImage = { bytes, origin ->
                             applyImageBytes(imageInputName(origin), bytes, origin)
                         },
-                        // 卡片**一直**在（空态也在）：这一页没有可敲的正文，摆一个编辑框只会让人
-                        // 以为能粘一段字进去。它同时接住了拖放与粘贴。
+                        // 「清除来源」= 回到空态。标题行上那个垃圾桶就是它。
+                        onClearSource = { imageInput = null },
+                        hasSource = imageInput != null,
+                        // 路径那行：图片来自文件时把它摆出来（还能改、能敲一条新的），
+                        // 剪贴板里的图没有磁盘路径，那一行就空着。
+                        sourcePath = imageInput?.path.orEmpty(),
                         sourceCard = { cardModifier ->
                             CodeImageCard(
                                 input = imageInput,
                                 outcome = scanOutcome,
                                 scanning = scanning,
-                                onOpen = { host.pickFileToOpen()?.let(::applyImagePath) },
-                                onClear = { imageInput = null },
                                 modifier = cardModifier,
                             )
                         },
@@ -719,8 +735,9 @@ private fun ToolbarOption(label: String, content: @Composable () -> Unit) {
 /**
  * 解码页的输入卡片：没图时是「把码图拖进来 / 粘进来」的落点，有图时换成那张图的预览。
  *
- * 它**一直**替掉文本框（见调用点）：这一页没有可敲的正文，摆一个编辑框只会让人以为能粘一段字
- * 进去。卡片这一层已经接住拖放与粘贴（见 `DevToolInputField`），因此空态也是一个能用的入口。
+ * 它替掉的是**卡片那一块**，长相（外壳 + 预览 + 文件名 / 尺寸）见 [DevToolSourceCard]；绝对路径
+ * 在它上方那条可敲的路径行里（归 `DevToolInputField`）。拖放与粘贴由输入区那一层接住（见
+ * `DevToolInputField`），因此空态也是一个能用的入口。
  *
  * 预览取的是 [ScanOutcome.Ready.bitmap]（**原图**，不是认码前缩小那份）：认码为了快，预览为了
  * 看得清，两件事各用各的尺寸。
@@ -730,48 +747,18 @@ private fun CodeImageCard(
     input: BarcodeImageInput?,
     outcome: ScanOutcome?,
     scanning: Boolean,
-    onOpen: () -> Unit,
-    onClear: () -> Unit,
     modifier: Modifier,
 ) {
-    val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(6.dp)
-    val codeColors = rememberCodeColors()
     val preview = (outcome as? ScanOutcome.Ready)?.bitmap
-
-    Column(
-        modifier = modifier
-            .clip(shape)
-            .background(codeColors.editorBackground)
-            .border(1.dp, colors.outline.copy(alpha = 0.6f), shape)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("输入 · 码图", fontSize = 13.sp, color = MaterialTheme.hintColor)
-            Spacer(Modifier.weight(1f))
-            DevToolFieldAction(
-                kind = ClipperIconKind.FOLDER,
-                tooltip = if (input == null) "打开一张码图" else "换一张（也可以直接把图拖进来）",
-                onClick = onOpen,
-            )
-            Spacer(Modifier.width(4.dp))
-            DevToolFieldAction(
-                kind = ClipperIconKind.TRASH,
-                tooltip = "清除这张图",
-                enabled = input != null,
-                onClick = onClear,
-            )
-        }
-        Spacer(Modifier.height(8.dp))
-        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+    DevToolSourceCard(
+        name = input?.name,
+        // 认码时看到的尺寸比这里报的小（长边被缩到 1600），报的是**原图**尺寸：用户要核对的是
+        // 「我打开的是哪张图」，不是内部缩到多少。
+        detail = preview?.let { "${it.width}×${it.height}" },
+        emptyHint = "把码图拖进来，或粘贴 / 打开一张图片",
+        modifier = modifier,
+        preview = {
             when {
-                input == null -> Text(
-                    text = "把码图拖进来，或粘贴 / 打开一张图片",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.hintColor,
-                    textAlign = TextAlign.Center,
-                )
-
                 preview != null -> Image(
                     bitmap = preview,
                     contentDescription = null,
@@ -786,20 +773,8 @@ private fun CodeImageCard(
                     color = MaterialTheme.hintColor,
                 )
             }
-        }
-        if (input != null) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                // 认码时看到的尺寸比这里报的小（长边被缩到 1600），报的是**原图**尺寸：用户要核对
-                // 的是「我打开的是哪张图」，不是内部缩到多少。
-                text = input.name + (preview?.let { " · ${it.width}×${it.height}" }.orEmpty()),
-                fontSize = 12.sp,
-                color = MaterialTheme.hintColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
+        },
+    )
 }
 
 /**

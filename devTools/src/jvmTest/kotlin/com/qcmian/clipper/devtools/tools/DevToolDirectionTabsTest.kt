@@ -154,8 +154,8 @@ class DevToolDirectionTabsTest {
     }
 
     private companion object {
-        /** 编码页的输入框名。 */
-        const val ENCODE_INPUT = "输入 · 文本"
+        /** 编码页的输入框名。文本 / 文件由标题行里那道切换说着，框名不必再重复。 */
+        const val ENCODE_INPUT = "输入"
 
         /** 解码页的输入框名。 */
         const val DECODE_INPUT = "输入 · Base64"

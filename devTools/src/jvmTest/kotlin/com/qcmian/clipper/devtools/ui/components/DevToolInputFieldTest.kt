@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draganddrop.DragAndDropEvent
@@ -16,10 +17,12 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyPress
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
@@ -35,7 +38,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * [DevToolInputField] 的验收：**两个方向 × 三种载荷（文本 / 文件 / 图片）真的都接得住**。
+ * [DevToolInputField] 的验收：**两页 × 三种载荷（文本 / 文件 / 图片）都按页签说的那条规矩走**
+ * ——文本页只收文本，文件页只收文件 / 图片。
  *
  * 为什么必须真跑组合：接线（键盘拦截挂在谁的上面、拖放接收器有没有跟着卡片一起搬走）全是 Compose
  * 节点树上的事，纯逻辑测不出来——Base64 的图片粘贴当初就是这么漏掉的：控件编译得过、文本照常输入，
@@ -172,10 +176,13 @@ class DevToolInputFieldTest {
     }
 
     @Test
-    fun `载入来源卡片后画的是卡片而不是文本框`() = runComposeUiTest {
-        // 卡片替掉文本框时，拖放接收器要跟着搬过去（见 `DevToolInputField` 的接线）——否则
-        // 「再拖一个文件进来」这条路就断了。拖放事件在离屏测试里造不出来，这里验的是另一面：
-        // 卡片模式下画的确实是卡片、文本框确实让位了；真拖放要手动过一遍。
+    fun `有来源时画的是文件页：卡片 + 一条能敲的路径`() = runComposeUiTest {
+        // 来源一有，这一位就落在**文件页**：卡片与那条路径替掉编辑区，拖放接收器跟着搬过去（见
+        // `DevToolInputField` 的接线）——否则「再拖一个文件进来」这条路就断了。拖放事件在离屏
+        // 测试里造不出来，这里验的是另一面：画的确实是文件页、编辑区确实让位了。
+        //
+        // 标题行（框名 + 两页签 + 打开 / 清除）两页**共用**，所以它照旧在——从前它随文本框一起
+        // 消失，逼着每张卡片自己重画一遍，那正是这条改动要消掉的重复。
         render {
             DevToolInputField(
                 label = "输入",
@@ -183,19 +190,132 @@ class DevToolInputFieldTest {
                 onValueChange = {},
                 host = FakeHost(),
                 modifier = Modifier.fillMaxSize(),
+                hasSource = true,
+                sourcePath = "/tmp/example.png",
                 sourceCard = { cardModifier -> Text("来源卡片", modifier = cardModifier) },
             )
         }
 
         onNodeWithText("来源卡片").assertIsDisplayed()
-        assertTrue(
-            onAllNodesWithText("输入").fetchSemanticsNodes().isEmpty(),
-            "卡片在时不再画文本框（框名由卡片自己说）",
+        onNodeWithText("输入").assertIsDisplayed()
+        // 「文本 / 文件」两页签都在：两页都吃时才出现。
+        onNodeWithText("文本").assertIsDisplayed()
+        onNodeWithText("文件").assertIsDisplayed()
+        // 当前来源的绝对路径就画在那行输入框里——不必去访达里核对是哪个文件。
+        onNodeWithText("/tmp/example.png").assertIsDisplayed()
+        assertEquals(
+            0,
+            onAllNodesWithTag("KodeMirror_input").fetchSemanticsNodes().size,
+            "文件页里不再画文本框（编辑区让位），能敲的只有那条路径",
         )
     }
 
+    /**
+     * 文本页**不收**文件：接住这次粘贴并说一句往文件页走。
+     *
+     * 放行不行——系统对「复制的文件」只给文件名这一种文本表示，正文里因此会冒出一个文件名；
+     * 静默吞掉也不行——那看上去就是没反应。
+     */
     @Test
-    fun `载入来源卡片后窗口层的粘贴接得住文件`() = runComposeUiTest {
+    fun `文本页收到文件时只给一句提示`() = runComposeUiTest {
+        val path = tempFile("{\"a\": 1}")
+        val host = FakeHost(files = listOf(path))
+        val pasteKey = DevToolPasteKey()
+        var files = 0
+        render(pasteKey) {
+            DevToolInputField(
+                label = "输入",
+                value = "",
+                onValueChange = {},
+                host = host,
+                modifier = Modifier.fillMaxSize(),
+                onFiles = { _, _ -> files++; "" },
+                onImage = { _, _ -> },
+                sourceCard = { cardModifier -> Text("来源卡片", modifier = cardModifier) },
+            )
+        }
+        waitForIdle()
+
+        assertTrue(pasteKey.handle(), "得吞掉这次粘贴，否则系统会把文件名贴进正文")
+        assertEquals(0, files, "文本页不接文件")
+        assertTrue(
+            host.statuses.any { it.contains("「文件」页") },
+            "至少要说明该往哪一页放：${host.statuses}",
+        )
+    }
+
+    /**
+     * 文件页那行路径**能敲**：手上已经有绝对路径时不必先去访达里把文件找出来。
+     * 回车才算数——边敲边读盘会让「读不了这个文件」在打字途中反复弹。
+     */
+    @Test
+    fun `文件页里敲一条路径回车交给工具`() = runComposeUiTest {
+        val host = FakeHost()
+        var asked: List<String>? = null
+        render {
+            DevToolInputField(
+                label = "输入",
+                value = "",
+                onValueChange = {},
+                host = host,
+                modifier = Modifier.fillMaxSize(),
+                hasSource = true,
+                sourceCard = { cardModifier -> Text("来源卡片", modifier = cardModifier) },
+                onFiles = { paths, _ -> asked = paths; "" },
+            )
+        }
+        waitForIdle()
+
+        // 还没敲：框里是占位提示。敲一条绝对路径进去（`DevToolSingleLineField` 收键盘的就是它）。
+        onNodeWithText("粘贴或输入绝对路径").performTextInput("/tmp/another.txt")
+        waitForIdle()
+        assertEquals(null, asked, "敲字途中不该读盘")
+
+        onRoot().performKeyPress(KeyEvent(Key.Enter, KeyEventType.KeyDown))
+        waitForIdle()
+        assertEquals(listOf("/tmp/another.txt"), asked, "回车＝用这条路径")
+    }
+
+    /**
+     * 这条钉住「文本与文件两页各自留着」：载入文件不吞掉手打的字，翻回文本它还在。
+     *
+     * 从前文件卡片是**直接替掉**文本框的：打开一个文件之后想再打字，得先把文件清掉，而清掉之后
+     * 原来敲的字也已经没了。
+     */
+    @Test
+    fun `翻到文件页再翻回文本，敲的字还在`() = runComposeUiTest {
+        val typed = mutableStateOf("随手打的字")
+        val hasSource = mutableStateOf(false)
+        render {
+            DevToolInputField(
+                label = "输入",
+                value = typed.value,
+                onValueChange = { typed.value = it },
+                host = FakeHost(),
+                modifier = Modifier.fillMaxSize(),
+                hasSource = hasSource.value,
+                onClearSource = { hasSource.value = false },
+                sourceCard = { cardModifier -> Text("来源卡片", modifier = cardModifier) },
+            )
+        }
+
+        // 一开始没有来源：文本页，编辑区在。
+        onNodeWithText("来源卡片").assertDoesNotExist()
+
+        // 载入一个文件（工具侧那份状态一变，控件就落到文件页）。
+        hasSource.value = true
+        waitForIdle()
+        onNodeWithText("来源卡片").assertIsDisplayed()
+
+        // 翻回文本：来源让位，刚才敲的字原样还在。
+        onNodeWithText("文本").performClick()
+        waitForIdle()
+        onNodeWithText("来源卡片").assertDoesNotExist()
+        onNodeWithText("随手打的字").assertIsDisplayed()
+    }
+
+    @Test
+    fun `文件页上窗口层的粘贴接得住文件`() = runComposeUiTest {
         // 已经载入一张图 / 一个文件之后再粘一个文件进来，是这条路上最自然的下一步动作。真机上
         // 这条按键从窗口层进来（见类注释），这里直接调 `handle`，与 `ClipperDevToolsWindow` 一致。
         val path = tempFile("换一个文件")
@@ -210,6 +330,8 @@ class DevToolInputFieldTest {
                 onValueChange = {},
                 host = host,
                 modifier = Modifier.fillMaxSize(),
+                // 有来源才在文件页上（那也正是「换一个文件」这句话成立的处境）。
+                hasSource = true,
                 onImage = { _, _ -> },
                 onFiles = { paths, from ->
                     handled = paths
@@ -222,13 +344,13 @@ class DevToolInputFieldTest {
         }
         waitForIdle()
 
-        assertTrue(pasteKey.handle(), "卡片显示着的时候，这次粘贴得由输入区接过去")
-        assertEquals(listOf(path), handled, "卡片上粘文件要接得住")
+        assertTrue(pasteKey.handle(), "文件页显示着的时候，这次粘贴得由输入区接过去")
+        assertEquals(listOf(path), handled, "文件页上粘文件要接得住")
         assertEquals(DevToolInputOrigin.Paste, origin)
     }
 
     @Test
-    fun `载入来源卡片后窗口层的粘贴接得住图片`() = runComposeUiTest {
+    fun `文件页上窗口层的粘贴接得住图片`() = runComposeUiTest {
         val png = pngBytes()
         val host = FakeHost(image = png)
         val pasteKey = DevToolPasteKey()
@@ -240,6 +362,7 @@ class DevToolInputFieldTest {
                 onValueChange = {},
                 host = host,
                 modifier = Modifier.fillMaxSize(),
+                hasSource = true,
                 onImage = { bytes, _ -> received = bytes },
                 sourceCard = { cardModifier -> Text("来源卡片", modifier = cardModifier) },
             )

@@ -14,6 +14,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -151,7 +152,6 @@ fun DevToolCodeField(
     filePaste: (() -> String?)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val hint = MaterialTheme.hintColor
     val codeColors = rememberCodeColors()
     val shape = RoundedCornerShape(6.dp)
     val theme = rememberKodemirrorTheme(codeColors)
@@ -263,12 +263,7 @@ fun DevToolCodeField(
 
     Column(modifier.fillMaxWidth()) {
         if (showLabel) {
-            // 标签在左、动作在右，字号用 13sp（与应用正文同一档）。
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(label, fontSize = 13.sp, color = hint)
-                Spacer(Modifier.weight(1f))
-                actions()
-            }
+            CodeFieldHeader(label = label, actions = actions)
             Spacer(Modifier.height(6.dp))
         }
         Box(
@@ -285,6 +280,31 @@ fun DevToolCodeField(
             // 上游只画了横向——见 `:kodemirror` 的 README）。这一侧因此不必外挂任何东西。
             KodeMirror(session = session, modifier = Modifier.fillMaxSize())
         }
+    }
+}
+
+/**
+ * 编辑框与「来源卡」共用的标题行：框名在左、动作在右，字号 13sp（与应用正文同一档）。
+ *
+ * 抽出来是因为同一个框有两种形态——可编辑的文本框，与替掉它的来源卡（文件 / 图片）——标题行
+ * 必须**两种形态都在**、且一模一样。让每张卡片自己重画一遍的结果是：动作位置对不上、用词也
+ * 会漂（「清除文件」/「清除来源」）。
+ *
+ * @param leading 框名与动作之间那块地方。输入区把「文本 / 文件」两页签摆在这儿，于是页签跟着
+ *   标题行走、两种形态都在；不传时整行只有框名与动作。接收者是 [RowScope]：页签要以
+ *   `Modifier.weight` 占住中段，右边那排动作才落在标题行末端。
+ */
+@Composable
+fun CodeFieldHeader(
+    label: String,
+    actions: @Composable () -> Unit,
+    leading: @Composable RowScope.() -> Unit = {},
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 13.sp, color = MaterialTheme.hintColor)
+        leading()
+        Spacer(Modifier.weight(1f))
+        actions()
     }
 }
 
