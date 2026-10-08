@@ -60,6 +60,10 @@ import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.core.ui.code.DevToolCodeField
 import com.qcmian.clipper.core.ui.code.rememberCodeColors
 import com.qcmian.clipper.core.ui.code.scanPlain
+// 把 ImageBitmap 编成 PNG 只有这一处用到（复制 ICO 时的兜底，见 `ImageResult`）；模块里本来
+// 就有它——条码工具导出码图走的是同一个编码器（见 `renderPng`）。
+import io.github.alexzhirkevich.qrose.ImageFormat
+import io.github.alexzhirkevich.qrose.toByteArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -528,6 +532,26 @@ private fun saveBytes(host: DevToolHost, bytes: ByteArray, suggestedName: String
     host.showStatus(if (writeBytesFile(path, bytes)) "已保存到 $path" else "写不进这个位置：$path")
 }
 
+/**
+ * 把解出来的图写回系统剪贴板。
+ *
+ * **原样**交出去：解出来的字节就是用户要的那张图，重编一遍只会白改一次容器——体积还可能涨几倍，
+ * 而这一份随后要进历史库（同一条理由见 `MacClipboardDataSource.write`，那里也是逐类型搬原始字节）。
+ * 宿主按**魔数**认类型，PNG / JPEG / GIF / WebP / BMP / TIFF 都认（见 `imageFormatOf`）。
+ *
+ * ICO 是它唯一认不出的格式：交出去等于什么都没写，状态栏却会报「已复制到剪贴板」。那一下只能
+ * 先从已解码好的位图编一张 PNG 出来——尺寸小（图标），这点开销可以忽略。
+ */
+private fun copyDecodedImage(host: DevToolHost, outcome: Base64Outcome.DecodedImage) {
+    host.copyImageToClipboard(
+        if (outcome.kind == ImageKind.Ico) {
+            outcome.bitmap.toByteArray(ImageFormat.PNG)
+        } else {
+            outcome.bytes
+        }
+    )
+}
+
 @Composable
 private fun ResultArea(
     outcome: Base64Outcome?,
@@ -582,6 +606,7 @@ private fun ResultArea(
 
         is Base64Outcome.DecodedImage -> ImageResult(
             outcome = outcome,
+            onCopy = { copyDecodedImage(host, outcome) },
             onSave = { saveBytes(host, outcome.bytes, "decoded.${outcome.extension}") },
             canAct = canAct,
             modifier = modifier,
@@ -703,10 +728,17 @@ private fun ResultSummaryCard(
     }
 }
 
-/** 解码结果是图片：给预览，动作只剩「保存为图片」。 */
+/**
+ * 解码结果是图片：给预览，动作是「保存为图片」与「复制到剪贴板」。
+ *
+ * 复制这一下是必要的：解码出来的图多半是要**拿去用**的（贴进聊天、贴进文档），而这一页原先
+ * 只有「保存」——想用还得先落盘再找回来。与码图那一页的复制同一个口子（[DevToolHost
+ * .copyImageToClipboard]），提示语也一致。
+ */
 @Composable
 private fun ImageResult(
     outcome: Base64Outcome.DecodedImage,
+    onCopy: () -> Unit,
     onSave: () -> Unit,
     canAct: Boolean,
     modifier: Modifier,
@@ -732,6 +764,15 @@ private fun ImageResult(
                 tooltip = "保存为图片",
                 enabled = canAct,
                 onClick = onSave,
+            )
+            Spacer(Modifier.width(4.dp))
+            DevToolFieldAction(
+                kind = ClipperIconKind.COPY,
+                // 与码图那一页同一句话：这个图标挨着「保存为图片」，光写「复制」会被读成
+                // 「复制这张图的 Base64」。
+                tooltip = "复制到剪贴板",
+                enabled = canAct,
+                onClick = onCopy,
             )
         }
         Spacer(Modifier.height(6.dp))
