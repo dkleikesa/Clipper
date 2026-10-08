@@ -13,10 +13,10 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 /**
- * [KodemirrorScan] 是「本项目扫描器 → KodeMirror」那座桥，两种实现共用同一批配色与折叠区间，
- * 所以它必须**逐项**与原生那一侧对得上：
+ * [KodemirrorScan] 是「本项目扫描器 → KodeMirror」那座桥，配色与折叠区间都来自本项目的
+ * `CodeStructure`，所以它必须**逐项**与那份结构对得上：
  *
- *  - 折叠区间挂在**开括号那一行**的行首（原生框见 `CodeStructure.foldableOnLine`）；
+ *  - 折叠区间挂在**开括号那一行**的行首（与 `CodeStructure.foldableOnLine` 同一条规则）；
  *  - 空块（`{}`、`<a></a>`）不算可折（`BracketPair.isFoldable`）；
  *  - 文档一变就重算——这条最关键，因为 KodeMirror 的折叠箭头是**每帧**去问 `foldService` 的，
  *    缓存不刷新就会一直按旧文档折。
@@ -53,7 +53,7 @@ class KodemirrorScanTest {
         val scan = KodemirrorScan(::scanJson)
         val folds = stateOf("{}", scan).field(scan.field)!!
 
-        assertNull(folds.foldAt(0), "`{}` 中间没有内容，与原生框一样不显示折叠箭头")
+        assertNull(folds.foldAt(0), "`{}` 中间没有内容，不显示折叠箭头")
     }
 
     @Test

@@ -8,10 +8,9 @@ import androidx.compose.ui.graphics.luminance
 /**
  * 代码区的配色。
  *
- * **两套实现共用这一份**：原生实现把它交给 [CodeVisualTransformation]（`VisualTransformation`
- * 上色），KodeMirror 那一侧把它译成 `EditorTheme` 与装饰器（见 `rememberKodemirrorTheme`、
- * `codeHighlight`）。所以它放在这个独立文件里，而不是挂在任何一个实现名下——
- * 「两套实现看起来是同一个框」，靠的就是这里只有一份色值。
+ * KodeMirror 这一侧把它译成 `EditorTheme` 与装饰器（见 `rememberKodemirrorTheme`、
+ * `codeHighlight`）；单行输入框一类「跟编辑框同一块底色」的控件也来取它的
+ * `editorBackground`。色值只有这一处出处。
  */
 data class CodeColors(
     val editorBackground: Color,
@@ -102,3 +101,18 @@ fun rememberCodeColors(): CodeColors =
     } else {
         IdeaLightCodeColors
     }
+
+/**
+ * [CodeKind] 该用哪一个色值。
+ *
+ * 放在文件级而不是某个类里：KodeMirror 那一侧的装饰器要用它（见 `KodeMirrorScan`），配色于是只有
+ * 一处出处——**同一个框里的同一种语法单元，颜色只可能有一种**。
+ */
+fun CodeKind.colorIn(colors: CodeColors): Color = when (this) {
+    CodeKind.Key -> colors.key
+    CodeKind.StringLiteral -> colors.string
+    CodeKind.Number -> colors.number
+    CodeKind.Constant -> colors.constant
+    CodeKind.Punctuation -> colors.punctuation
+    CodeKind.Comment -> colors.comment
+}

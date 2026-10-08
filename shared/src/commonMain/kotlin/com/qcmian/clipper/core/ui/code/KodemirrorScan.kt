@@ -47,7 +47,7 @@ class CodeScanResult(
  *  2. 注册成 KodeMirror 的 `foldService`，折叠箭头由此拿到本项目那套括号区间。
  *
  * **刻意不引入 KodeMirror 的语言包**（`lang-json` / `lang-xml`）：那会换掉整套 token 语义与配色，
- * 而本项目已经有自己的扫描器与配色——两套实现并排对比时，这一点尤其重要。
+ * 而本项目已经有自己的扫描器与配色，换掉只会多出一套并行的语法语义。
  */
 class KodemirrorScan(scan: (String) -> CodeStructure) {
 
@@ -61,8 +61,7 @@ class KodemirrorScan(scan: (String) -> CodeStructure) {
     )
 
     /**
-     * 折叠区间由本项目的括号配对给出，与原生框用的是**同一批**区间（原生框见
-     * `CodeStructure.foldableOnLine`，这里见 [scanInto]）。
+     * 折叠区间由本项目的括号配对给出（见 [scanInto]），与工具那一侧按行折叠用的是同一批区间。
      */
     private val foldSupport: Extension = foldService.of { state: EditorState, lineStart: DocPos ->
         state.field(field, require = false)?.foldAt(lineStart.value)
@@ -79,7 +78,7 @@ private fun scanInto(text: String, scan: (String) -> CodeStructure): CodeScanRes
     for (pair in structure.brackets) {
         if (!pair.isFoldable) continue
         // 箭头挂在 `foldStart` 所在那一行的行首。同一行出现多个可折区间时取**最先出现**的那个——
-        // 与原生框 `foldableOnLine` 里的 `firstOrNull` 同序（`brackets` 两边是同一份列表）。
+        // 与 `CodeStructure.foldableOnLine` 里的 `firstOrNull` 同序（两边取的是同一份 `brackets`）。
         folds.putIfAbsent(
             structure.lineStart(structure.lineNumberAt(pair.foldStart)),
             FoldRange(DocPos(pair.foldStart), DocPos(pair.foldEnd)),
@@ -95,8 +94,8 @@ private fun scanInto(text: String, scan: (String) -> CodeStructure): CodeScanRes
  * 「光标旁括号亮起」都是它的原生行为，而不是我们在外面另糊一层。
  *
  * 之所以不走 `syntaxHighlighting`：那个入口要一个「语言」（语法树），而本项目的扫描器只产出着色
- * 区间、不是语法树；直接转成装饰器既省一层适配，也保住了原配色——`CodeKind` → [CodeColors] 用的
- * 是与原生框同一个函数（[colorIn]）。
+ * 区间、不是语法树；直接转成装饰器既省一层适配，也保住了原配色——`CodeKind` → [CodeColors] 走的
+ * 是同一个函数（[colorIn]）。
  */
 fun codeHighlight(scan: KodemirrorScan, colors: CodeColors): Extension =
     ViewPlugin.define(

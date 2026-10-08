@@ -5,7 +5,6 @@ package com.qcmian.clipper.devtools.ui.components.code
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -22,9 +21,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.runComposeUiTest
 import com.qcmian.clipper.core.domain.model.ClipItem
-import com.qcmian.clipper.core.ui.code.CodeFieldEngine
 import com.qcmian.clipper.core.ui.code.DevToolCodeField
-import com.qcmian.clipper.core.ui.code.LocalCodeFieldEngine
 import com.qcmian.clipper.core.ui.code.scanXml
 import com.qcmian.clipper.devtools.registry.DevToolsRegistry
 import com.qcmian.clipper.devtools.ui.DevToolsPanel
@@ -34,17 +31,14 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * [CodeFieldEngine.Kodemirror] 那一侧的**冒烟**：真跑一遍组合，确认它画得出来、装订线里有行号、
- * 编辑与回灌两条数据路都通。
+ * 代码框（KodeMirror）那一侧的**冒烟**：真跑一遍组合，确认它画得出来、装订线里有行号、编辑与
+ * 回灌两条数据路都通。
  *
- * 之所以要「真跑组合」：这一侧的行号、折叠箭头、当前行底纹全在 KodeMirror 的插件管线里，
- * 桥接或扩展配错的表现不是编译错误，而是**画出来少一块**——纯逻辑测不出来（见
- * [KodemirrorScanTest]，那里验的是另一半：区间与着色片段算得对不对）。
+ * 之所以要「真跑组合」：这一侧的行号、折叠箭头、当前行底纹全在 KodeMirror 的插件管线里，桥接或
+ * 扩展配错的表现不是编译错误，而是**画出来少一块**——纯逻辑测不出来（见 [KodemirrorScanTest]，
+ * 那里验的是另一半：区间与着色片段算得对不对）。
  *
- * 两套实现**共同**的那部分契约不在这里，见 [CodeFieldContractTest]——同一批断言对每个实现都跑。
- *
- * 断言的取法：装订线里的行号是 `BasicText`，因此**有语义节点**；而原生实现的行号画在 Canvas 上、
- * 没有语义节点。下面几条正是靠这个差别证明「开关真的换了实现」。
+ * 业务层调用面（框名、动作槽、占位提示……）的契约不在这里，见 [CodeFieldContractTest]。
  *
  * 离屏渲染验不了的（要在面板里手动过）：点折叠箭头折起来、光标旁括号亮起、输入法上屏、
  * 滚轮与触控板滚动，以及**拖滚动条时的手感**——滚动条本身有下面两条拖拽用例兜着，但「一帧里
@@ -78,7 +72,7 @@ class KodemirrorCodeFieldTest {
     fun `拖动右侧滚动条能滚动编辑区`() = runComposeUiTest {
         // 两百行，一屏放不下：末行的行号一开始看不见。
         val document = (1..200).joinToString("\n") { "line$it" }
-        underTest({ CodeFieldEngine.Kodemirror }) {
+        underTest {
             DevToolCodeField(
                 label = "输入",
                 value = document,
@@ -109,7 +103,7 @@ class KodemirrorCodeFieldTest {
     @Test
     fun `拖动滑块滚过的距离与手指一致`() = runComposeUiTest {
         val lines = 200
-        underTest({ CodeFieldEngine.Kodemirror }) {
+        underTest {
             DevToolCodeField(
                 label = "输入",
                 value = (1..lines).joinToString("\n") { "line$it" },
@@ -223,7 +217,7 @@ class KodemirrorCodeFieldTest {
     fun `外部换内容会回灌且不再回调回去`() = runComposeUiTest {
         var current by mutableStateOf(THREE_LINES)
         var callbacks = 0
-        underTest({ CodeFieldEngine.Kodemirror }) {
+        underTest {
             DevToolCodeField(
                 label = "输入",
                 value = current,
@@ -247,7 +241,7 @@ class KodemirrorCodeFieldTest {
     @Test
     fun `软折行开关能动态重配`() = runComposeUiTest {
         var wrap by mutableStateOf(false)
-        underTest({ CodeFieldEngine.Kodemirror }) {
+        underTest {
             DevToolCodeField(
                 label = "输入",
                 value = ONE_LONG_LINE,
@@ -267,14 +261,13 @@ class KodemirrorCodeFieldTest {
     }
 
     @Test
-    fun `两套实现渲染同一段 XML 都不崩`() = runComposeUiTest {
-        var engine by mutableStateOf(CodeFieldEngine.Native)
-        underTest({ engine }) {
+    fun `渲染 XML 不崩`() = runComposeUiTest {
+        // XML 那一侧的可折区间由 `scanXml` 给出（元素而不是括号），这里顺带把它跑一遍。
+        underTest {
             DevToolCodeField(
                 label = "输入",
                 value = XML,
                 onValueChange = {},
-                // XML 那一侧的可折区间由 `scanXml` 给出（元素而不是括号），这里顺带把它跑一遍。
                 scan = ::scanXml,
                 folding = true,
                 modifier = Modifier.fillMaxSize(),
@@ -282,52 +275,11 @@ class KodemirrorCodeFieldTest {
         }
         waitForIdle()
 
-        engine = CodeFieldEngine.Kodemirror
-
         assertNotNull(onNodeWithText("输入").fetchSemanticsNode())
     }
 
     @Test
-    fun `面板开关能在两套实现之间来回切`() = runComposeUiTest {
-        var engine by mutableStateOf(CodeFieldEngine.Native)
-        underTest({ engine }) {
-            DevToolCodeField(
-                label = "输入",
-                value = THREE_LINES,
-                onValueChange = {},
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-
-        // 原生实现：标题在，但行号画在 Canvas 上，没有语义节点。
-        onNodeWithText("输入").assertIsDisplayed()
-        onNodeWithText("3").assertDoesNotExist()
-
-        engine = CodeFieldEngine.Kodemirror
-
-        // 切过去之后行号成了真的文本节点——这一条同时证明了开关确实换了实现。
-        onNodeWithText("3").assertIsDisplayed()
-        onNodeWithText("输入").assertIsDisplayed()
-    }
-
-    @Test
-    fun `不提供局部值时代码框默认就是 KodeMirror`() = runComposeUiTest {
-        // 刻意**不**提供 `LocalCodeFieldEngine`：走的就是全项目默认那条路。
-        underTest({ null }) {
-            DevToolCodeField(
-                label = "输入",
-                value = THREE_LINES,
-                onValueChange = {},
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-
-        // 行号只有 KodeMirror 那一侧才是真的文本节点，所以这一条同时证明了「默认换过去了」。
-        onNodeWithText("3").assertIsDisplayed()
-    }
-
-    @Test
-    fun `整块面板默认就用 KodeMirror 渲染`() = runComposeUiTest {
+    fun `整块面板用 KodeMirror 渲染`() = runComposeUiTest {
         panel(text = THREE_LINES)
 
         // 取「1」而不是别的行号：每个框的第一行总是画出来的，而结果框有几行取决于当前的
@@ -337,15 +289,15 @@ class KodemirrorCodeFieldTest {
             onAllNodesWithText("1").fetchSemanticsNodes().size >= 2
         }
 
-        // JSON 工具的**输入与结果两个框**各有一份行号——两个都换过去了，而不是只换了其中一个。
+        // JSON 工具的**输入与结果两个框**各有一份行号——两个都跑起来了，而不是只跑了一个。
         assertTrue(
             onAllNodesWithText("1").fetchSemanticsNodes().size >= 2,
-            "输入框与结果框都应当是 KodeMirror（行号各一份）",
+            "输入框与结果框都应当画出 KodeMirror 行号",
         )
     }
 
     @Test
-    fun `XML 工具的两个框也一起换了`() = runComposeUiTest {
+    fun `XML 工具的两个框都画出 KodeMirror 行号`() = runComposeUiTest {
         panel(text = XML)
 
         // 与 JSON 那条同一个判据：两个框各有一份「1」。
@@ -358,38 +310,23 @@ class KodemirrorCodeFieldTest {
     // ---------------------------------------------------------------------------------------
     // 夹具
 
-    /**
-     * 把引擎钉死成 [engine]（返回 `null` 表示**刻意不提供**，走全项目默认），然后走业务层真正
-     * 走的那条入口（[DevToolCodeField]）。
-     *
-     * [engine] 是**取值的函数**而不是值本身：`engine` 常是测试里的 `var ... by mutableStateOf`，
-     * 如果把它的值当参数传进来，这次读取就发生在组合**之外**——组合不会订阅它，测试里改了它
-     * 也不会重组，于是「切了引擎但界面没换」这种假绿会一直挂着（本项目真踩过一次）。
-     */
-    private fun ComposeUiTest.underTest(
-        engine: () -> CodeFieldEngine?,
-        content: @Composable () -> Unit,
-    ) {
+    /** 走业务层真正走的那条入口（[DevToolCodeField]）。 */
+    private fun ComposeUiTest.underTest(content: @Composable () -> Unit) {
         setContent {
             MaterialTheme {
-                val current = engine()
-                if (current == null) {
-                    content()
-                } else {
-                    CompositionLocalProvider(LocalCodeFieldEngine provides current) { content() }
-                }
+                content()
             }
         }
     }
 
-    /** 与面板里同一个调用姿势：引擎钉死在 KodeMirror。 */
+    /** 与面板里同一个调用姿势：画一个可编辑（或只读）的输入框。 */
     private fun ComposeUiTest.field(
         value: String,
         onValueChange: (String) -> Unit = {},
         lineNumbers: Boolean = true,
         editable: Boolean = true,
     ) {
-        underTest({ CodeFieldEngine.Kodemirror }) {
+        underTest {
             DevToolCodeField(
                 label = "输入",
                 value = value,

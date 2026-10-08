@@ -111,10 +111,10 @@ private sealed interface RegexOutcome {
  * 捕获组，行数与行宽都不固定（见 [matchReport]）；放进代码框还能顺手选中一段、或整体存成文件。
  * 「只把匹配内容抽出来」另有一个动作，挂在结果框的标题行上（见 [ResultField]）。
  *
- * **命中不做文本内高亮**，这是刻意的：代码框的着色走 `CodeStructure`，而两套实现都按**正文**缓存
- * 扫描结果（原生框 `remember(text) { scan(text) }`，KodeMirror 的 `StateField` 只在 `docChanged`
- * 时重扫），模式改了而正文没变时那份高亮不会刷新——要做就得给 `CodeFieldSpec` 加一等参数、并改
- * 两套实现，不该混在这个工具里做。谁在哪一行由右边那栏给全，先这样够用。
+ * **命中不做文本内高亮**，这是刻意的：代码框的着色走 `CodeStructure`，而它是按**正文**缓存的
+ * （KodeMirror 的 `StateField` 只在 `docChanged` 时重扫），模式改了而正文没变时那份高亮不会刷新
+ * ——要做就得给 `DevToolCodeField` 加一等参数、并动扫描器与装饰器，不该混在这个工具里做。谁在哪一行
+ * 由右边那栏给全，先这样够用。
  *
  * [acceptedDataTypes] 留空：与 Hash / 数学工具同一取舍——任何一段文本都可能是待匹配的内容，声明
  * `text` 会让普通文本打开工具窗口时默认跳到本工具。

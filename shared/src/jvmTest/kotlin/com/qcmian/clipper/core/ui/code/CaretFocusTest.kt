@@ -11,18 +11,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.MouseButton
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.runComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -38,9 +35,8 @@ import kotlin.test.assertTrue
  * 背景：上游的 KodeMirror 画的是**静态**光标（画一次就一直在），本仓库给它加了明灭节奏。加节奏
  * 容易，跟着焦点停就容易漏——漏了的表现正是「点进旁边那个框、甚至切到别的应用之后，这个框的
  * 光标还在自顾自地闪」。判据与 Compose 原生光标逐字相同（`TextFieldCursor`：
- * `isWindowFocused && state.hasFocus`），因此这里逐条各钉一个用例：窗口不在前台、**同一个窗口里
- * 失去焦点的那个框**（两个框并排时最容易看出来），以及原生实现那条**自绘**的只读光标（平台的
- * 光标它管不着，只读框里那条是它自己画的，得自己看窗口焦点）。
+ * `isWindowFocused && state.hasFocus`），因此这里逐条各钉一个用例：窗口不在前台，以及**同一个
+ * 窗口里失去焦点的那个框**（两个框并排时最容易看出来）。
  *
  * 断言取的是**连拍几帧之间的像素差**，不是某一帧的绝对像素：光标那一条只有两个像素宽，颜色又
  * 跟主题走，写死颜色等于把用例绑在配色上；而「闪」这件事本身就是「两帧不一样」。
@@ -113,51 +109,6 @@ class CaretFocusTest {
         }
     }
 
-    /**
-     * 原生实现那一侧：**只读框**的光标是本仓库自绘的（平台在 `readOnly` 时压根不画光标，见
-     * `NativeCodeField.caretRect`）。因此它也得自己看窗口焦点——平台那条光标由 Compose 自己管，
-     * 自绘这条不管就只剩它在闪。
-     *
-     * 点一下才亮：原生框没有「一出现就自动聚焦」那一路（KodeMirror 有），点进来才有焦点，
-     * 而「点进来」正是用户看到这条光标的方式。
-     */
-    @Test
-    fun `原生只读框在窗口失焦时那条自绘光标不闪`() {
-        runComposeUiTest {
-            setUp(
-                windowFocused = mutableStateOf(false),
-                engine = CodeFieldEngine.Native,
-                editable = false,
-            )
-            focusByTap()
-            waitForIdle()
-
-            assertEquals(
-                0,
-                maxDiff(frames(FRAMES)),
-                "窗口不在前台时，原生只读框那条自绘光标还在闪",
-            )
-        }
-    }
-
-    @Test
-    fun `原生只读框在窗口有焦点时那条自绘光标在闪`() {
-        runComposeUiTest {
-            setUp(
-                windowFocused = mutableStateOf(true),
-                engine = CodeFieldEngine.Native,
-                editable = false,
-            )
-            focusByTap()
-            waitForIdle()
-
-            assertTrue(
-                maxDiff(frames(FRAMES)) > 0,
-                "有焦点时那条自绘光标应当有明灭——否则上一条断言等于什么都没验",
-            )
-        }
-    }
-
     // ---------------------------------------------------------------------------------------
     // 夹具
 
@@ -170,8 +121,6 @@ class CaretFocusTest {
     private fun ComposeUiTest.setUp(
         windowFocused: State<Boolean>?,
         fieldCount: Int = 1,
-        engine: CodeFieldEngine = CodeFieldEngine.Kodemirror,
-        editable: Boolean = true,
     ) {
         setContent {
             MaterialTheme {
@@ -182,7 +131,6 @@ class CaretFocusTest {
                                 label = "输入",
                                 value = TEXT,
                                 onValueChange = {},
-                                editable = editable,
                                 // 行号与折叠都关掉：画面里因此只剩正文与光标，像素差只可能来自光标。
                                 lineNumbers = false,
                                 folding = false,
@@ -192,15 +140,13 @@ class CaretFocusTest {
                         }
                     }
                 }
-                CompositionLocalProvider(LocalCodeFieldEngine provides engine) {
-                    if (windowFocused == null) {
+                if (windowFocused == null) {
+                    screen()
+                } else {
+                    CompositionLocalProvider(
+                        LocalWindowInfo provides FakeWindowInfo(windowFocused)
+                    ) {
                         screen()
-                    } else {
-                        CompositionLocalProvider(
-                            LocalWindowInfo provides FakeWindowInfo(windowFocused)
-                        ) {
-                            screen()
-                        }
                     }
                 }
             }
@@ -222,18 +168,6 @@ class CaretFocusTest {
             waitForIdle()
         }
         return shots
-    }
-
-    /** 点一下正文把它点亮：原生实现只在点进来之后才有焦点（`focusRequester.requestFocus()`）。 */
-    private fun ComposeUiTest.focusByTap() {
-        val root = onRoot().fetchSemanticsNode().size
-        val position = Offset(root.width * 0.4f, root.height * 0.7f)
-        onRoot().performMouseInput {
-            // 落在正文那一块里（标题行之下、避开右缘的滚动条）。
-            moveTo(position)
-            press(MouseButton.Primary)
-            release(MouseButton.Primary)
-        }
     }
 
     /** 连拍里**任何一对**帧之间差异最大的那个像素数（0 = 一帧都没变过）。 */

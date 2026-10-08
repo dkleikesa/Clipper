@@ -15,7 +15,7 @@ import kotlin.test.assertEquals
 /**
  * 「只读」在会话这一层的定义：**改不动，但选得动、拷得走**。
  *
- * 只读框照样有插入光标、点得动、拖得出选区（见 `CodeFieldSpec.editable`），但只要它改不动正文，
+ * 只读框照样有插入光标、点得动、拖得出选区（见 `DevToolCodeField` 的 `editable`），但只要它改不动正文，
  * 退格 / 删除 / ⌘X / ⌘V 这些键位命令就必须一条都落不到文档上——上游只把「打字」挡在输入法那
  * 一层，命令是直接派发事务的。这里钉住的就是那条闸门（`EditorSessionImpl.programmaticDocChange`）：
  *

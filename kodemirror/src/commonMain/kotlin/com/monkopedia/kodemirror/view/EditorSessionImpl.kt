@@ -113,7 +113,7 @@ internal class EditorSessionImpl(
     /**
      * <本仓库补丁> 只读会话（`editable` facet 为假）不放行**改文档**的事务。
      *
-     * 只读框照样有插入光标、点得动、拖得出选区、复制得走（见 `CodeFieldSpec.editable`），但它
+     * 只读框照样有插入光标、点得动、拖得出选区、复制得走（见 `DevToolCodeField` 的 `editable`），但它
      * **改不动**：键盘上的退格 / 删除 / ⌘X / ⌘V / ⌘Z 一条都不该落到正文上。上游只把「打字」
      * 一路挡在输入法那一层，键位命令（几十条，见 `commands/`）是直接派发事务的，退格因此在只读
      * 框里真能删字。

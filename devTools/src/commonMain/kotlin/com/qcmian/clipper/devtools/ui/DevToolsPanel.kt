@@ -58,9 +58,6 @@ import com.qcmian.clipper.devtools.api.DevToolPasteKey
 import com.qcmian.clipper.devtools.api.LocalDevToolPasteKey
 import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.registry.DevToolsRegistry
-import com.qcmian.clipper.core.ui.code.DefaultCodeFieldEngine
-import com.qcmian.clipper.core.ui.code.LocalCodeFieldEngine
-import com.qcmian.clipper.core.ui.code.next
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -153,9 +150,6 @@ fun DevToolsPanel(
     }
 
     var selectedId by remember { mutableStateOf<String?>(null) }
-    // 代码框用哪一套实现。固定在默认实现上：曾有一枚开关摆在状态栏右端（点一下换下一档），用户
-    // 反馈那是面板自身的技术选项、与状态无关，已删除。工具里的代码框仍读这个局部值。
-    val engine = DefaultCodeFieldEngine
     // 用户自己点过工具没有（换一条记录就重置）。探测挪到后台之后结果可能晚到，那时用户说不定
     // 早就在用了——不能让它把用户点好的选择顶掉。换一条记录时重新允许自动推荐。
     var pickedByUser by remember(item) { mutableStateOf(false) }
@@ -334,13 +328,9 @@ fun DevToolsPanel(
 
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
-                    // 工具里的代码框都读这个局部值（见 `LocalCodeFieldEngine`）。
-                    // 粘贴入口跟着一起放进来：工具的输入区靠它把处理函数登记给窗口层（见
-                    // `DevToolPasteKey`——按键只发给焦点路径上的节点，卡片一上来就没有焦点节点了）。
-                    CompositionLocalProvider(
-                        LocalCodeFieldEngine provides engine,
-                        LocalDevToolPasteKey provides pasteKey,
-                    ) {
+                    // 粘贴入口：工具的输入区靠它把处理函数登记给窗口层（见 `DevToolPasteKey`——
+                    // 按键只发给焦点路径上的节点，卡片一上来就没有焦点节点了）。
+                    CompositionLocalProvider(LocalDevToolPasteKey provides pasteKey) {
                         when {
                             // 还在认这段内容是什么：先不画工具（见上面 `effectiveSelectedId` 的说明）。
                             detected == null && tools.isNotEmpty() -> Identifying()

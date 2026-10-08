@@ -16,7 +16,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -24,8 +23,6 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyPress
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runComposeUiTest
-import com.qcmian.clipper.core.ui.code.CodeFieldEngine
-import com.qcmian.clipper.core.ui.code.LocalCodeFieldEngine
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolPasteKey
 import com.qcmian.clipper.devtools.api.LocalDevToolPasteKey
@@ -51,20 +48,16 @@ import kotlin.test.assertTrue
  *  - **退路**是输入区自己那层 `onPreviewKeyEvent`（宿主没提供窗口入口时用）：按仓库里的做法注入
  *    **构造好的** `KeyEvent`——桌面端 `compose-ui-test` 的按键注入不带修饰键状态，`⌘V` 只能用
  *    构造的事件送进去（见 `AcceptancePanelInteractionTest` 的类注释）。
- *
- * 每个用例对 [CodeFieldEngine.entries] 里的**每一个实现**都跑一遍：退路那条挂在代码框**外面**，
- * 两套实现各自收键盘的节点不同（KodeMirror 是那个隐藏输入框，原生那侧就是 `BasicTextField`），
- * 只测一边等于没测另一边。
  */
 class DevToolInputFieldTest {
 
     @Test
-    fun `粘贴图片交给工具`() = forEachEngine { engine ->
+    fun `粘贴图片交给工具`() = runComposeUiTest {
         val png = pngBytes()
         val host = FakeHost(image = png)
         var received: ByteArray? = null
         var origin: DevToolInputOrigin? = null
-        render(engine) {
+        render {
             DevToolInputField(
                 label = "输入",
                 value = "",
@@ -75,16 +68,16 @@ class DevToolInputFieldTest {
             )
         }
 
-        paste(engine)
+        paste()
 
         assertContentEquals(png, received, "剪贴板里的图片应当原样交给工具")
         assertEquals(DevToolInputOrigin.Paste, origin)
     }
 
     @Test
-    fun `不收图片的输入框连剪贴板图片都不问`() = forEachEngine { engine ->
+    fun `不收图片的输入框连剪贴板图片都不问`() = runComposeUiTest {
         val host = FakeHost(image = pngBytes())
-        render(engine) {
+        render {
             DevToolInputField(
                 label = "输入",
                 value = "",
@@ -94,7 +87,7 @@ class DevToolInputFieldTest {
             )
         }
 
-        paste(engine)
+        paste()
 
         // 没有 `onImage` 时控件根本不挂那层键盘拦截（不然会把「粘一段文字」这种别的工具该正常
         // 处理的事吞掉）。问没问剪贴板图片，是这件事在测试里唯一稳定量得到的证据——这次 ⌘V
@@ -103,12 +96,12 @@ class DevToolInputFieldTest {
     }
 
     @Test
-    fun `粘贴文件按文本填进输入框`() = forEachEngine { engine ->
+    fun `粘贴文件按文本填进输入框`() = runComposeUiTest {
         val path = tempFile("{\"a\": 1}")
         val host = FakeHost(files = listOf(path))
         val origins = mutableListOf<DevToolInputOrigin>()
         var typed = ""
-        render(engine) {
+        render {
             DevToolInputField(
                 label = "输入",
                 value = typed,
@@ -122,20 +115,20 @@ class DevToolInputFieldTest {
             )
         }
 
-        paste(engine)
+        paste()
 
         assertEquals("{\"a\": 1}", typed, "文件内容应当替掉系统默认那手「粘成文件名」")
         assertEquals(listOf(DevToolInputOrigin.Paste), origins)
     }
 
     @Test
-    fun `粘贴文件时图片那一路不被抢`() = forEachEngine { engine ->
+    fun `粘贴文件时图片那一路不被抢`() = runComposeUiTest {
         // 在访达里复制一张图片：粘贴板上既有文件 URL、也有图片表示。要的是**那个文件本身**。
         val path = tempFile("不是图片")
         val host = FakeHost(files = listOf(path), image = pngBytes())
         var images = 0
         var files = 0
-        render(engine) {
+        render {
             DevToolInputField(
                 label = "输入",
                 value = "",
@@ -147,19 +140,19 @@ class DevToolInputFieldTest {
             )
         }
 
-        paste(engine)
+        paste()
 
         assertEquals(1, files, "剪贴板里有文件时走文件那一路")
         assertEquals(0, images, "文件优先，别把图标当成用户要的图片")
     }
 
     @Test
-    fun `粘贴读不出文本的文件只给提示`() = forEachEngine { engine ->
+    fun `粘贴读不出文本的文件只给提示`() = runComposeUiTest {
         // 二进制文件：`readTextFileOrNull` 认得出 NUL 字节，会把它拒掉。
         val path = tempFile("二进制\u0000内容")
         val host = FakeHost(files = listOf(path))
         var typed = ""
-        render(engine) {
+        render {
             DevToolInputField(
                 label = "输入",
                 value = typed,
@@ -169,7 +162,7 @@ class DevToolInputFieldTest {
             )
         }
 
-        paste(engine)
+        paste()
 
         assertEquals("", typed, "读不出文本时不能把文件名贴进正文")
         assertTrue(
@@ -179,11 +172,11 @@ class DevToolInputFieldTest {
     }
 
     @Test
-    fun `载入来源卡片后画的是卡片而不是文本框`() = forEachEngine { engine ->
+    fun `载入来源卡片后画的是卡片而不是文本框`() = runComposeUiTest {
         // 卡片替掉文本框时，拖放接收器要跟着搬过去（见 `DevToolInputField` 的接线）——否则
         // 「再拖一个文件进来」这条路就断了。拖放事件在离屏测试里造不出来，这里验的是另一面：
         // 卡片模式下画的确实是卡片、文本框确实让位了；真拖放要手动过一遍。
-        render(engine) {
+        render {
             DevToolInputField(
                 label = "输入",
                 value = "",
@@ -202,7 +195,7 @@ class DevToolInputFieldTest {
     }
 
     @Test
-    fun `载入来源卡片后窗口层的粘贴接得住文件`() = forEachEngine { engine ->
+    fun `载入来源卡片后窗口层的粘贴接得住文件`() = runComposeUiTest {
         // 已经载入一张图 / 一个文件之后再粘一个文件进来，是这条路上最自然的下一步动作。真机上
         // 这条按键从窗口层进来（见类注释），这里直接调 `handle`，与 `ClipperDevToolsWindow` 一致。
         val path = tempFile("换一个文件")
@@ -210,7 +203,7 @@ class DevToolInputFieldTest {
         val pasteKey = DevToolPasteKey()
         var handled: List<String>? = null
         var origin: DevToolInputOrigin? = null
-        render(engine, pasteKey) {
+        render(pasteKey) {
             DevToolInputField(
                 label = "输入",
                 value = "",
@@ -235,12 +228,12 @@ class DevToolInputFieldTest {
     }
 
     @Test
-    fun `载入来源卡片后窗口层的粘贴接得住图片`() = forEachEngine { engine ->
+    fun `载入来源卡片后窗口层的粘贴接得住图片`() = runComposeUiTest {
         val png = pngBytes()
         val host = FakeHost(image = png)
         val pasteKey = DevToolPasteKey()
         var received: ByteArray? = null
-        render(engine, pasteKey) {
+        render(pasteKey) {
             DevToolInputField(
                 label = "输入",
                 value = "",
@@ -258,13 +251,13 @@ class DevToolInputFieldTest {
     }
 
     @Test
-    fun `窗口层的粘贴在文本框那一侧也接得住图片`() = forEachEngine { engine ->
+    fun `窗口层的粘贴在文本框那一侧也接得住图片`() = runComposeUiTest {
         // 文本框那一侧同样受益：不必先点一下编辑区才粘得进图片。
         val png = pngBytes()
         val host = FakeHost(image = png)
         val pasteKey = DevToolPasteKey()
         var received: ByteArray? = null
-        render(engine, pasteKey) {
+        render(pasteKey) {
             DevToolInputField(
                 label = "输入",
                 value = "",
@@ -281,14 +274,14 @@ class DevToolInputFieldTest {
     }
 
     @Test
-    fun `窗口层的粘贴不抢文本框那一侧的文件`() = forEachEngine { engine ->
+    fun `窗口层的粘贴不抢文本框那一侧的文件`() = runComposeUiTest {
         // 文本框那一侧的文件要留给代码框自己的 `filePaste` 钩子（内容得插在**光标处**）。
         // 窗口层要是顺手接过去，插在哪儿就没了依据。
         val path = tempFile("{\"a\": 1}")
         val host = FakeHost(files = listOf(path))
         val pasteKey = DevToolPasteKey()
         var files = 0
-        render(engine, pasteKey) {
+        render(pasteKey) {
             DevToolInputField(
                 label = "输入",
                 value = "",
@@ -308,32 +301,18 @@ class DevToolInputFieldTest {
     // 夹具
 
     /**
-     * 对每一种代码框实现跑一遍 [block]，每种**各起一个独立的组合环境**（与
-     * `CodeFieldContractTest.forEachEngine` 同一做法：这是契约，不是同一个界面里比两家）。
-     */
-    private fun forEachEngine(block: ComposeUiTest.(CodeFieldEngine) -> Unit) {
-        for (engine in CodeFieldEngine.entries) {
-            runComposeUiTest { block(engine) }
-        }
-    }
-
-    /**
-     * 把引擎钉死成 [engine]，再画工具真正会画的那份内容。
+     * 画工具真正会画的那份内容。
      *
      * [pasteKey] 就是窗口层那个入口（见类注释）：给了它就等于「宿主提供了窗口层的粘贴接管」，
      * 不给时走的才是输入区自己那层退路。
      */
     private fun ComposeUiTest.render(
-        engine: CodeFieldEngine,
         pasteKey: DevToolPasteKey? = null,
         content: @Composable () -> Unit,
     ) {
         setContent {
             MaterialTheme {
-                CompositionLocalProvider(
-                    LocalCodeFieldEngine provides engine,
-                    LocalDevToolPasteKey provides pasteKey,
-                ) { content() }
+                CompositionLocalProvider(LocalDevToolPasteKey provides pasteKey) { content() }
             }
         }
     }
@@ -341,17 +320,11 @@ class DevToolInputFieldTest {
     /**
      * 把焦点送进输入框，再按下 `⌘V`。
      *
-     * 焦点是必须的：`onPreviewKeyEvent` 只在**焦点路径**上收得到事件。两套实现各有一个能被
-     * `performTextInput` 叫醒的文本框：KodeMirror 是它那个隐藏输入框（上游自己的 testTag），
-     * 原生那侧就是 `BasicTextField` 自己（语义树里唯一带「设文本」动作的节点）。
+     * 焦点是必须的：`onPreviewKeyEvent` 只在**焦点路径**上收得到事件。KodeMirror 真正收键盘的是
+     * 它那个隐藏输入框（上游自己的 testTag），`performTextInput` 叫得醒它。
      */
-    private fun ComposeUiTest.paste(engine: CodeFieldEngine) {
-        val input = if (engine == CodeFieldEngine.Kodemirror) {
-            onNodeWithTag("KodeMirror_input")
-        } else {
-            onNode(hasSetTextAction())
-        }
-        input.performTextInput("")
+    private fun ComposeUiTest.paste() {
+        onNodeWithTag("KodeMirror_input").performTextInput("")
         waitForIdle()
         pressPaste()
     }

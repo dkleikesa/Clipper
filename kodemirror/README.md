@@ -208,7 +208,7 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 ### 9. 只读会话改不动正文（`view/EditorSessionImpl.kt` + `view/EditorSession.kt`）
 
 `editable` facet 的本意是「只读框改不动，但照样有光标、点得动、拖得出选区、复制得走」（见
-`CodeFieldSpec.editable`）。上游只把**打字**挡在输入法那一层（`InputHandling` 里的插入兜底 +
+`DevToolCodeField` 的 `editable`）。上游只把**打字**挡在输入法那一层（`InputHandling` 里的插入兜底 +
 `onValueChange`），而键位命令是直接派发事务的：只读框里按一下退格 / 删除 / ⌘X / ⌘V / ⌘Z，
 正文真会被改掉——光标与选区一旦恢复可用，这条洞就是用户随手按得出来的。
 
@@ -237,8 +237,9 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
   绑定（换行 / 删除），不让开就会被抢去改文档（回车会既确认候选、又插一个换行）。让开而不是
   吞掉，是因为这个隐藏框本身就是 `BasicTextField`——交给它按普通文本框那套组字逻辑走即可。
 
-`NativeCodeField` 一侧不受影响：它的 `TextFieldValue` 一直带着 `composition`，也没有「清空」这个
-动作——这正是不换实现、只用原生框时看不出这个 bug 的原因。
+当初只跑原生 `BasicTextField` 时看不出这个 bug：它的 `TextFieldValue` 一直带着 `composition`，
+也没有「清空」这个动作。那份实现已随「只保留 KodeMirror」一并移除，这里留着是为了说明这段补丁
+为什么只在 KodeMirror 这一侧才显形。
 
 ### 11. 装订线行号越界（`view/Gutter.kt`）
 
@@ -296,12 +297,12 @@ CodeMirror 6 的 Compose Multiplatform 移植，**按源码内联**进本仓库�
 **对付「画出来」的自动化用例**在 `:shared`，判据都是同一份组合的**像素差**（这些东西不进语义树，
 只有画出来才算数）：
 
-- `ReadOnlyCodeFieldTest`「只读框里拖一下看得见选区」，两个引擎各跑一遍——那一版回归正是状态里
-  选上了、屏幕上什么都没有；
-- `CaretFocusTest` 覆盖第 2 处那条焦点规则：窗口失焦、同窗口里失去焦点的那个框、原生实现那条自绘
-  的只读光标，三处「不该闪」都配了「该闪的确实在闪」当反面对照。**明灭节奏在这里不漂**：帧间推进
-  的是测试自己的时钟（`mainClock.advanceTimeBy`），`LaunchedEffect` 里的 `delay` 跟着它走，
-  用不着真的 sleep（曾经以为这条测不了，是因为拿它当判据时用的是真实时间）。
+- `ReadOnlyCodeFieldTest`「只读框里拖一下看得见选区」——那一版回归正是状态里选上了、屏幕上什么
+  都没有；
+- `CaretFocusTest` 覆盖第 2 处那条焦点规则：窗口失焦、同窗口里失去焦点的那个框，两处「不该闪」都
+  配了「该闪的确实在闪」当反面对照。**明灭节奏在这里不漂**：帧间推进的是测试自己的时钟
+  （`mainClock.advanceTimeBy`），`LaunchedEffect` 里的 `delay` 跟着它走，用不着真的 sleep
+  （曾经以为这条测不了，是因为拿它当判据时用的是真实时间）。
 
 **点正文里那个 `…`** 这条端到端路径在 `:devTools` 的 `KodemirrorCodeFieldTest` 里（那里有真的
 组合与手势注入）：折起来、横扫正文最左端、找到能展开的那一点。命中区域的**大小**它同样验不了

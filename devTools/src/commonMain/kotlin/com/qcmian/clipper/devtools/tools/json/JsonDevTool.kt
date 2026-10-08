@@ -124,8 +124,8 @@ internal object JsonDevTool : DevTool {
             // 输入与结果左右等分，便于逐行对照格式化前后的差异。
             // 输入侧走 [DevToolInputField]：文本、拖入 / 打开 / 粘贴的文件都从这一个口子进来
             // （文件当文本读，读不出内容时按来路给提示或留路径）。结果侧仍是只读的代码框。
-            // 两侧都用同一套代码框渲染：**原生 `BasicTextField`** + 叠在它上面的行号、高亮与
-            // 折叠（高亮/折叠走 `VisualTransformation`，只改显示，`value` 仍是真实文档）。
+            // 两侧都用同一套代码框渲染：KodeMirror + 行号、高亮与折叠（高亮/折叠只改显示，
+            // `value` 仍是真实文档）。
             // 曾经用过自绘的代码编辑器，它把输入法、光标、选区都变成了自研代码，不划算。
             Row(Modifier.weight(1f)) {
                 DevToolInputField(

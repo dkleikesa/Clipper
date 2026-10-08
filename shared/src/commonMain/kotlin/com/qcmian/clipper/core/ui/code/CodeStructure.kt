@@ -3,8 +3,7 @@ package com.qcmian.clipper.core.ui.code
 /**
  * 一个高亮片段：文档偏移 [start]..[end) 属于某类语法单元。
  *
- * 不是语法树，只是一遍扫描出来的「着色区间」——原生 `BasicTextField` 只有一个
- * `VisualTransformation` 能插手显示，够用就好。
+ * 不是语法树，只是一遍扫描出来的「着色区间」——代码框只需要它给语法单元上色，够用就好。
  */
 data class CodeToken(val start: Int, val end: Int, val kind: CodeKind)
 
@@ -341,4 +340,30 @@ private fun scanXmlTag(
         i++
     }
     return i
+}
+
+/**
+ * 光标紧挨着的那个括号，以及它的配对，返回这一对括号的两个文档偏移。
+ *
+ * 「紧挨着」有两层：光标右边的那个字符是括号（`caret == open/close`），或光标左边的那个字符
+ * 是括号（`caret == open+1/close+1`）。两层可能同时成立——`]}` 之间就有两个括号一左一右——
+ * 这时**优先右边**：光标刚落在一个括号前面时，想看的是它跟谁配对，而不是上一个刚说完的。
+ *
+ * 只认 [CodeStructure.brackets] 里已经配好对的那部分：孤立括号（例如打到一半的 `{`）没有配对，
+ * 高亮它就等于什么都没说。扫描时开闭括号是同一个栈，所以这里不必再判类型。
+ *
+ * 一次线性扫过括号表。这在本项目的量级上可忽略——装订线每画一行就做一次同样的扫描
+ * （见 `foldableOnLine`），它比这个热得多。
+ */
+fun matchBracketPair(structure: CodeStructure, caret: Int): Pair<Int, Int>? {
+    // 先只记「左边的那个括号」，整表扫完还没有「右边」的才用它——右边优先级更高，因此不能
+    // 边扫边采用：内层 `]` 先入表，若当场采用，`]}` 之间就会错认成内层那一对。
+    var onLeft: Pair<Int, Int>? = null
+    for (pair in structure.brackets) {
+        if (caret == pair.open || caret == pair.close) return pair.open to pair.close
+        if (onLeft == null && (caret == pair.open + 1 || caret == pair.close + 1)) {
+            onLeft = pair.open to pair.close
+        }
+    }
+    return onLeft
 }

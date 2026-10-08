@@ -91,9 +91,9 @@ internal fun imageInputName(origin: DevToolInputOrigin): String = when (origin) 
  * @param modifier 整块输入区的修饰符（宽度 / 高度 / `weight` 都由调用方给）。`sourceCard` 也拿
  *   这一份，因此卡片与文本框占的地方完全一致。
  * @param placeholder 空内容时的占位提示。
- * @param softWrap 长行折行还是横向滚出去。见 `CodeFieldSpec.softWrap`。
- * @param folding 允许折叠。见 `CodeFieldSpec.folding`。
- * @param scan 扫描器（高亮与折叠的区间）。见 `CodeFieldSpec.scan`。
+ * @param softWrap 长行折行还是横向滚出去。见 `DevToolCodeField` 的 `softWrap`。
+ * @param folding 允许折叠。见 `DevToolCodeField` 的 `folding`。
+ * @param scan 扫描器（高亮与折叠的区间）。见 `DevToolCodeField` 的 `scan`。
  * @param showLabel 是否画自带的那行标题（框名 + 动作）。为假时整条标题行——连同 [showOpenAction]
  *   那两个动作与 [actions]——都不出现，框名与动作由调用方在外面安排（时间戳工具就是这么用的）。
  * @param showOpenAction 是否带「打开文件」那个动作。默认带上；手敲内容才是主用法的输入框
@@ -236,7 +236,7 @@ fun DevToolInputField(
 /**
  * 「粘贴文件」：按下粘贴键时先让 [onFiles] 把剪贴板里的文件安置掉。
  *
- * 返回值遵守 `CodeFieldSpec.filePaste` 的约定：剪贴板里不是文件时给 `null`，交回系统默认粘贴；
+ * 返回值遵守 `DevToolCodeField` 的 `filePaste` 约定：剪贴板里不是文件时给 `null`，交回系统默认粘贴；
  * 是文件就一定给一段字符串（空串也算），**吞掉**这次粘贴。拦住这一道是必要的：系统对「复制的
  * 文件」只提供**文件名**这一种文本表示（实测见 `FinderCopyTest`），不拦的话文本框里永远只有
  * 文件名，而不是文件内容。
