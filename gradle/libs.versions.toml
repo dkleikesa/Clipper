@@ -7,7 +7,12 @@ apksig = "9.4.1"
 # BouncyCastle。密钥对本身仍是 JDK 的 `KeyPairGenerator` 生成，只有「签证书」这一步走它。
 bcpkix = "1.86"
 androidx-lifecycle = "2.11.0-beta01"
-composeMultiplatform = "1.11.1"
+# Compose Multiplatform 的版本必须**整条线一致**：qrose 1.3.1（条码工具）依赖 compose.ui 1.12.1，
+# 而 ui 那一组（`androidx.compose.ui`）是 atomic group——冲突解析会把整组的 ui-* 一起抬到 1.12.1，
+# 只有显式声明的那几个（foundation / runtime / desktop）还留在旧版。于是 release 打包时
+# foundation 1.11.1 去调 skiko 的 `Canvas.drawPicture$default`（0.150.1 里已经没有这个签名），
+# ProGuard 报 unresolved reference 直接失败。跟着抬到同一条线即可。
+composeMultiplatform = "1.12.1"
 jna = "5.14.0"
 kotlin = "2.4.10"
 kotlinx-coroutines = "1.11.0"
@@ -18,7 +23,11 @@ ksoup = "0.2.6"
 ksp = "2.3.12"
 # 覆盖率：只支持 JVM target（JS / native 不采集），KMP 项目按 `jvm` 变体出报告。
 kover = "0.9.11"
-material3 = "1.11.0-alpha07"
+# Material3 也跟 Compose 同一条线：它编译时打进的是 `foundation.style` 那套（`StyleScope` /
+# `StyleStateKt`），跨版本签名会对不上——release 打包时 ProGuard 就把这些当 unresolved reference
+# 直接失败（`OutlinedTextFieldDefaults` / `TextFieldDefaults` 各几处）。所以与 composeMultiplatform
+# 一起升。
+material3 = "1.12.0-alpha03"
 # 条码生成与渲染：纯 Kotlin + Compose Multiplatform（除 compose.ui 外无其它依赖）。
 qrose = "1.3.1"
 room3 = "3.0.2"
