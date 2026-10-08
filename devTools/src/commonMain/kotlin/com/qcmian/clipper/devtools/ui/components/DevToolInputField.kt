@@ -268,10 +268,13 @@ private fun rememberFilePaste(
  *
  * `target` 要跨重组保持同一个实例（`dragAndDropTarget` 靠它的身份维持拖放会话），因此两个回调
  * 都经 [rememberUpdatedState] 取当前值，而不是把某一次重组的那一份捕进 `remember`。
+ *
+ * 对工具可见（不是 `private`）：一页可以有几处接受拖入的落点——输入区是一处，工具自己在别处画的
+ * 框（比如签名那一栏的密钥库路径）也是一处。粘贴**不能**这么分（见 `DevToolPasteKey`），拖放可以。
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun Modifier.devToolInputDrop(
+internal fun Modifier.devToolInputDrop(
     host: DevToolHost,
     onFiles: (List<String>) -> Unit,
     onImage: ((ByteArray) -> Unit)?,

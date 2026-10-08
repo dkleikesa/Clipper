@@ -360,14 +360,14 @@ class ApkSignLogicTest {
         ) = keyStoreRequestProblem(outPath, alias, password, confirmPassword, subject)
 
         assertNull(problem(), "填齐了就不该有话")
-        assertEquals("先选一个保存位置", problem(outPath = "   "))
+        assertEquals("请先选择保存位置", problem(outPath = "   "))
         assertEquals("别名不能为空", problem(alias = ""))
         // 口令的下限只有表单在守（见下面那条用例）。
         val shortPassword = problem(password = "12345", confirmPassword = "12345")
         assertNotNull(shortPassword)
         assertTrue(shortPassword.contains("至少 6"), shortPassword)
         // 打错一个字符的口令不可恢复，所以让用户敲两遍。
-        assertEquals("两次口令不一样", problem(confirmPassword = "1234567"))
+        assertEquals("两次输入的密码不一致", problem(confirmPassword = "1234567"))
         // 主题要真能解析成 DN（用的是 JDK 自己那把尺子，见 `subjectProblem`）。
         val badSubject = problem(subject = "随便写点什么")
         assertNotNull(badSubject)

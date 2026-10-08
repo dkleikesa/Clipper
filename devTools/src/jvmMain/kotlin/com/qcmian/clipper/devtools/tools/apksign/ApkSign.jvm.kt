@@ -168,10 +168,10 @@ private fun generateKeyPair(algorithm: KeyAlgorithm): KeyPair {
 private fun Throwable.readableCreateMessage(): String {
     val root = rootCause()
     return when {
-        root is IOException -> "写不进这个位置：${root.message.orEmpty()}"
+        root is IOException -> "无法写入该位置：${root.message.orEmpty()}"
 
         root is IllegalArgumentException ->
-            "主题写得不对，它要像 `CN=名字, O=组织, C=CN` 这样（${root.message.orEmpty()}）"
+            "主题格式不正确，应形如 `CN=名字, O=组织, C=CN`（${root.message.orEmpty()}）"
 
         else -> root.message?.takeIf { it.isNotBlank() } ?: root::class.simpleName.orEmpty()
     }
@@ -206,7 +206,7 @@ internal actual fun verifyApk(path: String): VerifyOutcome = runCatching {
 internal actual fun signApk(request: SignRequest): SignOutcome = runCatching {
     val store = loadKeyStore(request.keystorePath, request.storeType, request.storePassword)
     val key = store.getKey(request.keyAlias, request.keyPassword) as? PrivateKey
-        ?: throw SignFailure("别名「${request.keyAlias}」下没有能取出来的私钥")
+        ?: throw SignFailure("别名「${request.keyAlias}」下没有可用的私钥")
     val chain = store.getCertificateChain(request.keyAlias)
         .orEmpty()
         .filterIsInstance<X509Certificate>()
@@ -368,23 +368,33 @@ private fun Throwable.readableKeyStoreMessage(): String {
     val text = (root.message ?: "").lowercase()
     return when {
         root is UnrecoverableKeyException ->
-            "别名口令不对（也可能这个别名不是私钥条目）"
+            "别名密码不正确，或该别名不是私钥条目"
 
         root is SignFailure -> root.message.orEmpty()
 
         text.contains("password was incorrect") || text.contains("password verification failed") ->
-            "密钥库口令不对。只看看证书的话可以把口令留空"
+            "KeyStore 密码不正确；仅查看证书时可将密码留空"
 
         text.contains("invalid keystore format") || text.contains("unrecognized keystore") ->
-            "这不是 JKS / PKCS#12：文件可能损坏，或者压根不是密钥库"
+            "不是有效的 JKS / PKCS#12 文件"
+
+        // PKCS#12 那一侧的「读不出来」。DER 结构不对时 JDK 抛的是解析层的话——实测拿一个**文本
+        // 文件**当 `.p12` 读，得到的是 `DerInputStream.getLength(): lengthTag=109, too big.`。它与
+        // 上面那一支是同一件事（这压根不是密钥库），只是外层包了一句 `IOException`，看不出这个意思；
+        // 原样抛给用户等于没解释。
+        text.contains("derinputstream") || text.contains("lengthtag") || text.contains("derlength") ->
+            "不是有效的 JKS / PKCS#12 文件"
 
         text.contains("integrity check failed") || text.contains("tampered") ->
-            "完整性校验没过：口令不对，或者文件被改过"
+            "完整性校验未通过：密码不正确，或文件已被修改"
 
         text.contains("no such file") || text.contains("filenotfound") || text.contains("not found") ->
-            "找不到这个文件"
+            "文件不存在"
 
-        else -> root.message?.takeIf { it.isNotBlank() } ?: root::class.simpleName.orEmpty()
+        // 剩下的说不清是哪一种：**框一句人话**再把原话带上。裸着一句 JDK 的话（类名、偏移量）用户
+        // 读不出「跟这个文件有没有关系」。
+        else -> root.message?.takeIf { it.isNotBlank() }?.let { "无法读取该 KeyStore：$it" }
+            ?: "无法读取该 KeyStore"
     }
 }
 
@@ -398,7 +408,7 @@ private fun Throwable.readableVerifyMessage(): String {
     val root = rootCause()
     return when {
         root is ZipException || (root.message ?: "").contains("zip", ignoreCase = true) ->
-            "这不是一个能读的 ZIP / APK（文件可能下载不完整，或者根本不是 APK）"
+            "不是有效的 ZIP / APK 文件"
 
         else -> root.message?.takeIf { it.isNotBlank() } ?: root::class.simpleName.orEmpty()
     }
@@ -449,7 +459,7 @@ internal actual fun subjectProblem(subject: String): String? = runCatching {
     X500Principal(subject)
     null
 }.getOrElse {
-    "主题写得不对：要像 `CN=名字, O=组织, C=CN` 这样，逗号分隔、属性名用已知的那几个" +
+    "主题格式不正确：应形如 `CN=名字, O=组织, C=CN`，逗号分隔，属性名须为已知项" +
         "（${it.message.orEmpty()}）"
 }
 

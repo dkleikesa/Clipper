@@ -37,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -461,6 +463,9 @@ internal fun DevToolSingleLineField(
         interactionSource = interaction,
         modifier = modifier
             .height(DevToolControlHeight)
+            // 鼠标移进来要变**文本光标**：这框能敲字，而光标是「这里能敲」最直接的那句提示。
+            // 摆在这一串的最前面：它的作用范围就是这一格整块（放到 `padding` 之后就只剩文字那一小块）。
+            .pointerHoverIcon(PointerIcon.Text)
             .clip(shape)
             .background(codeColors.editorBackground)
             .border(

@@ -18,8 +18,8 @@ import kotlin.time.Instant
  * 它们是纯函数，因此 `jvmTest` 不必造一个真密钥库就能把它们钉住。
  *
  * 为什么整个工具只落在 JVM 上：签名要读 `java.security.KeyStore`、要重写 ZIP，验签与签名交给
- * AOSP 的 apksig（纯 Java，没有 KMP 制品）。桌面端有 JVM，够用；哪天真要别的平台，补一个
- * `actual` 报「本平台不支持」即可，界面一行不用改。
+ * AOSP 的 apksig（纯 Java，没有 KMP 制品）。桌面端已有 JVM；将来若需其他平台，补一个 `actual`
+ * 报「本平台不支持」即可，界面层无需改动。
  */
 
 /**
@@ -242,8 +242,8 @@ internal sealed interface SignOutcome {
 /**
  * 新建密钥库时能挑的密钥规格——只给 Android 生态里真在用的这四种。
  *
- *  - RSA 2048：存量主流，谁都收；
- *  - RSA 4096：更稳，签一次包多等几秒；
+ *  - RSA 2048：存量主流，各平台通收；
+ *  - RSA 4096：强度更高，单次签名耗时略增；
  *  - EC P-256 / P-384：更短的密钥、更快的签名，Android 7 起全支持。
  *
  * 刻意不给 DSA（已淘汰）和更短的 RSA（Play 不收），也不给 `Ed25519`：它要 Android 13 才普及的
@@ -290,17 +290,17 @@ internal enum class KeyAlgorithm(
 /**
  * 密钥库的容器。
  *
- * `PKCS#12` 排在前：它是行业标准（JDK 9 起 `KeyStore` 的默认类型），而 `JKS` 只在对接老工具时
- * 才需要——它的私钥是拿 `PBEWithMD5AndTripleDES` 加密的，`keytool` 自己都会在末尾提醒换掉。
+ * `PKCS#12` 排在前：它是行业标准（JDK 9 起为 `KeyStore` 的默认类型），而 `JKS` 只在对接旧工具时
+ * 才需要——其私钥使用 `PBEWithMD5AndTripleDES` 加密，`keytool` 自身也会在输出末尾提示更换。
  *
  * [advice] 显示在**选项右边那一列**（即表单的说明列，见 `FormRow`），给的是**当前选中**那一项的
  * 说法：一条说**它是什么**，另一条说**什么时候才该选它**——后者才是真正要回答的问题（默认已经落
  * 在 PKCS#12 上，用户要做的是判断「我要不要改」）。
  *
- * 刻意不写「Android 推荐」这种话：Android Studio 那张新建对话框产出的就是 `.jks`，说 Android 推荐
- * PKCS#12 与用户手边看到的东西是反的。建议来自 **JDK / keytool**（JDK 9 起 `KeyStore` 的默认类型，
- * 且会打印迁移提示），不是 Android。`JKS` 的 3DES 那点细节也不进标签（太长），它在两处本来就会
- * 露出来：读一个 JKS 时那段 `Warning:`，以及 `keytool`。
+ * 刻意不写「Android 推荐」这类表述：Android Studio 的「新建密钥库」对话框产出的就是 `.jks`，称
+ * Android 推荐 PKCS#12 与用户实际看到的结果相反。推荐来自 **JDK / keytool**（JDK 9 起为 `KeyStore`
+ * 的默认类型，且会打印迁移提示），而非 Android。`JKS` 的 3DES 细节不进入标签（过长），它会出现在
+ * 两处：读取 JKS 时输出中的 `Warning:`，以及 `keytool` 的输出。
  */
 internal enum class StoreFormat(
     val title: String,
@@ -335,13 +335,13 @@ internal fun storeFormatOfPath(outPath: String): StoreFormat? =
 /**
  * 把路径的扩展名换成这个容器的扩展名。
  *
- * 换容器时用（见 `KeyStoreForm.withFormat`）：容器由**选项**说了算，路径的扩展名只是它的投影——
- * 切了容器而名字还写着另一个，等于留一句自己打自己的话。
+ * 换容器时使用（见 `KeyStoreForm.withFormat`）：容器由**选项**决定，路径的扩展名只是它的投影——
+ * 切换容器而扩展名仍为另一个，会留下自相矛盾的状态。
  *
- * 三种情况分开处理：
- *  - 名字本来就是密钥库的扩展名（[KeyStoreExtensions]）→ 换掉；
- *  - 名字没有扩展名（`/tmp/mykey`）→ 补上（这里多半是用户删掉了默认名里那一段）；
- *  - 名字是别的扩展名（`/tmp/mykey.txt`）→ **不动**：那是用户特意写的，不抢。
+ * 三种情况分别处理：
+ *  - 扩展名本就是密钥库的（[KeyStoreExtensions]）→ 替换；
+ *  - 没有扩展名（`/tmp/mykey`）→ 补上（通常是用户删掉了默认名中的那一段）；
+ *  - 是其他扩展名（`/tmp/mykey.txt`）→ **保持不变**：这是用户特意写的。
  *
  * 只看**最后一段**，所以 `/Users/a.b/mykey` 里那个点不算扩展名。
  */
@@ -436,8 +436,8 @@ private val ZipMagic = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
  *
  * PKCS#12 没有魔数，它就是一段 DER，以 `30 82`（SEQUENCE + 两字节长度）开头——但**不能**反过来
  * 「以 `30 82` 开头就是 PKCS#12」以外还要求别的：`.p12` 之外还有 ASN.1 家族的一大堆东西长得一样。
- * 这里的判据只需要够用：**不是 JKS 就按 PKCS#12 试**，试不开时由 `KeyStore.load` 报错，那句话比
- * 「魔数不像」更有用。
+ * 这里的判据无需覆盖全部情况：**不是 JKS 就按 PKCS#12 处理**，加载失败时由 `KeyStore.load` 报错，
+ * 那一条信息比「魔数不匹配」更有参考价值。
  */
 internal fun storeTypeFromMagic(head: ByteArray): String =
     if (head.size >= JksMagic.size && head.copyOf(JksMagic.size).contentEquals(JksMagic)) "JKS" else "PKCS12"
@@ -827,15 +827,15 @@ internal fun keyStoreRequestProblem(
     confirmPassword: String,
     subject: String,
 ): String? = when {
-    outPath.isBlank() -> "先选一个保存位置"
+    outPath.isBlank() -> "请先选择保存位置"
 
     alias.isBlank() -> "别名不能为空"
 
     password.length < MinPasswordLength ->
-        "口令至少 $MinPasswordLength 位（keytool 与 Android Studio 都按这条卡；密钥库的口令本来也该结实一点）"
+        "密码至少 $MinPasswordLength 位（keytool 与 Android Studio 均按此要求）"
 
     // 打错一个字符的口令是**不可恢复**的（这张表写下去就是最终结果），所以让用户再敲一遍。
-    password != confirmPassword -> "两次口令不一样"
+    password != confirmPassword -> "两次输入的密码不一致"
 
     subject.isBlank() -> "证书那几项至少要填一项"
 
