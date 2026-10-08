@@ -1,6 +1,8 @@
 package com.qcmian.clipper.core.ui.theme
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.text.LocalTextContextMenu
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -10,6 +12,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import com.qcmian.clipper.core.settings.ThemeMode
+import com.qcmian.clipper.core.ui.components.AppTextContextMenu
 
 private val Accent = Color(0xFF0A84FF)
 
@@ -74,6 +77,7 @@ fun rememberClipperDarkTheme(themeMode: ThemeMode, systemDarkTheme: Boolean?): B
         ThemeMode.DARK -> true
     }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ClipperTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -83,7 +87,14 @@ fun ClipperTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
     ) {
         // 提示文字颜色跟随解析后的深浅色偏好（`ThemeMode` 强制浅色 / 深色时也正确）。
-        CompositionLocalProvider(LocalHintColor provides Hint) {
+        //
+        // 顺带把文本输入框的右键菜单换成本应用自己的那份（见 `AppTextContextMenu`）：桌面端 Compose
+        // 默认给 `BasicTextField` 挂的是平台那套长相，与主面板 / 代码框的菜单对不上。装在主题这一层，
+        // 四个窗口（面板、设置、开发者工具、解锁库）都从这儿过，写一次就够。
+        CompositionLocalProvider(
+            LocalHintColor provides Hint,
+            LocalTextContextMenu provides AppTextContextMenu,
+        ) {
             content()
         }
     }
