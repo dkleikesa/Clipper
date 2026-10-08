@@ -319,9 +319,6 @@ fun HistoryScreen(
     // 都在变，等于每帧把整棵界面重组一遍。这里只记录一个数字，它的变化频率远低于每帧。
     var windowWidth by remember { mutableStateOf(0.dp) }
 
-    /** 实测的窗口高度：右键菜单靠它把自己夹在窗口内（`Popup` 不会自己躲开窗口边缘）。 */
-    var windowHeight by remember { mutableStateOf(0.dp) }
-
     // 拖动分隔条期间的预览宽度：只作用于界面渲染，**不**写设置——设置一变，宿主就会按
     // 「内容区 + 预览」重算窗口宽度，于是「拖分隔条」变成了「拖整个窗口」。松手时才把新宽度
     // 一次性写回（见 `ClipboardUiAction.SetPreviewWidth`），窗口全程不动。
@@ -374,7 +371,6 @@ fun HistoryScreen(
             .safeDrawingPadding()
             .onSizeChanged { size ->
                 windowWidth = with(density) { size.width.toDp() }
-                windowHeight = with(density) { size.height.toDp() }
             }
             // 记录指针按下期间按住的修饰键，点击的分流靠它（⌘ 多选、⇧ 连续选中、⌥ 粘贴），
             // 并管理右键菜单。
@@ -488,8 +484,6 @@ fun HistoryScreen(
                     onUiAction(ClipboardUiAction.ClearSelection)
                 },
                 onDismiss = { contextMenuAt = null },
-                windowWidth = windowWidth,
-                windowHeight = windowHeight,
             )
         }
     }
