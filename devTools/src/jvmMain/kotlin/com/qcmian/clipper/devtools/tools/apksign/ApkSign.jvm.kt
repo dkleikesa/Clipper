@@ -358,7 +358,9 @@ private fun headOf(path: String): ByteArray = runCatching {
 }.getOrDefault(ByteArray(0))
 
 @Suppress("DEPRECATION") // 见下：要的就是这一份（keytool 打的那一份），新 API 给的是另一种写法。
-private fun X509Certificate.toCertInfo(): CertInfo = CertInfo(
+// `internal` 而不是 `private`：证书工具（`tools/cert/`）也用它——「一张 X.509 证书 → CertInfo」
+// 只有这一处实现，两个工具共用一份，免得证书字段的取法两头漂。
+internal fun X509Certificate.toCertInfo(): CertInfo = CertInfo(
     // 用**弃用**的 `getSubjectDN()` 而不是 `getSubjectX500Principal()`：两者给的不是同一个字符串
     // ——实测同一张证书，前者是 `CN=demo, O=Demo, C=CN`（逗号后**带空格**，keytool 打的就是它），
     // 后者是 `CN=demo,O=Demo,C=CN`。这份输出的用途就是跟 keytool 逐字对照，所以取它那一份。

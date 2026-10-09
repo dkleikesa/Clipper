@@ -2,6 +2,7 @@ package com.qcmian.clipper.devtools.detect
 
 import com.qcmian.clipper.devtools.api.DataTypes
 import com.qcmian.clipper.devtools.tools.base64.Base64Format
+import com.qcmian.clipper.devtools.tools.cert.CertFormat
 import com.qcmian.clipper.devtools.tools.json.JsonFormat
 import com.qcmian.clipper.devtools.tools.timestamp.TimestampConvert
 import com.qcmian.clipper.devtools.tools.xml.isWellFormedXml
@@ -112,6 +113,24 @@ internal object Base64DataTypeDetector : DataTypeDetector {
     }
 }
 
+/**
+ * 一份证书类文件（证书 / 证书请求 / 吊销列表 / 密钥）。
+ *
+ * 判据交给 `CertFormat.looksLikeCertificate`，与证书工具（`tools/cert/`）共用同一把尺子：PEM 头
+ * 是明写的（具体是哪一类由工具的解析器认），Base64 那一路则要解出 DER 的 `SEQUENCE + 长形式长度`
+ * （`30 8x`）才认——不这么收，「一段普通的长 Base64」也会被当成证书（与 [Base64DataTypeDetector]
+ * 收得紧是同一个理由）。
+ *
+ * 具体程度排在 [Base64DataTypeDetector] 之上：PEM 证书的正文本身也是一段合法 Base64，但「这是证书」
+ * 比「这是 Base64」具体，推荐位该给证书工具。
+ */
+internal object CertDataTypeDetector : DataTypeDetector {
+    override val typeName: String = DataTypes.CERT
+    override val specificity: Int = 65
+
+    override fun matches(text: String): Boolean = CertFormat.looksLikeCertificate(text)
+}
+
 /** 兜底：任何有内容的文本。始终排在最后（[specificity] 为 0）。 */
 internal object TextDataTypeDetector : DataTypeDetector {
     override val typeName: String = DataTypes.TEXT
@@ -124,6 +143,7 @@ internal object TextDataTypeDetector : DataTypeDetector {
  * 但同分时按这里的声明顺序稳定排列。
  */
 val BuiltInDataTypeDetectors: List<DataTypeDetector> = listOf(
+    CertDataTypeDetector,
     JsonDataTypeDetector,
     XmlDataTypeDetector,
     TimestampDataTypeDetector,

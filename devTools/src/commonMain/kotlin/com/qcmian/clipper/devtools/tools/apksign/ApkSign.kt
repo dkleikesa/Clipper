@@ -667,7 +667,9 @@ private fun entryKeytoolText(entry: KeyStoreEntry): String = buildString {
     }
 }
 
-private fun certificateKeytoolText(certificate: CertInfo): String = buildString {
+// `internal` 而不是 `private`：证书工具（`tools/cert/`）也用它来排「证书信息」那一段——两处
+// 显示同一张证书时逐字一致，用户在一个工具里见过的排版在另一个里认得出来。
+internal fun certificateKeytoolText(certificate: CertInfo): String = buildString {
     appendLine("所有者: ${certificate.subject}")
     appendLine("发布者: ${certificate.issuer}")
     appendLine("序列号: ${certificate.serial}")

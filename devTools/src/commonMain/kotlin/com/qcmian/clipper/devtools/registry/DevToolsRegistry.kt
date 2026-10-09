@@ -6,6 +6,7 @@ import com.qcmian.clipper.devtools.detect.DataTypeDetector
 import com.qcmian.clipper.devtools.detect.detectTypes
 import com.qcmian.clipper.devtools.tools.apksign.ApkSignDevTool
 import com.qcmian.clipper.devtools.tools.base64.Base64DevTool
+import com.qcmian.clipper.devtools.tools.cert.CertDevTool
 import com.qcmian.clipper.devtools.tools.hash.HashDevTool
 import com.qcmian.clipper.devtools.tools.hex.HexDevTool
 import com.qcmian.clipper.devtools.tools.json.JsonDevTool
@@ -83,6 +84,7 @@ class DevToolsRegistry(
                 HashDevTool,
                 BarcodeDevTool,
                 ApkSignDevTool,
+                CertDevTool,
                 // RegexDevTool,
             ),
         )
