@@ -52,11 +52,9 @@ import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
 import com.qcmian.clipper.devtools.ui.components.imageInputName
-import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolSourceCard
 import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
-import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.core.ui.code.DevToolCodeField
 import com.qcmian.clipper.core.ui.code.rememberCodeColors
 import com.qcmian.clipper.core.ui.code.scanPlain
@@ -93,8 +91,8 @@ private val MaxInputFileBytes = 16L * 1024 * 1024
  * 刻意用普通类而不是 `data class`：它的相等性按**引用**算，重算的键一眼就能认出「换了份输入」
  * ——`ByteArray` 放进数据类本来也是按引用比较，那样写只是让人误以为在比值。
  *
- * [path] 是磁盘上的**绝对路径**，只在来源真的落在一个文件上时才有（[origin] 是剪贴板图片时没有）；
- * 卡片与状态栏靠它说清「编的是哪个文件」——光有文件名，同名的两个文件分不出来。
+ * [path] 是磁盘上的**绝对路径**，只在来源真的落在一个文件上时才有（剪贴板里的图没有）；
+ * 卡片靠它说清「编的是哪个文件」——光有文件名，同名的两个文件分不出来。
  */
 private class Base64Source(
     val name: String,
@@ -173,10 +171,6 @@ internal object Base64DevTool : DevTool {
         // 编码侧还可能来自文件（打开 / 拖入 / 剪贴板图片）。它只对编码有意义，切到解码时留着不动，
         // 切回来还在。
         var source by remember { mutableStateOf<Base64Source?>(null) }
-        // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
-        // 按方向各记一份：换到另一边时，状态栏该说的是那一边的情况。
-        var encodeTyped by remember { mutableStateOf(false) }
-        var decodeTyped by remember { mutableStateOf(false) }
         var outcome by remember { mutableStateOf<Base64Outcome?>(null) }
         // 正在算（防抖的安静窗口里，或后台还没回来）。它决定「复制 / 保存」能不能点：那时候框里
         // 留着的是**上一份**结果，拷出去是错的。
@@ -186,34 +180,23 @@ internal object Base64DevTool : DevTool {
 
         // 眼前这个方向正在用哪一份输入。
         val text = if (mode == DevToolDirection.Encode) encodeText else decodeText
-        val typed = if (mode == DevToolDirection.Encode) encodeTyped else decodeTyped
 
-        // 改**当前方向**那一份输入。`fromUser` 区分「手打的」与「从文件 / 剪贴板搬进来的」——
-        // 状态栏只对前者说「文本输入」。
-        fun updateText(value: String, fromUser: Boolean) {
-            if (mode == DevToolDirection.Encode) {
-                encodeText = value
-                encodeTyped = fromUser
-            } else {
-                decodeText = value
-                decodeTyped = fromUser
-            }
+        // 改**当前方向**那一份输入。
+        fun updateText(value: String) {
+            if (mode == DevToolDirection.Encode) encodeText = value else decodeText = value
         }
-
-        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
 
         // 读一个文件并按当前方向安置它：编码要字节（二进制正是内容），解码要文本（Base64 本身是文本）。
         fun applyPath(path: String) {
             when (val loaded = loadFile(path, mode)) {
                 is Loaded.Text -> {
-                    updateText(loaded.value, fromUser = false)
+                    updateText(loaded.value)
                     source = null
                 }
 
                 is Loaded.Binary -> {
-                    // 二进制只可能出现在编码方向（`loadFile` 就是这么分的）：让输入框空着、
-                    // 由文件卡片顶上，顺带把手打标记清掉，免得状态栏说「文本输入」却挂着个文件。
-                    updateText("", fromUser = false)
+                    // 二进制只可能出现在编码方向（`loadFile` 就是这么分的）：让输入框空着、由文件卡片顶上。
+                    updateText("")
                     source = loaded.source
                 }
 
@@ -230,7 +213,6 @@ internal object Base64DevTool : DevTool {
                 mode = DevToolDirection.Encode
                 source = Base64Source(imageInputName(DevToolInputOrigin.Paste), image.toByteArray())
                 encodeText = ""
-                encodeTyped = false
                 return@LaunchedEffect
             }
             if (item.files.isNotEmpty()) {
@@ -245,10 +227,8 @@ internal object Base64DevTool : DevTool {
             mode = if (looksEncoded) DevToolDirection.Decode else DevToolDirection.Encode
             if (looksEncoded) {
                 decodeText = text
-                decodeTyped = false
             } else {
                 encodeText = text
-                encodeTyped = false
             }
         }
 
@@ -348,10 +328,7 @@ internal object Base64DevTool : DevTool {
                         // 框名不必再说「文本 / 文件」：标题行里那道切换已经说着了。
                         label = "输入",
                         value = encodeText,
-                        onValueChange = {
-                            encodeText = it
-                            encodeTyped = true
-                        },
+                        onValueChange = { encodeText = it },
                         host = host,
                         placeholder = "在此粘贴文本或图片；或拖入 / 打开一个文件（图片、任意二进制）",
                         // Base64 是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
@@ -370,14 +347,9 @@ internal object Base64DevTool : DevTool {
                         onImage = { bytes, origin ->
                             source = Base64Source(imageInputName(origin), bytes)
                             encodeText = ""
-                            encodeTyped = false
                         },
                         // 两种形态各清各的：清文本不动文件、清文件不动文本——切回去还能接着用。
-                        // 清空也不算「手打」，别留着上一档的手打标记。
-                        onClear = {
-                            encodeText = ""
-                            encodeTyped = false
-                        },
+                        onClear = { encodeText = "" },
                         onClearSource = { source = null },
                         hasSource = loadedFile != null,
                         // 文件页那行路径：钉在来源自己身上，工具因此不必另存一份路径字符串。
@@ -394,10 +366,7 @@ internal object Base64DevTool : DevTool {
                     DevToolInputField(
                         label = "输入 · Base64",
                         value = decodeText,
-                        onValueChange = {
-                            decodeText = it
-                            decodeTyped = true
-                        },
+                        onValueChange = { decodeText = it },
                         host = host,
                         placeholder = "在此粘贴 Base64；也认 data:image/png;base64,… 这样的 Data URL",
                         softWrap = true,
@@ -414,12 +383,8 @@ internal object Base64DevTool : DevTool {
                             mode = DevToolDirection.Encode
                             source = Base64Source(imageInputName(origin), bytes)
                             encodeText = ""
-                            encodeTyped = false
                         },
-                        onClear = {
-                            decodeText = ""
-                            decodeTyped = false
-                        },
+                        onClear = { decodeText = "" },
                         modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
                     )
                 }

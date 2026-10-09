@@ -36,11 +36,9 @@ import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
-import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolSourceCard
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
-import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.imageInputName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -115,8 +113,6 @@ internal object HexDevTool : DevTool {
         var text by remember { mutableStateOf("") }
         // 文件 / 图片来源：非空时用卡片替掉文本框，dump 的就是它的原始字节。
         var source by remember { mutableStateOf<HexSource?>(null) }
-        // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
-        var typed by remember { mutableStateOf(false) }
         // 三个版面选项。点一下就重排，不等防抖。
         var uppercase by remember { mutableStateOf(false) }
         var showCharColumn by remember { mutableStateOf(true) }
@@ -142,11 +138,7 @@ internal object HexDevTool : DevTool {
             }
             text = ""
             source = HexSource(path.substringAfterLast('/').ifBlank { path }, bytes, path)
-            typed = false
         }
-
-        // 来源报告给底部状态栏：改过编辑框就说「文本输入」，否则交回面板判断（剪贴板 / 文件）。
-        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
 
         // 从剪贴板条目打开时灌入内容：图片与文件类条目按**原始字节**取（二进制正是这里要的），
         // 其余仍按文本取——于是打开一张 .png 或一个 .json 都能直接看。
@@ -156,7 +148,6 @@ internal object HexDevTool : DevTool {
             if (image != null && item.files.isEmpty()) {
                 text = ""
                 source = HexSource(imageInputName(DevToolInputOrigin.Paste), image.toByteArray())
-                typed = false
                 return@LaunchedEffect
             }
             val path = item.files.firstOrNull()
@@ -165,7 +156,6 @@ internal object HexDevTool : DevTool {
                 if (bytes != null) {
                     text = ""
                     source = HexSource(path.substringAfterLast('/').ifBlank { path }, bytes, path)
-                    typed = false
                     return@LaunchedEffect
                 }
             }
@@ -173,7 +163,6 @@ internal object HexDevTool : DevTool {
             val value = withContext(Dispatchers.Default) { item.devToolText() }
             text = value
             source = null
-            typed = false
         }
 
         // 实时排版：输入或版面一变就重排，取消由 `LaunchedEffect` 负责——正在排的那一份即使排完
@@ -208,7 +197,7 @@ internal object HexDevTool : DevTool {
         val ready = bytesSize > 0 && dump != null &&
             computedKey == currentKey && computedOptions == options
 
-        // 状态栏：右段报「多大、排了多少行」，被截断时如实说明只排了前一段。
+        // 状态栏：报「多大、排了多少行」，被截断时如实说明只排了前一段。
         LaunchedEffect(bytesSize, currentKey, options, computedKey, computedOptions, dump) {
             val current = dump
             host.reportStatus(
@@ -234,7 +223,6 @@ internal object HexDevTool : DevTool {
                     text = it
                     // 一打字就是在用文本那一档：来源随之撤掉（两种内容互斥，见 `DevToolInputField`）。
                     source = null
-                    typed = true
                 },
                 host = host,
                 placeholder = "在此粘贴文本；或拖入 / 打开任意文件（图片、可执行文件、任意二进制）",
@@ -252,7 +240,6 @@ internal object HexDevTool : DevTool {
                 onImage = { bytes, origin ->
                     text = ""
                     source = HexSource(imageInputName(origin), bytes)
-                    typed = false
                 },
                 // 两页各清各的：清文本不动文件、清文件不动文本——翻回去还能接着用。
                 onClear = { text = "" },

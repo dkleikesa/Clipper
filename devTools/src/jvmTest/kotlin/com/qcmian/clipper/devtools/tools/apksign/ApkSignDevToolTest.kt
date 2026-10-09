@@ -169,7 +169,7 @@ class ApkSignDevToolTest {
         val pasteKey = render(host)
 
         assertTrue(pasteKey.handle())
-        // 页面里只说这一件事「这个 KeyStore 无法读取」；**具体原因**在状态栏右段（常驻那一段）。
+        // 页面里只说这一件事「这个 KeyStore 无法读取」；**具体原因**在状态栏（常驻那一段）。
         waitUntil(timeoutMillis = 10_000) {
             onAllNodesWithText("这个 KeyStore 无法读取", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
@@ -394,7 +394,7 @@ class ApkSignDevToolTest {
         var status: String? = null
 
         /**
-         * 工具最后报给状态栏**右段**的那句常驻说明（`reportStatus`）；没报过或已清空就是 `null`。
+         * 工具最后报给状态栏的那句常驻说明（`reportStatus`）；没报过或已清空就是 `null`。
          *
          * 与本工具的分工有关（见 `Content` 里那段）：**失败原因统一走这里**，页面里只留一句指向
          * 它的话。所以「说出了原因」这件事得在这上面断言，而不是页面里的那句指路话。

@@ -81,7 +81,7 @@ private const val STATUS_DURATION_MILLIS = 1_600L
  *  - 顶部一条 [ClipperTitleBar]：侧边栏开关 + **当前工具名** + 关闭。工具名只出现在这里，
  *    工具内部因此不再需要一行标题。
  *  - 中间整块给工具（工具栏 + 编辑区），由工具自己排。
- *  - 底部一条 [ToolStatusBar]：这段内容是什么（识别类型、来源）、有多大（行数 / 字符数），
+ *  - 底部一条 [ToolStatusBar]：工具报告的一行常驻状态（行数 / 字符数 / 命中数…），
  *    外加一闪而过的提示。它**只在内容区下面**，不横跨侧边栏——侧边栏因此一直铺到窗口底边。
  *
  * 「动作在上、状态在下」这条分工是刻意的：工具栏那一行的高度由按钮决定，把字符数摆进去省不下
@@ -187,32 +187,24 @@ fun DevToolsPanel(
     // 这几个状态的写入口闭包了进去。这里若跟着 item 换一个新实例，host 手里仍是旧的那一个——
     // 工具往后报告的一切都写进了没人再读的副本，状态栏看上去「不刷新」。重置改由下面那个
     // `LaunchedEffect(item)` 显式完成。
-    // 工具报告的两项——「内容是什么状态」（右段）与「内容从哪来」（左段）——都连**是哪件工具报的**
-    // 一起记下。
+    // 工具报告的状态连**是哪件工具报的**一起记下。
     //
     // 记 owner 是为了换工具时旧值自动失效：`owner != 当前工具` 即不采信。原先写的是「切工具时清空」，
     // 但那与工具的报告存在时序竞争——清空可能落在报告**之后**，把新工具刚报的值抹掉（时间戳工具的
     // 「当前时间」就是这么一直显示不出来的）。归属校验没有这个竞争：值谁报的，谁才算数。
     val reportedStatus = remember { mutableStateOf<Pair<String?, String?>?>(null) }
-    val reportedSource = remember { mutableStateOf<Pair<String?, String?>?>(null) }
     // 给 host 读「当前是哪件工具」，免得把 effectiveSelectedId 直接闭包进那个 `remember` 出来的对象
     // （那样它只会拿到构造时的那个工具 id）。
     val currentToolId = rememberUpdatedState(effectiveSelectedId)
-    // 用户在面板里「打开文件」或把文件拖进来之后，眼前这段内容就不再来自那条剪贴板记录了。
-    // 记下这些路径，状态栏据此把来源改口成「来自文件」；换一条剪贴板记录时一并作废。
-    val openedFiles = remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(item) {
         reportedStatus.value = null
-        reportedSource.value = null
-        openedFiles.value = emptyList()
     }
 
     // 宿主能力：按这几个回调一起记忆——它们一变（宿主换了实现）就重建，其余时候保持稳定，
     // 免得工具界面因为「host 引用变了」而整块重组。
     //
     // 文件那一组只把「弹对话框 / 解析拖放」转给宿主：读写文件由工具侧用 kotlinx-io 自己做
-    // （见 `readTextFileOrNull`），这里因此不碰文件内容。顺势记下这一次拿到的路径——它比
-    // 「这条剪贴板记录是什么」更贴近眼下编辑区里的内容（见 `sourceLabel`）。
+    // （见 `readTextFileOrNull`），这里因此不碰文件内容。
     val host = remember(
         onCopyToClipboard,
         onCopyImageToClipboard,
@@ -244,18 +236,13 @@ fun DevToolsPanel(
                 reportedStatus.value = currentToolId.value to text
             }
 
-            override fun reportSource(text: String?) {
-                reportedSource.value = currentToolId.value to text
-            }
-
-            override fun pickFileToOpen(): String? =
-                onPickFileToOpen()?.also { openedFiles.value = listOf(it) }
+            override fun pickFileToOpen(): String? = onPickFileToOpen()
 
             override fun pickFileToSave(suggestedName: String): String? =
                 onPickFileToSave(suggestedName)
 
             override fun droppedFilePaths(event: DragAndDropEvent): List<String> =
-                onDroppedFilePaths(event).also { if (it.isNotEmpty()) openedFiles.value = it }
+                onDroppedFilePaths(event)
 
             override fun droppedImage(event: DragAndDropEvent): ByteArray? = onDroppedImage(event)
 
@@ -341,12 +328,7 @@ fun DevToolsPanel(
                 }
                 // 只采信**当前工具**报的值：别的工具留下的（即便还在）不关这一件的事。
                 val toolStatus = reportedStatus.value?.takeIf { it.first == effectiveSelectedId }?.second
-                val toolSource = reportedSource.value?.takeIf { it.first == effectiveSelectedId }?.second
-                ToolStatusBar(
-                    source = sourceLabel(item, openedFiles.value, toolSource),
-                    message = status.value,
-                    toolStatus = toolStatus,
-                )
+                ToolStatusBar(message = status.value, toolStatus = toolStatus)
             }
         }
     }
@@ -567,7 +549,8 @@ private fun ToolRail(
  *
  * 这里曾经还要画三行——工具名、一句话说明、以及「来自剪贴板 …… 识别为 JSON」的横幅，加起来
  * 约 82dp。三行里没有一行是动作：工具名与侧边栏高亮的那一项重复，说明是看一次就够的引导文案，
- * 来源横幅在用户刚按下快捷键时是废话。现在它们分别去了标题栏、悬停提示与底部状态栏。
+ * 来源横幅在用户刚按下快捷键时是废话。现在它们分别去了标题栏与悬停提示（来源那句连同底部状态栏
+ * 那一段后来也一并删了）。
  */
 @Composable
 private fun ToolContent(
@@ -587,19 +570,16 @@ private fun ToolContent(
  *
  * 只铺在内容区下面（不横跨侧边栏），侧边栏因此一直延伸到窗口底边，读起来是一条完整的竖栏。
  *
- * 一行里只显示一句话，优先级：临时提示（刚刚发生了什么）＞ 来源说明 ＞ 工具报告的常驻状态。
- * 来源为空（工具明确表示不要这一段，见 `DevToolHost.reportSource` 的空串约定）时，常驻状态顶到
- * 左段——否则 `weight(1f)` 撑开的空白会把状态推到右端，看起来像放错了位置。左段有内容时，常驻
- * 状态仍排右端（数量这类短信息）。
+ * 一行里两样东西，优先级：临时提示（刚刚发生了什么）＞ 工具报告的常驻状态（行数 / 字符数 /
+ * 命中数…）。没有临时提示时，常驻状态占整行左段；有临时提示时它退到右端，短信息仍读得到。
  *
- * 这里曾经还有两样东西，均已删除：左端的类型圆点与类型名——它说明面板把内容认成了什么，而用户
- * 已经在对应工具里、侧边栏也高亮着，既重复又难看出含义；右端的代码框引擎开关——那是面板自身的
- * 技术选项，与工具状态无关。
+ * 这里曾经还有几样东西，均已删除：左端的「这段内容从哪来」（来自剪贴板 / 来自文件 · 路径 / 文本
+ * 输入…）——内容来源对眼下要办的事没有信息量，文件路径更是与文件页上那行路径重复；类型圆点与
+ * 类型名——那是面板把内容认成了什么，用户已经在对应工具里、侧边栏也高亮着；右端的代码框引擎
+ * 开关——那是面板自身的技术选项，与工具状态无关。
  */
 @Composable
 private fun ToolStatusBar(
-    /** 左段那句「这段内容从哪来」；已由调用方算好，状态栏不关心它从何而来。空串表示不显示。 */
-    source: String,
     message: String?,
     /** 工具报告的常驻状态；没有时为 `null`。 */
     toolStatus: String?,
@@ -612,10 +592,8 @@ private fun ToolStatusBar(
                 .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val left = message ?: source
-            val right = toolStatus?.takeIf { left.isNotEmpty() }
             Text(
-                text = left.ifEmpty { toolStatus.orEmpty() },
+                text = (message ?: toolStatus).orEmpty(),
                 fontSize = 10.sp,
                 // 临时提示用主色（「刚刚发生的事」）；常驻内容一律用次级色。
                 color = if (message != null) colors.primary else MaterialTheme.hintColor,
@@ -623,46 +601,12 @@ private fun ToolStatusBar(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            if (right != null) {
+            if (message != null && toolStatus != null) {
                 Spacer(Modifier.width(12.dp))
-                Text(right, fontSize = 10.sp, color = MaterialTheme.hintColor, maxLines = 1)
+                Text(toolStatus, fontSize = 10.sp, color = MaterialTheme.hintColor, maxLines = 1)
             }
         }
     }
-}
-
-/**
- * 状态栏左段那句「这段内容从哪来」。
- *
- * 两条来源，[openedFiles] 优先：用户在面板里「打开文件」/ 拖文件进来之后，眼前这段内容就不再是
- * 那条剪贴板记录了，工具侧读过什么就说什么才诚实。都没有时退回那条剪贴板记录。
- *
- * **文本类条目不列标题。** 标题对文本 / 图片（识别原文）条目就是正文本身——复制到一段奇怪内容
- * （多行、特殊符号、超长）时，它会把状态栏糊成半行乱码，反而看不出这段是从哪来的；而用户此刻
- * 正盯着输入框里的同一份内容，再说一遍也是废话。
- *
- * **文件则要把路径带出来**：路径不是「正文的重复」，而是用户唯一能确认「打开的是哪个文件」的
- * 信息，所以照原样显示。多个文件只铺第一个、余下用「等 N 个文件」交代——状态栏只有一行，再多
- * 的路径也读不完（`ClipItem.files` 非空即文件类，与 `clipType` 判 `FILE` 同一条件）。
- *
- * **优先次序**：文件来源 ＞ 工具报告（[reported]）＞ 兜底的「来自剪贴板」。文件最权威，因为它是
- * 用户在面板里明确的动作（打开 / 拖入），工具报告反而可能落后于它。
- *
- * 没有文件时才轮到 [reported]：那是工具说的「内容从哪来」（当前时间 / 文本输入…）——面板自己
- * 判断不了这些，因为都发生在工具内部（见 `DevToolHost.reportSource` 与 `DevToolReportSource`）。
- *
- * **空串是「这一段我不要」**，排在文件前面判：工具比面板清楚自己这一页需不需要来源（android 签名
- * 工具整页都是文件，说「来自文件」对它没有信息量）。`null` 才是「交回面板判断」，两者不是一件事。
- */
-private fun sourceLabel(item: ClipItem?, openedFiles: List<String>, reported: String?): String {
-    if (reported != null && reported.isEmpty()) return ""
-
-    val files = openedFiles.ifEmpty { item?.files.orEmpty() }
-    if (files.isNotEmpty()) {
-        val first = files.first()
-        return if (files.size == 1) "来自文件 · $first" else "来自文件 · $first 等 ${files.size} 个文件"
-    }
-    return reported ?: "来自剪贴板"
 }
 
 @Composable

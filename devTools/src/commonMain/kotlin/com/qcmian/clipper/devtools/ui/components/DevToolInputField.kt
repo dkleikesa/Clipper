@@ -125,8 +125,7 @@ enum class DevToolInputMode(val label: String, val tooltip: String) {
  *
  * @param label 标题行左侧的框名；[showLabel] 为假时不用。
  * @param value **文本页**的正文。
- * @param onValueChange 正文变化：用户手打、粘贴文本，以及由控件替用户填进来的文件内容
- *   （那一路状态栏另有「来自文件」的判断，见 `DevToolsPanel.sourceLabel`）。
+ * @param onValueChange 正文变化：用户手打、粘贴文本，以及由控件替用户填进来的文件内容。
  * @param host 宿主能力：剪贴板与拖放载荷的解析、文件对话框都在它那里。
  * @param modifier 整块输入区的修饰符（宽度 / 高度 / `weight` 都由调用方给）。两页共用这一份，
  *   因此翻页时占的地方纹丝不动。
@@ -139,8 +138,7 @@ enum class DevToolInputMode(val label: String, val tooltip: String) {
  * @param showOpenAction 文件页是否带「打开文件」那个动作。默认带上；手敲内容才是主用法的输入框
  *   （数学表达式）可以关掉，免得按钮与旁边的控件抢位置。
  * @param actions 只属于这个框的额外动作，排在控件自带的那两个之后。
- * @param onClear **文本页**里点「清空」。默认就是把正文清空——但清空与「手打」在状态栏里不是
- *   一回事，所以留出这一路让工具自己定（见 Base64 工具对 `typed` 的处理）。
+ * @param onClear **文本页**里点「清空」。默认就是把正文清空；工具若还要顺手做点别的可以覆盖这一路。
  * @param onClearSource **文件页**里点「清除」：只清来源，别顺手把文本也抹了——那是翻回文本页要
  *   看的东西（两者分开，正是因为两页各留各的）。
  * @param hasSource 现在有没有来源。它同时管两件事：**有来源就落在文件页**（来源可能是刚拖进来

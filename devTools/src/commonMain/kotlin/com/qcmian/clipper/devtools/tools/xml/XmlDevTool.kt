@@ -26,10 +26,8 @@ import com.qcmian.clipper.devtools.api.devToolText
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolFormatBar
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
-import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
-import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.FormatMode
 import com.qcmian.clipper.devtools.ui.components.rememberFormattedText
 import com.qcmian.clipper.core.ui.code.DevToolCodeField
@@ -72,8 +70,6 @@ internal object XmlDevTool : DevTool {
         var sortAttributes by remember { mutableStateOf(false) }
         // 注释**默认保留**：它是原文里人特意写下的话，在「格式化」这一步顺手丢掉最不该。
         var keepComments by remember { mutableStateOf(true) }
-        // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
-        var typed by remember { mutableStateOf(false) }
 
         // 实时排版交给共用管线（与 JSON 工具同一份，见 `rememberFormattedText`）：这里只声明
         // 「怎么排」与「错了怎么说人话」，防抖、后台调度、过期判断、状态栏文案都由此统一。
@@ -90,9 +86,6 @@ internal object XmlDevTool : DevTool {
             errorMessage = { _, error -> xmlErrorMessage(error) },
         )
 
-        // 来源报告给底部状态栏：改过编辑框就说「文本输入」，否则交回面板判断（剪贴板 / 文件）。
-        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
-
         // 每次主面板交进来一份新的剪贴板内容就整块替换：结果与提示都属于「上一份内容」。
         // 先灌正文再 `reset()`——它会按新正文重排一遍。
         LaunchedEffect(input) {
@@ -100,7 +93,6 @@ internal object XmlDevTool : DevTool {
             // 取文本可能要读文件、也可能要解析富文本——放到后台算，别让主线程在打开面板时先卡一下。
             val text = withContext(Dispatchers.Default) { item.devToolText() }
             source = text
-            typed = false
             formatted.reset()
         }
 
@@ -143,10 +135,7 @@ internal object XmlDevTool : DevTool {
                 DevToolInputField(
                     label = "输入",
                     value = source,
-                    onValueChange = {
-                        source = it
-                        typed = true
-                    },
+                    onValueChange = { source = it },
                     host = host,
                     placeholder = "在此粘贴 XML，从剪贴板条目打开，或把文件拖进来",
                     scan = ::scanXml,

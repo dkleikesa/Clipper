@@ -34,13 +34,11 @@ import com.qcmian.clipper.devtools.api.readBytesOrNull
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
-import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultList
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolSingleLineField
 import com.qcmian.clipper.devtools.ui.components.DevToolSourceCard
-import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -107,8 +105,6 @@ internal object HashDevTool : DevTool {
         var resultEncoding by remember { mutableStateOf(HashEncoding.Hex) }
         // 当前输入的字节数，供状态栏报告；放状态里是为了不在每次重组都重新编码一遍正文。
         var inputSize by remember { mutableStateOf(0) }
-        // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
-        var typed by remember { mutableStateOf(false) }
         // 待对拍的摘要：用户粘进来一段摘要，与上面算出的每一条比，看能不能对上、对上的是哪个算法。
         var compareText by remember { mutableStateOf("") }
 
@@ -124,11 +120,7 @@ internal object HashDevTool : DevTool {
             }
             text = ""
             source = HashSource(path.substringAfterLast('/').ifBlank { path }, bytes, path)
-            typed = false
         }
-
-        // 来源报告给底部状态栏：改过编辑框 / 自己选过文件就说出来，否则交回面板判断。
-        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
 
         // 从剪贴板条目打开时灌入内容：文件类条目按**原始字节**取（二进制正是这里要的），
         // 其余仍按文本取——于是打开一个 .json 或一张 .png 都能直接算。
@@ -140,7 +132,6 @@ internal object HashDevTool : DevTool {
                 if (bytes != null) {
                     text = ""
                     source = HashSource(path.substringAfterLast('/').ifBlank { path }, bytes, path)
-                    typed = false
                     return@LaunchedEffect
                 }
             }
@@ -148,7 +139,6 @@ internal object HashDevTool : DevTool {
             val value = withContext(Dispatchers.Default) { item.devToolText() }
             text = value
             source = null
-            typed = false
         }
 
         // 实时计算：输入一变就重新计时，停下来才算一次。取消由 `LaunchedEffect` 负责——正在算的
@@ -169,7 +159,7 @@ internal object HashDevTool : DevTool {
             resultEncoding = encoding
         }
 
-        // 状态栏：右段「内容有多大」之外，顺带说清一次给几种算法，省得去数结果行。
+        // 状态栏：报「内容有多大」，顺带说清一次给几种算法，省得去数结果行。
         LaunchedEffect(inputSize, resultKey, currentKey, resultEncoding, encoding) {
             host.reportStatus(
                 when {
@@ -200,7 +190,6 @@ internal object HashDevTool : DevTool {
                     text = it
                     // 一打字就是在用文本那一档：文件来源随之撤掉（两种内容互斥，见 `DevToolInputField`）。
                     source = null
-                    typed = true
                 },
                 host = host,
                 placeholder = "在此粘贴文本；或拖入 / 打开任意文件（文本、图片、二进制都行）",
@@ -218,7 +207,6 @@ internal object HashDevTool : DevTool {
                 onImage = { bytes, origin ->
                     text = ""
                     source = HashSource(imageSourceName(origin), bytes)
-                    typed = false
                 },
                 // 两页各清各的：清文本不动文件、清文件不动文本——翻回去还能接着用。
                 onClear = { text = "" },

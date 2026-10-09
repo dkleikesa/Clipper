@@ -45,7 +45,6 @@ import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolFileField
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
-import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolResultRow
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
@@ -310,12 +309,7 @@ internal object ApkSignDevTool : DevTool {
         KeyStoreReadEffect(signSession)
         KeyStoreReadEffect(currentSession)
 
-        // 状态栏左段那份「内容从哪来」**不要**（空串是「这一段我不要」，见 `DevToolHost.reportSource`）：
-        // 这个工具整页都是**文件**，「来自文件 · 路径」在这里没有信息量——用户要看的是这个密钥库 /
-        // 这个包是什么状态，那是右段的事（见下面那段 `reportStatus`）。
-        DevToolReportSource(host, "")
-
-        // 本工具的状态只在一处显示：状态栏右段（`DevToolHost.reportStatus`，常驻到下一次报告）。
+        // 本工具的状态只在一处显示：状态栏（`DevToolHost.reportStatus`，常驻到下一次报告）。
         // 页面里不再复述同一句话（原先签名按钮下方还有一行，已删除）。
         //
         // 报的是当前页签的状态：切换页签即更换，恢复正常时为 `null`（清除）。一页存在多个问题时按
@@ -524,11 +518,11 @@ internal object ApkSignDevTool : DevTool {
                 signing = false
                 signOutcome = outcome
                 // 只报**成功**那一声：它是「刚刚发生了什么」，一闪而过没关系。失败那句不在这里报——
-                // 整句原因统一由状态栏右段常驻地说（见 `Content` 里那段），这里再说一遍就是两处重复。
+                // 整句原因统一由状态栏常驻地说（见 `Content` 里那段），这里再说一遍就是两处重复。
                 if (outcome is SignOutcome.Done) {
                     // 轮替链另存一份（见 `lineageFileNameOf`）：以后再要接着轮替，先得有这么一条链，
                     // 所以值得从包里拿出来单独放。写不成**不影响这次签名**——链也在包里——所以只
-                    // 如实说一句，由状态栏右段常驻地挂着（临时提示会飘走，那是个要处理的遗留问题）。
+                    // 如实说一句，由状态栏常驻地挂着（临时提示会飘走，那是个要处理的遗留问题）。
                     val lineage = outcome.lineage
                     var lineagePath: String? = null
                     if (lineage != null) {
@@ -600,7 +594,7 @@ internal object ApkSignDevTool : DevTool {
                 request.password.fill('\u0000')
                 creating = false
                 createOutcome = outcome
-                // 只报成功那一声（`Done` 那句）。**失败不在这里报**——整句原因统一由状态栏右段常驻地
+                // 只报成功那一声（`Done` 那句）。**失败不在这里报**——整句原因统一由状态栏常驻地
                 // 说（见 `Content` 里那段）；「已经有文件」也不报：这事要在**面板上**说（按钮跟着变
                 // 成「覆盖」），一闪而过的提示没法承担「再点一次」这个动作。
                 //
@@ -912,7 +906,7 @@ private fun KeyStorePage(
 
             readerBusy -> CenteredHint("正在读…", Modifier.fillMaxWidth().weight(1f))
 
-            // 只陈述事实，**不复述原因、也不写「原因见状态栏」这类指路话**：原因在状态栏右段（见
+            // 只陈述事实，**不复述原因、也不写「原因见状态栏」这类指路话**：原因在状态栏（见
             // `Content` 里那段）；此处只说明本区域的状态，指路话会被读作承认错误。
             outcome is KeyStoreOutcome.Failed -> FailedHint(
                 message = "这个 KeyStore 无法读取",
@@ -1095,7 +1089,7 @@ private fun ApkPage(
             verifyOutcome == null -> CenteredHint("正在读这个包…", Modifier.fillMaxWidth().weight(1f))
 
             // 这一块只说「为什么这儿空着」——它是这一页最大的一片区域，空着更需要一句话。整句原因
-            // 与上面那一行的结论都不复述：原因在状态栏右段（见 `Content` 里那段）。
+            // 与上面那一行的结论都不复述：原因在状态栏（见 `Content` 里那段）。
             verifyOutcome is VerifyOutcome.Failed -> FailedHint(
                 message = "这个包无法读取，所以没有签名信息可看",
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -1362,7 +1356,7 @@ private fun VerifyConclusion(
             color = MaterialTheme.hintColor
         }
 
-        // 只给一句**短的现状**：整句原因统一在状态栏右段（见 `Content` 里那段），这一行紧贴着那一
+        // 只给一句**短的现状**：整句原因统一在状态栏（见 `Content` 里那段），这一行紧贴着那一
         // 格，说清「现在是什么状态」就够——两处都印整句，等于同一句话说两遍。
         outcome is VerifyOutcome.Failed -> {
             text = "这个包无法读取"

@@ -53,14 +53,12 @@ import com.qcmian.clipper.devtools.ui.components.DevToolGroupDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolInputOrigin
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
-import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolResultList
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolSlider
 import com.qcmian.clipper.devtools.ui.components.DevToolSourceCard
 import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
-import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import com.qcmian.clipper.devtools.ui.components.imageInputName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -134,14 +132,10 @@ private sealed interface CodeOutcome {
  *
  * 存的是**原始字节**而不是解好的图：解图与认码一起放在识别那个 effect 里做（那一段必须在后台
  * 线程上，而拖放 / 粘贴 / 「打开」的回调都在主线程）。
- *
- * [origin] 是这张图从哪来（粘贴 / 拖入 / 打开），只用于状态栏左段那句「来自…」；从剪贴板记录直接
- * 带进来的那张为 `null`——那种来源面板自己会说，比这里猜得准。
  */
 private class BarcodeImageInput(
     val name: String,
     val bytes: ByteArray,
-    val origin: DevToolInputOrigin?,
     /** 磁盘上的**绝对路径**，只在图来自一个文件时才有（剪贴板里的图没有）。 */
     val path: String? = null,
 )
@@ -188,8 +182,6 @@ internal object BarcodeDevTool : DevTool {
         var printText by remember { mutableStateOf(true) }
         var exportSide by remember { mutableStateOf(DefaultExportLongSide) }
         var text by remember { mutableStateOf("") }
-        // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
-        var typed by remember { mutableStateOf(false) }
         // 防抖之后的正文：它才是拿去编码的那一份。编码放在后台，[outcomeRequest] 记下结果对应的是
         // 哪一份请求——正文或参数一变，旧结果虽然还画着，但已经不对应当前设置了（动作据此禁用）。
         var debounced by remember { mutableStateOf("") }
@@ -209,11 +201,10 @@ internal object BarcodeDevTool : DevTool {
         fun applyImageBytes(
             name: String,
             bytes: ByteArray,
-            origin: DevToolInputOrigin?,
             path: String? = null,
         ) {
             mode = DevToolDirection.Decode
-            imageInput = BarcodeImageInput(name, bytes, origin, path)
+            imageInput = BarcodeImageInput(name, bytes, path)
         }
 
         // 读一个文件并按**码图**安置：认码要的是原始字节（图片正是二进制）。同步读——与 Base64
@@ -225,7 +216,7 @@ internal object BarcodeDevTool : DevTool {
                 host.showStatus("读不了这个文件（超过 32MB，或不是普通文件）：$path")
                 return
             }
-            applyImageBytes(name, bytes, DevToolInputOrigin.Open, path)
+            applyImageBytes(name, bytes, path)
         }
 
         // 从剪贴板条目打开：带进来的是**图**（截图、从浏览器复制的图片）就直接落在解码页——认它
@@ -238,8 +229,6 @@ internal object BarcodeDevTool : DevTool {
                 applyImageBytes(
                     name = imageInputName(DevToolInputOrigin.Paste),
                     bytes = image.toByteArray(),
-                    // 来源交给面板判断：它自己会说「来自剪贴板」，比这里的「剪贴板图片」更贴切。
-                    origin = null,
                 )
                 return@LaunchedEffect
             }
@@ -248,24 +237,13 @@ internal object BarcodeDevTool : DevTool {
                 val name = path.substringAfterLast('/').ifBlank { path }
                 val bytes = withContext(Dispatchers.Default) { readBytesOrNull(path, MaxInputImageBytes) }
                 if (bytes != null && withContext(Dispatchers.Default) { decodeImageOrNull(bytes) != null }) {
-                    applyImageBytes(name, bytes, origin = null, path = path)
+                    applyImageBytes(name, bytes, path = path)
                     return@LaunchedEffect
                 }
             }
             // 取文本可能要读文件、也可能要解析富文本——放到后台算，别让主线程在打开面板时先卡一下。
             text = withContext(Dispatchers.Default) { item.devToolText() }
-            typed = false
         }
-
-        // 来源报告给底部状态栏：编码页改过编辑框就说「文本输入」；解码页说这张图是从哪来的
-        // （粘贴 / 拖入），从剪贴板记录直接带进来的那张交回面板判断。
-        DevToolReportSource(
-            host,
-            when (mode) {
-                DevToolDirection.Encode -> if (typed) DevToolTypedSource else null
-                DevToolDirection.Decode -> imageInput?.origin?.let(::imageInputSource)
-            },
-        )
 
         // 防抖：正文一变就重新计时，停下来才把这一份交给编码。取消由 `LaunchedEffect` 负责，
         // 因此打字期间不会有半截文本被编出来。
@@ -466,10 +444,7 @@ internal object BarcodeDevTool : DevTool {
                     DevToolInputField(
                         label = "输入 · 文本",
                         value = text,
-                        onValueChange = {
-                            text = it
-                            typed = true
-                        },
+                        onValueChange = { text = it },
                         host = host,
                         // 占位提示给的是**示例**（这个码制真收的一个值），不是要求：输入框回答的是
                         // 「这里填什么」，「限多少」由结果区（输入为空时）与失败提示交代——EAN-13
@@ -483,13 +458,9 @@ internal object BarcodeDevTool : DevTool {
                         // 解码页、顺手把图挂上（与 Base64 工具「在解码页粘一张图就翻到编码页」
                         // 是同一条做法，只是方向相反）。
                         onImage = { bytes, origin ->
-                            applyImageBytes(imageInputName(origin), bytes, origin)
+                            applyImageBytes(imageInputName(origin), bytes)
                         },
-                        // 清空不算「手打」，但也别留着上一档的手打标记。
-                        onClear = {
-                            text = ""
-                            typed = false
-                        },
+                        onClear = { text = "" },
                         modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
                     )
 
@@ -556,7 +527,7 @@ internal object BarcodeDevTool : DevTool {
                         },
                         // 没有路径的图片（从浏览器里复制 / 拖进来的）直接就是字节。
                         onImage = { bytes, origin ->
-                            applyImageBytes(imageInputName(origin), bytes, origin)
+                            applyImageBytes(imageInputName(origin), bytes)
                         },
                         // 「清除来源」= 回到空态。标题行上那个垃圾桶就是它。
                         onClearSource = { imageInput = null },
@@ -863,13 +834,6 @@ private fun CenteredHint(text: String, modifier: Modifier) {
             textAlign = TextAlign.Center,
         )
     }
-}
-
-/** 解码页那张图从哪来——状态栏左段那句「来自…」。从剪贴板记录带进来的那张交回面板判断。 */
-private fun imageInputSource(origin: DevToolInputOrigin): String = when (origin) {
-    DevToolInputOrigin.Paste -> "来自剪贴板图片"
-    DevToolInputOrigin.Drop -> "来自拖入的图片"
-    DevToolInputOrigin.Open -> "来自文件"
 }
 
 /**

@@ -36,11 +36,9 @@ import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
 import com.qcmian.clipper.devtools.ui.components.DevToolMenuButton
-import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultList
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolSingleLineField
-import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -73,23 +71,6 @@ private val PatternPresets = listOf(
     "yyyy/MM/dd HH:mm:ss",
     "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
 )
-
-/**
- * 眼前这段内容从哪来——报告给状态栏的那句「来自…」（见 `DevToolReportSource`）。
- *
- * 标签为 `null` 表示「交回面板判断」：面板自己认得剪贴板记录与文件来源，这里只有工具内部才知道的
- * 两种来源需要点名。
- */
-private enum class SourceOrigin(val label: String?) {
-    /** 随剪贴板记录带进来的：交回面板，文件来源还要优先。 */
-    Clipboard(null),
-
-    /** 点了「当前时间」填进来的。 */
-    Now("当前时间"),
-
-    /** 用户直接编辑输入框，或从历史里点回来的。 */
-    Typed(DevToolTypedSource),
-}
 
 /**
  * 速查页替的是哪个格式框——点中的写法接进它。
@@ -136,8 +117,6 @@ internal object TimestampDevTool : DevTool {
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
         var source by remember { mutableStateOf("") }
-        // 这段内容从哪来：随剪贴板带进来的、点「当前时间」的、还是自己敲的。报告给状态栏。
-        var origin by remember { mutableStateOf(SourceOrigin.Clipboard) }
         var inputPattern by remember { mutableStateOf("") }
         var outputPattern by remember { mutableStateOf("") }
         // 速查页正开着的话，是替哪个格式框开的（点中的写法接进它）；`null` 就是没开。
@@ -178,11 +157,7 @@ internal object TimestampDevTool : DevTool {
             // 取文本可能要读文件、也可能要解析富文本——放到后台算，别让主线程在打开面板时先卡一下。
             val text = withContext(Dispatchers.Default) { item.devToolText() }
             source = text
-            origin = SourceOrigin.Clipboard
         }
-
-        // 来源同步给面板：它自己只认得「打开时带了什么」，不知道用户随后点了按钮还是敲了字。
-        DevToolReportSource(host, origin.label)
 
         // 同步解析：输入 / 输入格式 / 输入时区任一变化就重算。解析很轻（几次字符串判断），摆在
         // 组合里算一目了然，也不会留下「上一份结果」的中间态。
@@ -240,11 +215,7 @@ internal object TimestampDevTool : DevTool {
                     label = "输入",
                     showLabel = false,
                     value = source,
-                    // 用户直接编辑输入框——内容就不再来自剪贴板或「当前时间」了。
-                    onValueChange = {
-                        source = it
-                        origin = SourceOrigin.Typed
-                    },
+                    onValueChange = { source = it },
                     host = host,
                     placeholder = if (inputPattern.isBlank()) {
                         "例如 1759468800、1759468800000 或 2026-10-03 14:30:00"
@@ -285,7 +256,6 @@ internal object TimestampDevTool : DevTool {
                         }
                         if (sample != null) {
                             source = sample
-                            origin = SourceOrigin.Now
                         }
                     },
                 )

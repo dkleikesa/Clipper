@@ -34,13 +34,11 @@ import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
-import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolSectionDivider
 import com.qcmian.clipper.devtools.ui.components.DevToolSingleLineField
 import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
 import com.qcmian.clipper.devtools.ui.components.DevToolToggle
-import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -142,8 +140,6 @@ internal object RegexDevTool : DevTool {
         var flags by remember { mutableStateOf(emptySet<RegexFlag>()) }
         var template by remember { mutableStateOf("") }
         var subject by remember { mutableStateOf("") }
-        // 用户在编辑框里改过内容没有。状态栏据此把来源从「来自剪贴板 / 文件」改成「文本输入」。
-        var typed by remember { mutableStateOf(false) }
         var outcome by remember { mutableStateOf<RegexOutcome?>(null) }
         // 上一次真正算过的输入。与眼前这份不等，就说明结果框里那份还对不上眼前的内容：能看，
         // 但不能拷出去（与 JSON / URL / Hash 同一条口径）。
@@ -167,8 +163,6 @@ internal object RegexDevTool : DevTool {
             }
         }
 
-        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
-
         // 从剪贴板条目打开时把正文灌进「待匹配文本」：顺手的用法是「我刚复制了一段文本，想拿正则
         // 在里面找点什么」——正文长、多半是现成复制的，而模式短、多半要现敲。模式不覆盖用户的输入。
         LaunchedEffect(input) {
@@ -176,7 +170,6 @@ internal object RegexDevTool : DevTool {
             // 取文本可能要读文件、也可能要解析富文本——放到后台算，别让主线程在打开面板时先卡一下。
             val text = withContext(Dispatchers.Default) { item.devToolText() }
             subject = text
-            typed = false
         }
 
         // 实时计算：输入一变就重新计时，停下来才算一次。取消由 `LaunchedEffect` 负责——正在算的
@@ -294,20 +287,14 @@ internal object RegexDevTool : DevTool {
                 DevToolInputField(
                     label = "待匹配文本",
                     value = subject,
-                    onValueChange = {
-                        subject = it
-                        typed = true
-                    },
+                    onValueChange = { subject = it },
                     host = host,
                     placeholder = "在这里粘一段文本；从剪贴板条目打开时它已经填好了",
                     // 待匹配的可以是日志、代码、长段落，折行比横向滚出去好读；没有块可折，关掉折叠。
                     softWrap = true,
                     folding = false,
                     scan = ::scanPlain,
-                    onClear = {
-                        subject = ""
-                        typed = false
-                    },
+                    onClear = { subject = "" },
                     modifier = Modifier.weight(1f),
                 )
 

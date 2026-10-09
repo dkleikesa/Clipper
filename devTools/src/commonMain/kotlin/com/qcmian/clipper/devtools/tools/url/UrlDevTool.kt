@@ -35,11 +35,9 @@ import com.qcmian.clipper.devtools.detect.UrlDataTypeDetector
 import com.qcmian.clipper.devtools.ui.components.DevToolActionSpacer
 import com.qcmian.clipper.devtools.ui.components.DevToolDirection
 import com.qcmian.clipper.devtools.ui.components.DevToolInputField
-import com.qcmian.clipper.devtools.ui.components.DevToolReportSource
 import com.qcmian.clipper.devtools.ui.components.DevToolResultActions
 import com.qcmian.clipper.devtools.ui.components.DevToolSegmentedControl
 import com.qcmian.clipper.devtools.ui.components.DevToolTabBar
-import com.qcmian.clipper.devtools.ui.components.DevToolTypedSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -90,9 +88,6 @@ internal object UrlDevTool : DevTool {
         // 而且换个方向回来，原来敲的东西已经没了。
         var encodeText by remember { mutableStateOf("") }
         var decodeText by remember { mutableStateOf("") }
-        // 按方向各记一份「改过没有」：换到另一边时，状态栏该说的是那一边的情况。
-        var encodeTyped by remember { mutableStateOf(false) }
-        var decodeTyped by remember { mutableStateOf(false) }
         var outcome by remember { mutableStateOf<UrlOutcome?>(null) }
         // 正在算（防抖的安静窗口里，或后台还没回来）。它决定「复制 / 保存」能不能点：那时框里
         // 留着的是**上一份**结果，拷出去是错的。
@@ -102,9 +97,6 @@ internal object UrlDevTool : DevTool {
 
         // 眼前这个方向正在用哪一份输入。
         val text = if (mode == DevToolDirection.Encode) encodeText else decodeText
-        val typed = if (mode == DevToolDirection.Encode) encodeTyped else decodeTyped
-
-        DevToolReportSource(host, if (typed) DevToolTypedSource else null)
 
         // 从剪贴板打开时替用户选好方向：复制的是整条 URL，多半想**看懂**它（解开 %XX）；复制的是
         // 普通文本，多半想把它当参数**编**进去。判据与面板的探测共用同一个（`UrlDataTypeDetector`），
@@ -117,11 +109,9 @@ internal object UrlDevTool : DevTool {
             if (looksLikeUrl) {
                 mode = DevToolDirection.Decode
                 decodeText = value
-                decodeTyped = false
             } else {
                 mode = DevToolDirection.Encode
                 encodeText = value
-                encodeTyped = false
             }
         }
 
@@ -199,10 +189,7 @@ internal object UrlDevTool : DevTool {
                     DevToolInputField(
                         label = "输入 · 原文",
                         value = encodeText,
-                        onValueChange = {
-                            encodeText = it
-                            encodeTyped = true
-                        },
+                        onValueChange = { encodeText = it },
                         host = host,
                         placeholder = "在此粘贴要编码的文本，例如查询参数、路径片段",
                         // 百分号编码是长串，折行比横向滚出去好读——一行几百个字符要一直往右拖才看得完。
@@ -210,11 +197,8 @@ internal object UrlDevTool : DevTool {
                         softWrap = true,
                         folding = false,
                         scan = ::scanPlain,
-                        // 清空不算「手打」，但也别留着上一档的手打标记。
-                        onClear = {
-                            encodeText = ""
-                            encodeTyped = false
-                        },
+                        // 清空只清正文。
+                        onClear = { encodeText = "" },
                         modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
                     )
                 }
@@ -224,19 +208,13 @@ internal object UrlDevTool : DevTool {
                     DevToolInputField(
                         label = "输入 · 已编码",
                         value = decodeText,
-                        onValueChange = {
-                            decodeText = it
-                            decodeTyped = true
-                        },
+                        onValueChange = { decodeText = it },
                         host = host,
                         placeholder = "在此粘贴含 %XX 的文本，例如 %E4%B8%AD%E6%96%87",
                         softWrap = true,
                         folding = false,
                         scan = ::scanPlain,
-                        onClear = {
-                            decodeText = ""
-                            decodeTyped = false
-                        },
+                        onClear = { decodeText = "" },
                         modifier = Modifier.fillMaxWidth().height(InputFieldHeight),
                     )
                 }
