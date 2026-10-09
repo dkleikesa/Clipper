@@ -162,15 +162,11 @@ object MacWorkspace {
         override fun apply(self: Pointer?, command: Pointer?, argument: Pointer?) {
             val visible = pendingDockVisible ?: return
             val application = MacNative.send(MacNative.clazz("NSApplication"), "sharedApplication") ?: return
-            // TODO(dock 诊断)：临时日志，定位完删——看「切之前 / 切之后」系统报的策略各是什么。
-            val before = MacNative.sendLong(application, "activationPolicy")
             MacNative.sendBool(
                 application,
                 "setActivationPolicy:",
                 if (visible) POLICY_REGULAR else POLICY_ACCESSORY,
             )
-            val after = MacNative.sendLong(application, "activationPolicy")
-            System.err.println("[dock] 主线程落地 visible=$visible policy $before -> $after")
             // 图标只在「露出 Dock」时给：收起时应用不在 Dock 里，写它没有意义。
             if (!visible) return
             val image = pendingDockIcon?.let(::dockImage) ?: return
