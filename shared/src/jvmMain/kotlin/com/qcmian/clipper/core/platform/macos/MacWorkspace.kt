@@ -90,6 +90,12 @@ object MacWorkspace {
      * 里露个图标既方便切回、也让「正在编辑」这件事有个系统层面的落点；窗口收起后再切回
      * `Accessory`（否则图标会一直挂着）。
      *
+     * **调用方必须等状态稳定再调**（见 `ClipperDevToolsWindow` 里那个 `LaunchedEffect` 与
+     * `DOCK_SETTLE_MILLIS`）：这一对切换若是快到系统还没消化完就再来一次，Dock 会把每次
+     * 「出现」都当成一个新条目，且旧的**不回收**——实测 20ms 一轮地开关，每轮稳定留下一个
+     * 孤儿图标，越攒越多；拉开到几百毫秒则一个都不留。系统那边的记账方式我们管不了，防抖
+     * 因此放在调用方：只有它知道「用户在连按」这件事。
+     *
      * **必须在 AppKit 主线程上调用**，而 AWT 的 EDT 不是 AppKit 主线程（见 [MacStatusItem]），
      * 因此经 `performSelectorOnMainThread:` 派发：目标方法读 [pendingDockVisible] 与
      * [pendingDockIcon] 再落地。不等待（`waitUntilDone` 为假）——调用方在窗口的显隐副作用里，
@@ -99,6 +105,11 @@ object MacWorkspace {
      * bundle 图标，系统给的是一张「可执行文件」的通用图（一个 `>_` 的终端样子），Dock 里就是
      * 那个样子；从 `.app` 启动时这一步只是把系统本来会读的那个值再写一遍，两条路因此一致。
      * 传 `null` 表示「按系统给的来」（只是别处调用时的兜底，本应用不走这一路）。
+     *
+     * 已知且接受的瑕疵：开发运行（进程挂在 JDK 的 `java` 上，没有自己的 bundle）下，**收起时
+     * 那一下消失动画**用的仍是系统那张身份图。`setApplicationIconImage:` 只盖得住显示中的条目，
+     * 身份图改不动。从 `.app` 启动就没有这一下（身份就是 Clipper 自己）。开发者工具窗口在开发
+     * 期也照常进 Dock——这属于取舍，不是漏掉。
      */
     fun setDockIconVisible(visible: Boolean, iconPng: ByteArray? = null) {
         if (!loaded) return
@@ -151,11 +162,15 @@ object MacWorkspace {
         override fun apply(self: Pointer?, command: Pointer?, argument: Pointer?) {
             val visible = pendingDockVisible ?: return
             val application = MacNative.send(MacNative.clazz("NSApplication"), "sharedApplication") ?: return
+            // TODO(dock 诊断)：临时日志，定位完删——看「切之前 / 切之后」系统报的策略各是什么。
+            val before = MacNative.sendLong(application, "activationPolicy")
             MacNative.sendBool(
                 application,
                 "setActivationPolicy:",
                 if (visible) POLICY_REGULAR else POLICY_ACCESSORY,
             )
+            val after = MacNative.sendLong(application, "activationPolicy")
+            System.err.println("[dock] 主线程落地 visible=$visible policy $before -> $after")
             // 图标只在「露出 Dock」时给：收起时应用不在 Dock 里，写它没有意义。
             if (!visible) return
             val image = pendingDockIcon?.let(::dockImage) ?: return

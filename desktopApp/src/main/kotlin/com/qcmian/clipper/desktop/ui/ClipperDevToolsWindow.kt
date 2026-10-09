@@ -29,6 +29,7 @@ import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.ui.theme.ClipperTheme
 import com.qcmian.clipper.core.ui.theme.rememberClipperDarkTheme
 import com.qcmian.clipper.desktop.domain.DEVTOOLS_WINDOW_TITLE
+import com.qcmian.clipper.desktop.domain.DOCK_MIN_INTERVAL_MILLIS
 import com.qcmian.clipper.desktop.domain.RESIZE_SETTLE_MILLIS
 import com.qcmian.clipper.desktop.domain.devToolsWindowSizeOf
 import com.qcmian.clipper.desktop.domain.isOnScreen
@@ -224,15 +225,26 @@ fun ApplicationScope.ClipperDevToolsWindow(
         // key window，编辑区输不进字、也收不到快捷键。
         // 窗口隐藏时也仍在组合里，所以这个副作用在**挂载那一刻**就先跑了一次（那时 `visible`
         // 还是 false、窗口还没露过面）——定位实际发生在那一刻，而不是「首次显示」时。
+        // Dock 图标跟着本窗口的存亡走：开着时把应用临时标成常规应用（Dock 里出现图标），收起后再
+        // 切回菜单栏应用（否则它会一直占着 Dock）。设置窗口与面板**不**做这件事，它们保持原有的
+        // 「只在菜单栏里存在」——用户要的是「开发者工具像个正经编辑面」。
+        //
+        // 切换要**节流**：挨得太近的两次翻转会在 Dock 里留下一个再也回收不掉的孤儿图标——连按
+        // `⇧⌘D` 十几次就能看到那排图标越排越长。实测一轮「打开 → 收起」慢慢来不留东西，40 轮
+        // 10ms 的快切稳定漏 8 个；加上 200ms 节流之后同样的快切一次不漏。
+        //
+        // 因此 [DockIconThrottle] 是**首下立即**、不是「延时」：面板一打开图标就出现（那正是它
+        // 存在的意义——从 Dock 切回来），只有紧接着又来的那几次才被合并。它也不能并进下面那个
+        // `LaunchedEffect`：定位与 `bringToFront` 不该跟着节流一起慢。
+        //
+        // 图标自带一份：不是从 `.app` 启动时（`gradlew run`、IDE）系统给的是「可执行文件」那张
+        // 通用图，Dock 里就成了一个 `>_` 的终端样子（见 `toDockIconPng`）。
+        val dockThrottle = remember { DockIconThrottle(DOCK_MIN_INTERVAL_MILLIS) }
         LaunchedEffect(visible) {
-            // Dock 图标跟着本窗口的存亡走：开着时把应用临时标成常规应用（Dock 里出现图标），
-            // 收起后再切回菜单栏应用（否则它会一直占着 Dock）。设置窗口与面板**不**做这件事，
-            // 它们保持原有的「只在菜单栏里存在」——用户要的是「开发者工具像个正经编辑面」。
-            //
-            // 图标自带一份：不是从 `.app` 启动时（`gradlew run`、IDE）系统给的是「可执行文件」
-            // 那张通用图，Dock 里就成了一个 `>_` 的终端样子（见 `toDockIconPng`）。
-            MacWorkspace.setDockIconVisible(visible, dockIconPng)
+            dockThrottle.request(visible, dockIconPng)
+        }
 
+        LaunchedEffect(visible) {
             // 定位（多屏）：窗口必须落在**鼠标所在的那块屏幕**上（索引 0 = 活动屏幕，见
             // `screenBounds`），否则在副屏上按 `⇧⌘D`，它会跑到主屏去。
             //
@@ -354,5 +366,42 @@ private suspend fun CoroutineScope.bringToFront(window: java.awt.Window) {
         if (!window.isVisible) return
         if (focusKeyboardTarget(window)) return
         withFrameNanos { }
+    }
+}
+
+/**
+ * Dock 图标切换的节流器：**首下立即生效**，此后 [minIntervalMillis] 之内又来的翻转先压住，
+ * 等窗口过去再对齐到「当下最新该是什么」。
+ *
+ * 为什么需要它、为什么不是「延时」，见上面那段 `LaunchedEffect` 之前的说明。
+ *
+ * 调用方是 `LaunchedEffect(visible)`：`visible` 再变一次就会取消上一次 `request`——那正是它
+ * 想要的，取消就意味着「又按了一下」，于是按最新状态重新算；[applied] 与 [lastFlipAt] 由
+ * `remember` 持有，跨取消仍然有效。
+ */
+private class DockIconThrottle(private val minIntervalMillis: Long) {
+
+    /** 已经落地的状态；`null` 表示还没动过。启动时应用是 agent（`LSUIElement`），故初值为 false。 */
+    private var applied: Boolean? = false
+
+    /** 上一次落地的时间点（`System.nanoTime`，单调）。 */
+    private var lastFlipAt = 0L
+
+    suspend fun request(visible: Boolean, iconPng: ByteArray?) {
+        if (visible == applied) return
+        val elapsed = (System.nanoTime() - lastFlipAt) / 1_000_000
+        if (elapsed >= minIntervalMillis) {
+            flip(visible, iconPng)
+            return
+        }
+        // 冷却中：等窗口过去再对齐一次——这期间可能又按了几下，[visible] 已是当时最新的那个。
+        delay(minIntervalMillis - elapsed)
+        if (visible != applied) flip(visible, iconPng)
+    }
+
+    private fun flip(visible: Boolean, iconPng: ByteArray?) {
+        applied = visible
+        lastFlipAt = System.nanoTime()
+        MacWorkspace.setDockIconVisible(visible, iconPng)
     }
 }

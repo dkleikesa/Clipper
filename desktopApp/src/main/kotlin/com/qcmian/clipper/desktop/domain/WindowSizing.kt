@@ -14,6 +14,14 @@ val InitialPanelHeight: Dp = 400.dp
 /** 应用自己调整窗口尺寸后，忽略尺寸通知的时长。 */
 internal const val RESIZE_SETTLE_MILLIS = 250L
 
+/**
+ * Dock 图标两次切换之间至少隔多久。
+ *
+ * 见 `ClipperDevToolsWindow` 里那段说明：挨得太近的翻转会让系统留下回收不掉的孤儿图标。
+ * 实测 150ms 会留、300ms 不留，取 300ms；首下一律立即生效，只有连按时才会用到这个间隔。
+ */
+internal const val DOCK_MIN_INTERVAL_MILLIS = 300L
+
 /** 区分用户拖动与应用设定的尺寸时的容差，单位为 dp。 */
 internal const val RESIZE_TOLERANCE_DP = 2f
 
