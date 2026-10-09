@@ -179,6 +179,21 @@ fun DevToolsPanel(
     val groups = remember(tools) { groupTools(tools) }
     val selectedTool = effectiveSelectedId?.let(registry::tool)
 
+    // 剪贴板内容只交给「吃这一口」的工具，而不是无脑灌进当前选中的那个：
+    //  - 不声明任何类型的工具（数学 / Hash / Hex / 条码这类通用输入）照旧拿原样内容；
+    //  - 探测不出类型时（图片、空内容）也照旧交给工具按字节接——条码解码那张图、Base64 编码一张图
+    //    都靠这一路；
+    //  - 声明了类型的工具（JSON / XML / URL / 时间戳 / Base64…）只在**命中**时才拿内容。手动切到
+    //    一个对不上的工具时输入区留空，而不是硬灌一段它解析不了的内容、再报一堆错。
+    val detectedTypes = detected.orEmpty()
+    val toolInput = when {
+        item == null || selectedTool == null -> null
+        selectedTool.acceptedDataTypes.isEmpty() -> item
+        detectedTypes.isEmpty() -> item
+        detectedTypes.any { it in selectedTool.acceptedDataTypes } -> item
+        else -> null
+    }
+
     // 「刚刚发生了什么」——一次性的，到点自己消失。
     val status = remember { mutableStateOf<String?>(null) }
     // 「眼前这份内容是什么状态」——工具报告的，一直留着；换了一条剪贴板记录就作废。
@@ -322,7 +337,7 @@ fun DevToolsPanel(
                             // 还在认这段内容是什么：先不画工具（见上面 `effectiveSelectedId` 的说明）。
                             detected == null && tools.isNotEmpty() -> Identifying()
                             selectedTool == null -> EmptyTools()
-                            else -> ToolContent(tool = selectedTool, item = item, host = host)
+                            else -> ToolContent(tool = selectedTool, item = toolInput, host = host)
                         }
                     }
                 }
