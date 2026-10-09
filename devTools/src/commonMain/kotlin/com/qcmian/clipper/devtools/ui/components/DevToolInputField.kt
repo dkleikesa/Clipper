@@ -268,9 +268,11 @@ fun DevToolInputField(
         }
 
         val deliver = onImage ?: return false
-        // 先判页再取图片：这一页不接，就不必把几兆的图读进来。
-        if (eatsFiles && !onFilePage) return redirectToFilePage("图片")
+        // **先取图片、再判页**：剪贴板里没有图片时直接放行，让普通文本粘贴照走代码框。反过来
+        // （先按「这一页不接」把这次粘贴拦下）会把一段文本也当成图片拦掉——Base64 / Hash / Hex
+        // 的文本页因此粘不进任何东西。
         val bytes = host.clipboardImage() ?: return false
+        if (eatsFiles && !onFilePage) return redirectToFilePage("图片")
         deliver(bytes, DevToolInputOrigin.Paste)
         return true
     }

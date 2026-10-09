@@ -159,6 +159,18 @@ interface DevTool {
     val acceptedDataTypes: Set<String> get() = emptySet()
 
     /**
+     * 是否**总是**接收剪贴板内容，不管探测出的是哪种类型。
+     *
+     * 只吃一种格式的工具（JSON / XML / 时间戳）保持默认的 `false`：面板只有在其 [acceptedDataTypes]
+     * 命中时才把内容填给它，手动切过去时输入区留空、不报错。
+     *
+     * 双向编解码（Base64 / URL）要显式置为 `true`——它们有一个方向什么文本 / 字节都收（编码），
+     * 不该被 [acceptedDataTypes] 里那个「解码才认」的类型挡在门外。不声明任何类型的通用输入工具
+     * （数学 / Hash / Hex / 条码）默认即为 `true`（见默认实现）。
+     */
+    val acceptsAnyInput: Boolean get() = acceptedDataTypes.isEmpty()
+
+    /**
      * 渲染工具界面。
      *
      * @param input 主面板转交的剪贴板记录；`null` 表示这次没有输入——用户直接从侧边栏点进来、

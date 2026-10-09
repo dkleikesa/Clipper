@@ -77,6 +77,10 @@ internal object UrlDevTool : DevTool {
     // 剪贴板里是一整条 URL 时把本工具推荐到最前（探测器认的是带 scheme 的绝对 URL）。
     override val acceptedDataTypes: Set<String> = setOf(DataTypes.URL)
 
+    // 编码方向什么文本都收，不该被 `url` 这个「解码才认」的类型挡住填内容（见
+    // `DevTool.acceptsAnyInput`）。
+    override val acceptsAnyInput: Boolean = true
+
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
         var mode by remember { mutableStateOf(DevToolDirection.Encode) }

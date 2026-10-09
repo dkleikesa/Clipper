@@ -156,6 +156,10 @@ internal object Base64DevTool : DevTool {
 
     override val acceptedDataTypes: Set<String> = setOf(DataTypes.BASE64)
 
+    // 编码方向什么文本 / 字节都收，不该被 `base64` 这个「解码才认」的类型挡住填内容（见
+    // `DevTool.acceptsAnyInput`）。命中与否只影响要不要推荐到最前，仍由 `acceptedDataTypes` 说了算。
+    override val acceptsAnyInput: Boolean = true
+
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
         var mode by remember { mutableStateOf(DevToolDirection.Encode) }

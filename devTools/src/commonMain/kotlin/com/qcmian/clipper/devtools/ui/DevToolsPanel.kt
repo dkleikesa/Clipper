@@ -180,16 +180,15 @@ fun DevToolsPanel(
     val selectedTool = effectiveSelectedId?.let(registry::tool)
 
     // 剪贴板内容只交给「吃这一口」的工具，而不是无脑灌进当前选中的那个：
-    //  - 不声明任何类型的工具（数学 / Hash / Hex / 条码这类通用输入）照旧拿原样内容；
+    //  - [DevTool.acceptsAnyInput] 的工具（通用输入、双向编解码）照旧拿原样内容；
     //  - 探测不出类型时（图片、空内容）也照旧交给工具按字节接——条码解码那张图、Base64 编码一张图
     //    都靠这一路；
-    //  - 声明了类型的工具（JSON / XML / URL / 时间戳 / Base64…）只在**命中**时才拿内容。手动切到
-    //    一个对不上的工具时输入区留空，而不是硬灌一段它解析不了的内容、再报一堆错。
+    //  - 其余（JSON / XML / 时间戳这类只吃一种格式的）只在**命中**时才拿内容。手动切到一个对不上
+    //    的工具时输入区留空，而不是硬灌一段它解析不了的内容、再报一堆错。
     val detectedTypes = detected.orEmpty()
     val toolInput = when {
         item == null || selectedTool == null -> null
-        selectedTool.acceptedDataTypes.isEmpty() -> item
-        detectedTypes.isEmpty() -> item
+        selectedTool.acceptsAnyInput || detectedTypes.isEmpty() -> item
         detectedTypes.any { it in selectedTool.acceptedDataTypes } -> item
         else -> null
     }
