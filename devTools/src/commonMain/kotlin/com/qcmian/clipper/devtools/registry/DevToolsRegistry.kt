@@ -14,6 +14,7 @@ import com.qcmian.clipper.devtools.tools.barcode.BarcodeDevTool
 import com.qcmian.clipper.devtools.tools.math.MathDevTool
 // 正则工具先不挂出来（见 [DevToolsRegistry.builtIn] 的说明）；放开时把这一行与那里的登记一起取消注释。
 // import com.qcmian.clipper.devtools.tools.regex.RegexDevTool
+import com.qcmian.clipper.devtools.tools.sqlite.SqliteDevTool
 import com.qcmian.clipper.devtools.tools.timestamp.TimestampDevTool
 import com.qcmian.clipper.devtools.tools.url.UrlDevTool
 import com.qcmian.clipper.devtools.tools.xml.XmlDevTool
@@ -85,6 +86,9 @@ class DevToolsRegistry(
                 BarcodeDevTool,
                 ApkSignDevTool,
                 CertDevTool,
+                // SQLite 浏览 / 编辑：不参与自动选中（`.db` 是二进制，探测器只看文本），
+                // 入口在侧边栏「其它」组，打开时若剪贴板条目是个 `.db` 文件会自动载入。
+                SqliteDevTool,
                 // RegexDevTool,
             ),
         )

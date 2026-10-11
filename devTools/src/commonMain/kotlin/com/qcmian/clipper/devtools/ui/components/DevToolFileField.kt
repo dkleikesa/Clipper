@@ -58,6 +58,8 @@ fun DevToolFileField(
     onClear: () -> Unit,
     clearTooltip: String,
     modifier: Modifier = Modifier,
+    /** 在框里按下回车时回调（例如「用这条路径打开」）。`null` 表示不理会回车。 */
+    onSubmit: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(6.dp)
@@ -77,6 +79,7 @@ fun DevToolFileField(
                 onValueChange = onValueChange,
                 placeholder = placeholder,
                 modifier = Modifier.fillMaxWidth(),
+                onSubmit = onSubmit,
             )
             if (dragHover) {
                 Box(Modifier.matchParentSize().clip(shape).border(1.dp, colors.primary, shape))

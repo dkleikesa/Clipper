@@ -66,6 +66,11 @@ kotlin {
         jvmMain.dependencies {
             implementation(libs.zxing.core)
 
+            // SQLite 查看 / 编辑工具（见 `tools/sqlite/`）。与 `:shared` 的存储层共用同一颗
+            // 带加密能力的驱动：明文库与加密库因此走同一套打开逻辑。**显式声明**而不是靠
+            // `:shared` 传递——那边是 `implementation`，不是 `api`。
+            implementation(libs.willena.sqlite.jdbc)
+
             // APK 签名 / 验签（见 `tools/apksign/`）。与 ZXing 同类：apksig 是 Java 库（AOSP 的
             // `apksigner` 内核），没有 KMP 制品，只能落在 jvmMain；而它签名要用 `java.util.zip`
             // 与 `java.security`，本来也只有 JVM 给得出。零传递依赖，不把 Android SDK 拖进来。

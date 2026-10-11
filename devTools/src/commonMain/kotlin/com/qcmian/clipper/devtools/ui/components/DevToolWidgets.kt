@@ -37,6 +37,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.onSizeChanged
@@ -458,6 +463,11 @@ internal fun DevToolSingleLineField(
     modifier: Modifier = Modifier,
     secret: Boolean = false,
     bordered: Boolean = true,
+    /**
+     * 按下回车时回调。单行输入里回车没有别的含义（不会换行），因此可以放心吞掉；`null`
+     * 表示这一格不理会回车，键照常往下传。
+     */
+    onSubmit: (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(6.dp)
@@ -477,6 +487,8 @@ internal fun DevToolSingleLineField(
             // 鼠标移进来要变**文本光标**：这框能敲字，而光标是「这里能敲」最直接的那句提示。
             // 摆在这一串的最前面：它的作用范围就是这一格整块（放到 `padding` 之后就只剩文字那一小块）。
             .pointerHoverIcon(PointerIcon.Text)
+            // 回车提交挂在这一格自己身上：它是焦点节点，按键的第一个落点就是它。
+            .then(enterToSubmit(onSubmit))
             .then(
                 if (bordered) {
                     Modifier
@@ -598,5 +610,24 @@ fun DevToolSlider(
         content()
     } else {
         HoverTooltip(text = tooltip, positioning = TooltipAnchorPosition.Above) { content() }
+    }
+}
+
+/**
+ * [onSubmit] 非空时把回车转成一次提交。
+ *
+ * 只认**按下**那一次（`KeyDown`）：抬起也会到，不判类型就会提交两遍。主键盘回车与小键盘回车
+ * 都算——两个键位在用户的认知里是同一件事。
+ */
+private fun enterToSubmit(onSubmit: (() -> Unit)?): Modifier {
+    if (onSubmit == null) return Modifier
+    return Modifier.onPreviewKeyEvent { event ->
+        val isEnter = event.key == Key.Enter || event.key == Key.NumPadEnter
+        if (event.type == KeyEventType.KeyDown && isEnter) {
+            onSubmit()
+            true
+        } else {
+            false
+        }
     }
 }
