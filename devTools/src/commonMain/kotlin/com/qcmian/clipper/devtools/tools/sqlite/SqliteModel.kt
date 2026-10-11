@@ -72,6 +72,16 @@ internal class SqliteForeignKey(
 )
 
 /**
+ * 一列上的等值筛选。
+ *
+ * 筛选**必须下推成 SQL**（`WHERE`），不能拉到内存里过滤：表可能有几十万行，而这里一次只取一页
+ * ——在内存里筛「已加载的这一页」得到的结论是错的。
+ *
+ * [value] 为 `null` 表示「这一列是 NULL」：SQL 里没有 `= NULL` 这种写法，得走 `IS NULL`。
+ */
+internal class SqliteFilter(val column: String, val value: String?)
+
+/**
  * 一次读取的结果。
  *
  * 每个格子已经是**显示文本**（`NULL` 为 `null`，其余见 `SqliteEngine` 的格式化），因此界面
@@ -118,11 +128,23 @@ internal interface SqliteSession {
     /** 一张表 / 一个视图的结构；[name] 不是表或视图时为 `null`。 */
     fun schema(name: String): SqliteSchema?
 
-    /** 行数。大表上这是全表扫描，调用方只该在需要精确计数时用。 */
-    fun count(table: String): Long
+    /** 行数。[filter] 非空时只数命中的行。大表上这是全表扫描，调用方只该在需要精确计数时用。 */
+    fun count(table: String, filter: SqliteFilter? = null): Long
 
-    /** 读一页数据；[limit] 是这一页最多几行，[offset] 是跳过多少行。 */
-    fun page(table: String, limit: Int, offset: Int): SqliteRows
+    /**
+     * 读一页数据。
+     *
+     * [orderColumn] / [ascending] 与 [filter] 都**下推给 SQLite**（`ORDER BY` / `WHERE`），而不是
+     * 拉到内存里再排——大表上后者根本做不了，做出来也是错的（只排了当前这一页）。
+     */
+    fun page(
+        table: String,
+        limit: Int,
+        offset: Int,
+        orderColumn: String? = null,
+        ascending: Boolean = true,
+        filter: SqliteFilter? = null,
+    ): SqliteRows
 
     /** 一张表上的索引（不含 SQLite 为主键自动建的那条——它没有名字，对用户也没有意义）。 */
     fun indexes(table: String): List<SqliteIndex>

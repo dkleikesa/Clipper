@@ -166,9 +166,12 @@ private class JdbcSqliteSession(
         )
     }
 
-    override fun count(table: String): Long =
-        queryText("SELECT count(*) FROM ${quoteIdentifier(table)}").firstOrNull()?.firstOrNull()
-            ?.toLongOrNull() ?: 0L
+    override fun count(table: String, filter: SqliteFilter?): Long {
+        // `WHERE` 与状态栏展示的那条 SQL 共用同一个函数，两边形状因此不会跑偏。
+        val sql = "SELECT count(*) FROM ${quoteIdentifier(table)}" + sqliteFilterClause(filter)
+        val params = if (filter?.value != null) listOf<Any?>(filter.value) else emptyList()
+        return queryText(sql, params).firstOrNull()?.firstOrNull()?.toLongOrNull() ?: 0L
+    }
 
     override fun indexes(table: String): List<SqliteIndex> =
         // `origin` 有三种：`c`（CREATE INDEX 建的）、`u`（UNIQUE 约束自动建的）、`pk`（主键自动建的）。
@@ -196,8 +199,33 @@ private class JdbcSqliteSession(
         }
     }
 
-    override fun page(table: String, limit: Int, offset: Int): SqliteRows =
-        readRows("SELECT * FROM ${quoteIdentifier(table)} LIMIT ? OFFSET ?", listOf(limit, offset), limit)
+    override fun page(
+        table: String,
+        limit: Int,
+        offset: Int,
+        orderColumn: String?,
+        ascending: Boolean,
+        filter: SqliteFilter?,
+    ): SqliteRows {
+        val sql = buildString {
+            append("SELECT * FROM ").append(quoteIdentifier(table))
+            // 与状态栏展示的那条 SQL 共用同一段 `WHERE` 规则（见 `sqliteFilterClause`）。
+            append(sqliteFilterClause(filter))
+            if (orderColumn != null) {
+                append(" ORDER BY ").append(quoteIdentifier(orderColumn))
+                // 方向是 SQL **语法**而不是值，绑不进参数，因此只按这两个常量拼——不是把用户输入
+                // 拼进来（`ascending` 是布尔，没有可注入的余地）。
+                append(if (ascending) " ASC" else " DESC")
+            }
+            append(" LIMIT ? OFFSET ?")
+        }
+        val params = buildList<Any?> {
+            if (filter?.value != null) add(filter.value)
+            add(limit)
+            add(offset)
+        }
+        return readRows(sql, params, limit)
+    }
 
     override fun query(sql: String, maxRows: Int): SqliteRows = readRows(sql, emptyList(), maxRows)
 

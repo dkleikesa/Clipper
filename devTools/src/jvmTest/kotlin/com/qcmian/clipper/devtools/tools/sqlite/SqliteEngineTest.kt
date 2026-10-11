@@ -79,6 +79,36 @@ class SqliteEngineTest {
     }
 
     @Test
+    fun pagingPushesOrderAndFilterToSql() {
+        val file = createDatabase { connection ->
+            connection.execute("CREATE TABLE t (n INTEGER, label TEXT)")
+            connection.execute("INSERT INTO t (n, label) VALUES (3, 'c'), (1, 'a'), (2, 'b'), (4, NULL)")
+        }
+
+        openSqliteSession(file.absolutePath, passphrase = null, readOnly = true).useSession { session ->
+            // 排序是 SQL 的 ORDER BY，不是把这一页拿回来再排。
+            assertEquals(
+                listOf("1", "2", "3", "4"),
+                session.page("t", 10, 0, orderColumn = "n", ascending = true).rows.map { it[0] },
+            )
+            assertEquals(
+                listOf("4", "3", "2", "1"),
+                session.page("t", 10, 0, orderColumn = "n", ascending = false).rows.map { it[0] },
+            )
+
+            // 等值筛选走 WHERE，计数也跟着筛。
+            val filtered = session.page("t", 10, 0, filter = SqliteFilter("label", "b"))
+            assertEquals(listOf("2"), filtered.rows.map { it[0] })
+            assertEquals(1, session.count("t", SqliteFilter("label", "b")))
+
+            // `value = null` 走 IS NULL（SQL 里没有 `= NULL`）。
+            val nulls = session.page("t", 10, 0, filter = SqliteFilter("label", null))
+            assertEquals(listOf("4"), nulls.rows.map { it[0] })
+            assertEquals(1, session.count("t", SqliteFilter("label", null)))
+        }
+    }
+
+    @Test
     fun readOnlySessionRejectsWrites() {
         val file = createDatabase { connection -> connection.execute("CREATE TABLE t (a INTEGER)") }
 

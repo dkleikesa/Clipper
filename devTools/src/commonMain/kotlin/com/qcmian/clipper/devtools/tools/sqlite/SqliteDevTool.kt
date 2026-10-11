@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -17,9 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,7 +34,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -50,6 +45,8 @@ import com.qcmian.clipper.core.ui.code.scanPlain
 import com.qcmian.clipper.core.ui.components.AppContextMenuAction
 import com.qcmian.clipper.core.ui.components.AppContextMenuDivider
 import com.qcmian.clipper.core.ui.components.AppContextMenuEntry
+import com.qcmian.clipper.core.ui.components.DataGrid
+import com.qcmian.clipper.core.ui.components.DataGridColumn
 import com.qcmian.clipper.core.ui.components.TreeView
 import com.qcmian.clipper.core.ui.components.TreeNode
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
@@ -59,6 +56,7 @@ import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
 import com.qcmian.clipper.devtools.api.DevToolMetadata
 import com.qcmian.clipper.devtools.api.writeTextFile
+import com.qcmian.clipper.devtools.api.writeTextFileChunks
 import com.qcmian.clipper.devtools.ui.components.DevToolButton
 import com.qcmian.clipper.devtools.ui.components.DevToolFieldAction
 import com.qcmian.clipper.devtools.ui.components.DevToolFileField
@@ -118,9 +116,13 @@ internal object SqliteDevTool : DevTool {
         var selectedNodeKey by remember { mutableStateOf<String?>(null) }
         // 左树宽度：由中间那条分隔条拖动改（见 `TreeSplitter`）。
         var treeWidth by remember { mutableStateOf(260.dp) }
+        // 排序与筛选都属于「当前这张表」，且都要下推给 SQLite——所以状态在工具这边，不在
+        // `DataGrid` 里（那个控件只负责把箭头画对、把点击转成回调）。
+        var sortColumn by remember { mutableStateOf<String?>(null) }
+        var sortAscending by remember { mutableStateOf(true) }
+        var filter by remember { mutableStateOf<SqliteFilter?>(null) }
 
         var selected by remember { mutableStateOf<SqliteObject?>(null) }
-        var schema by remember { mutableStateOf<SqliteSchema?>(null) }
         var pageRows by remember { mutableStateOf<SqliteRows?>(null) }
         var rowCount by remember { mutableStateOf<Long?>(null) }
         var pageIndex by remember { mutableStateOf(0) }
@@ -160,7 +162,6 @@ internal object SqliteDevTool : DevTool {
             childrenCache = emptyMap()
             selectedNodeKey = null
             selected = null
-            schema = null
             pageRows = null
             rowCount = null
             pageIndex = 0
@@ -168,17 +169,32 @@ internal object SqliteDevTool : DevTool {
             sqlError = null
             statusText = null
             openedPassphrase = null
+            sortColumn = null
+            sortAscending = true
+            filter = null
             // 文件都清掉了，口令框与错误提示没有任何理由留下——它们说的是**上一个文件**。
             needsPassphrase = false
             openError = null
         }
 
-        /** 选中一个对象：读它的结构、第一页数据与总行数。 */
+        /** 选中一个对象：读它的第一页数据与总行数。列清单不在这里读——左树展开时才按需取。 */
         fun select(target: SqliteObject) {
             selected = target
             selectedNodeKey = objectKey(target)
+            // 排序与筛选属于**上一张表**：换表就清掉，否则会拿着另一张表的列名去 `ORDER BY`。
+            sortColumn = null
+            sortAscending = true
+            filter = null
+            // 状态栏给的是**新表**第一页的查询（此刻排序与筛选都已经清空）。
+            statusText = sqlitePageSql(
+                table = target.name,
+                limit = SqlitePageSize,
+                offset = 0,
+                orderColumn = sortColumn,
+                ascending = sortAscending,
+                filter = filter,
+            )
             pageIndex = 0
-            schema = null
             pageRows = null
             rowCount = null
             val current = session ?: return
@@ -186,15 +202,60 @@ internal object SqliteDevTool : DevTool {
                 busy = true
                 val result = withContext(Dispatchers.Default) {
                     runCatching {
-                        val schema = current.schema(target.name)
                         val rows = current.page(target.name, SqlitePageSize, 0)
                         val count = runCatching { current.count(target.name) }.getOrNull()
-                        Triple(schema, rows, count)
+                        rows to count
                     }
                 }
-                result.onSuccess { (newSchema, newRows, count) ->
+                result.onSuccess { (newRows, count) ->
                     if (selected?.name == target.name) {
-                        schema = newSchema
+                        pageRows = newRows
+                        rowCount = count
+                    }
+                }.onFailure { host.showStatus(it.message ?: "读取失败") }
+                busy = false
+            }
+        }
+
+        /**
+         * 翻页 / 换排序 / 换筛选走的都是这条路：**对象没变，只是这一页的内容变了**。
+         *
+         * 两者都作为参数交给 SQLite（`ORDER BY` / `WHERE`），行数也跟着重数一遍——筛过之后的
+         * 「共几行」与不筛时不是一回事。
+         */
+        fun reload(index: Int) {
+            val target = selected ?: return
+            val current = session ?: return
+            val name = target.name
+            pageIndex = index
+            // 状态栏给出**这一页实际在查的那条 SQL**：翻到第 5 页、加了筛选、换了排序之后，
+            // 「现在到底在查什么」只有这条语句说得清——排序与筛选本来就写在这条语句里。
+            statusText = sqlitePageSql(
+                table = name,
+                limit = SqlitePageSize,
+                offset = index * SqlitePageSize,
+                orderColumn = sortColumn,
+                ascending = sortAscending,
+                filter = filter,
+            )
+            scope.launch {
+                busy = true
+                val result = withContext(Dispatchers.Default) {
+                    runCatching {
+                        val rows = current.page(
+                            table = name,
+                            limit = SqlitePageSize,
+                            offset = index * SqlitePageSize,
+                            orderColumn = sortColumn,
+                            ascending = sortAscending,
+                            filter = filter,
+                        )
+                        val count = runCatching { current.count(name, filter) }.getOrNull()
+                        rows to count
+                    }
+                }
+                result.onSuccess { (newRows, count) ->
+                    if (selected?.name == name) {
                         pageRows = newRows
                         rowCount = count
                     }
@@ -205,15 +266,78 @@ internal object SqliteDevTool : DevTool {
 
         /** 翻页。 */
         fun loadPage(target: Int) {
-            val name = selected?.name ?: return
+            if (target < 0) return
+            reload(target)
+        }
+
+        /**
+         * 换了排序（`key` 为 `null` 表示撤掉排序）：回第一页重读——排序变了之后「第 3 页」已经
+         * 不是原来那一批行了。
+         *
+         * 状态栏那行 SQL 由 [reload] 一并更新，`ORDER BY` 就写在语句里，不必再单独说一句
+         * 「按 x 升序」。
+         */
+        fun sortBy(key: String?, ascending: Boolean) {
+            sortColumn = key
+            sortAscending = ascending
+            reload(0)
+        }
+
+        /** 换了筛选（`null` 表示清掉）：同样回第一页。 */
+        fun filterBy(next: SqliteFilter?) {
+            filter = next
+            reload(0)
+        }
+
+        /**
+         * 导出**整张表**为 CSV：按 [SqliteExportPageSize] 一页页读、一页页写。
+         *
+         * 与结果框上那个保存图标（只存**当前这一页**）不是一回事：这个要跑完整张表。因此它有两条
+         * 硬要求——**在后台线程跑**（不能把界面卡住），且**边读边写**（先把几十万行拼成一个字符串
+         * 再落盘，文件还没写完内存先炸）。排序与筛选照旧下推，所以导出的就是当前看到的那个视图。
+         */
+        fun exportCsv() {
             val current = session ?: return
-            pageIndex = target
+            val target = selected ?: return
+            val path = host.pickFileToSave("${target.name}.csv") ?: return
             scope.launch {
                 busy = true
-                val rows = withContext(Dispatchers.Default) {
-                    runCatching { current.page(name, SqlitePageSize, target * SqlitePageSize) }.getOrNull()
+                val result = withContext(Dispatchers.Default) {
+                    runCatching {
+                        var exported = 0L
+                        val written = writeTextFileChunks(
+                            path = path,
+                            chunks = sequence {
+                                var offset = 0
+                                var headerWritten = false
+                                while (true) {
+                                    val chunk = current.page(
+                                        table = target.name,
+                                        limit = SqliteExportPageSize,
+                                        offset = offset,
+                                        orderColumn = sortColumn,
+                                        ascending = sortAscending,
+                                        filter = filter,
+                                    )
+                                    // 表头只写一次，哪怕一页就把整表读完了。
+                                    if (!headerWritten) {
+                                        yield(chunk.toCsvHeaderLine() + "\n")
+                                        headerWritten = true
+                                    }
+                                    yield(chunk.toCsvBody())
+                                    exported += chunk.rows.size
+                                    // 没读满一页说明到头了。
+                                    if (chunk.rows.size < SqliteExportPageSize) break
+                                    offset += SqliteExportPageSize
+                                }
+                            },
+                        )
+                        if (!written) error("写不进这个位置：$path")
+                        exported
+                    }
                 }
-                if (selected?.name == name) pageRows = rows
+                result.onSuccess { rows -> host.showStatus("已导出 $rows 行到 $path") }
+                    .onFailure { host.showStatus(it.message ?: "导出失败") }
                 busy = false
             }
         }
@@ -430,12 +554,17 @@ internal object SqliteDevTool : DevTool {
                 DetailPane(
                     host = host,
                     selected = selected,
-                    schema = schema,
                     rows = pageRows,
                     rowCount = rowCount,
                     pageIndex = pageIndex,
+                    sortColumn = sortColumn,
+                    sortAscending = sortAscending,
+                    filter = filter,
                     onPrevPage = { if (pageIndex > 0) loadPage(pageIndex - 1) },
                     onNextPage = { loadPage(pageIndex + 1) },
+                    onSort = ::sortBy,
+                    onFilter = ::filterBy,
+                    onExportCsv = ::exportCsv,
                     sqlText = sqlText,
                     onSqlChange = { sqlText = it },
                     sqlRows = sqlRows,
@@ -503,12 +632,17 @@ private fun OpenBar(
 private fun DetailPane(
     host: DevToolHost,
     selected: SqliteObject?,
-    schema: SqliteSchema?,
     rows: SqliteRows?,
     rowCount: Long?,
     pageIndex: Int,
+    sortColumn: String?,
+    sortAscending: Boolean,
+    filter: SqliteFilter?,
     onPrevPage: () -> Unit,
     onNextPage: () -> Unit,
+    onSort: (key: String?, ascending: Boolean) -> Unit,
+    onFilter: (SqliteFilter?) -> Unit,
+    onExportCsv: () -> Unit,
     sqlText: String,
     onSqlChange: (String) -> Unit,
     sqlRows: SqliteRows?,
@@ -535,14 +669,20 @@ private fun DetailPane(
                 rows = rows,
                 rowCount = rowCount,
                 pageIndex = pageIndex,
+                sortColumn = sortColumn,
+                sortAscending = sortAscending,
+                filter = filter,
                 onPrevPage = onPrevPage,
                 onNextPage = onNextPage,
+                onSort = onSort,
+                onFilter = onFilter,
+                onExportCsv = onExportCsv,
+                busy = busy,
                 modifier = Modifier.weight(1f),
             )
 
-            PaneTab.Schema -> SchemaPane(schema = schema, modifier = Modifier.weight(1f))
-
             PaneTab.Sql -> SqlPane(
+                host = host,
                 sqlText = sqlText,
                 onSqlChange = onSqlChange,
                 rows = sqlRows,
@@ -562,8 +702,15 @@ private fun DataPane(
     rows: SqliteRows?,
     rowCount: Long?,
     pageIndex: Int,
+    sortColumn: String?,
+    sortAscending: Boolean,
+    filter: SqliteFilter?,
     onPrevPage: () -> Unit,
     onNextPage: () -> Unit,
+    onSort: (key: String?, ascending: Boolean) -> Unit,
+    onFilter: (SqliteFilter?) -> Unit,
+    onExportCsv: () -> Unit,
+    busy: Boolean,
     modifier: Modifier = Modifier,
 ) {
     if (selected == null) {
@@ -580,14 +727,57 @@ private fun DataPane(
         return
     }
     Column(modifier) {
-        SqliteGrid(rows = page, modifier = Modifier.weight(1f))
+        DataGrid(
+            columns = dataGridColumnsOf(page),
+            rows = page.rows,
+            sortKey = sortColumn,
+            sortAscending = sortAscending,
+            onSort = onSort,
+            onCopy = { host.copyToClipboard(it) },
+            // 右键里那两项都**必须下推给 SQL**：筛选是 `WHERE`，而「按此值筛选」的语义是「这一列
+            // 等于它」——在内存里筛当前这一页只会得到错的结论。
+            extraMenuEntries = { row, column, value ->
+                val columnName = page.columns.getOrNull(column)
+                buildList {
+                    if (columnName != null) {
+                        add(
+                            AppContextMenuAction(title = "按此值筛选") {
+                                onFilter(SqliteFilter(columnName, value))
+                            }
+                        )
+                    }
+                    add(
+                        AppContextMenuAction(title = "复制为 INSERT") {
+                            val single = SqliteRows(
+                                columns = page.columns,
+                                rows = listOfNotNull(page.rows.getOrNull(row)),
+                                truncated = false,
+                            )
+                            host.copyToClipboard(single.toInsertStatements(selected.name))
+                        }
+                    )
+                }
+            },
+            modifier = Modifier.weight(1f),
+        )
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // 行数是精确值（点开页签时已经全表数过一遍），不是估算。
+            // 行数是精确值（重读这一页时已经数过一遍），不是估算。
             val total = rowCount?.let { "共 $it 行 · " }.orEmpty()
             val from = if (page.rows.isEmpty()) 0 else pageIndex * SqlitePageSize + 1
             val to = pageIndex * SqlitePageSize + page.rows.size
             Text("$total$from–$to", fontSize = 12.sp, color = MaterialTheme.hintColor)
+            // 筛选生效时给一条明确的出口——否则「行数怎么少了」得自己回想。
+            filter?.let { active ->
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = "已筛选：${active.column} = ${active.value ?: "NULL"}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(6.dp))
+                DevToolButton(title = "清除筛选", outlined = true, onClick = { onFilter(null) })
+            }
             Spacer(Modifier.weight(1f))
             DevToolButton(title = "上一页", enabled = pageIndex > 0, outlined = true, onClick = onPrevPage)
             Spacer(Modifier.width(8.dp))
@@ -599,6 +789,15 @@ private fun DataPane(
                 onClick = onNextPage,
             )
             Spacer(Modifier.width(10.dp))
+            // 导出**整张表**：与右边那个保存图标（只存当前这一页）不是一回事，所以单列一个按钮、
+            // 名字也写全——两个入口看起来一样的话，用户只会在导完之后发现「怎么不全」。
+            DevToolButton(
+                title = "导出整表 CSV",
+                outlined = true,
+                enabled = !busy,
+                onClick = onExportCsv,
+            )
+            Spacer(Modifier.width(8.dp))
             // 导出 / 复制跟着这一页数据走。CSV 分不出 NULL 与空串，因此另给一条 `INSERT` 的出路。
             DevToolResultActions(
                 value = page.toCsv(),
@@ -622,54 +821,8 @@ private fun DataPane(
 }
 
 @Composable
-private fun SchemaPane(schema: SqliteSchema?, modifier: Modifier = Modifier) {
-    if (schema == null) {
-        Box(modifier, contentAlignment = Alignment.Center) {
-            Text("双击左侧的表或视图，打开它", fontSize = 13.sp, color = MaterialTheme.hintColor)
-        }
-        return
-    }
-    Column(modifier) {
-        Text(
-            text = "${schema.name} · ${schema.columns.size} 列" + if (schema.withoutRowId) " · WITHOUT ROWID" else "",
-            fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(8.dp))
-        SqliteGrid(
-            rows = SqliteRows(
-                columns = listOf("列名", "声明类型", "NOT NULL", "主键", "默认值"),
-                rows = schema.columns.map { column ->
-                    listOf(
-                        column.name,
-                        column.declaredType.ifBlank { "—" },
-                        if (column.notNull) "是" else "",
-                        if (column.primaryKey) "是" else "",
-                        column.defaultValue.orEmpty(),
-                    )
-                },
-                truncated = false,
-            ),
-            modifier = Modifier.height(240.dp),
-        )
-        Spacer(Modifier.height(10.dp))
-        Text("建表语句", fontSize = 12.sp, color = MaterialTheme.hintColor)
-        Spacer(Modifier.height(6.dp))
-        DevToolCodeField(
-            label = "",
-            value = schema.ddl ?: "（SQLite 内部对象，没有建表语句）",
-            onValueChange = {},
-            editable = false,
-            showLabel = false,
-            scan = ::scanPlain,
-            folding = false,
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-@Composable
 private fun SqlPane(
+    host: DevToolHost,
     sqlText: String,
     onSqlChange: (String) -> Unit,
     rows: SqliteRows?,
@@ -707,7 +860,13 @@ private fun SqlPane(
         }
         val result = rows
         if (result != null) {
-            SqliteGrid(rows = result, modifier = Modifier.weight(1f))
+            // SQL 页签的结果是任意查询，没有「这张表」可言——因此不给排序，只给选中与复制。
+            DataGrid(
+                columns = dataGridColumnsOf(result),
+                rows = result.rows,
+                onCopy = { host.copyToClipboard(it) },
+                modifier = Modifier.weight(1f),
+            )
             if (result.truncated) {
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -724,65 +883,14 @@ private fun SqlPane(
     }
 }
 
-/** 一列固定多宽。列宽自适应要逐格测量，代价大而收益小——固定宽度对齐得整整齐齐。 */
-private val SqliteColumnWidth = 150.dp
-
 /**
- * 简易结果表格：固定列宽 + 横竖两个方向滚动，行用普通 `Column`（一页 200 行，不必上 `LazyColumn`）。
+ * 结果集的列名 → 表格列定义。
  *
- * `NULL` 用淡色显示，与空串区分开——这是查看数据时最容易看错的一处。
+ * 宽度统一给一个初值：用户拖过之后由 `DataGrid` 按**列名**记住，所以这里不必去猜「这一列该多
+ * 宽」——猜错了用户照样得自己拖一遍。
  */
-@Composable
-private fun SqliteGrid(rows: SqliteRows, modifier: Modifier = Modifier) {
-    if (rows.columns.isEmpty()) {
-        Box(modifier, contentAlignment = Alignment.Center) {
-            Text("没有可显示的列", fontSize = 13.sp, color = MaterialTheme.hintColor)
-        }
-        return
-    }
-    val horizontal = rememberScrollState()
-    val vertical = rememberScrollState()
-    Box(modifier.background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f), RoundedCornerShape(6.dp))) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .horizontalScroll(horizontal)
-                .verticalScroll(vertical),
-        ) {
-            Row(Modifier.background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))) {
-                rows.columns.forEach { name -> GridCell(name, isHeader = true) }
-            }
-            rows.rows.forEach { row ->
-                Row {
-                    row.forEach { value -> GridCell(value, isHeader = false) }
-                }
-            }
-            if (rows.rows.isEmpty()) {
-                Text("（没有数据）", fontSize = 12.sp, color = MaterialTheme.hintColor, modifier = Modifier.padding(8.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun GridCell(text: String?, isHeader: Boolean) {
-    val colors = MaterialTheme.colorScheme
-    Text(
-        text = text ?: "NULL",
-        fontSize = 12.sp,
-        fontFamily = FontFamily.Monospace,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        color = when {
-            isHeader -> colors.onSurfaceVariant
-            text == null -> colors.onSurfaceVariant.copy(alpha = 0.45f)
-            else -> colors.onSurface
-        },
-        modifier = Modifier
-            .width(SqliteColumnWidth)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-    )
-}
+private fun dataGridColumnsOf(rows: SqliteRows): List<DataGridColumn> =
+    rows.columns.map { name -> DataGridColumn(key = name, title = name, width = 150.dp) }
 
 /**
  * 树与内容之间的分隔条：按住左右拖，改左树的宽度。
@@ -862,9 +970,9 @@ private fun treeMenuEntries(
     }
 }
 
-/** 右侧详情区的三块。 */
+
+/** 右侧详情区的两块。 */
 private enum class PaneTab(val label: String) {
     Data("数据"),
-    Schema("结构"),
     Sql("SQL"),
 }

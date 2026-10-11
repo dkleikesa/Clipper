@@ -66,6 +66,20 @@ internal fun writeTextFile(path: String, text: String): Boolean = runCatching {
 }.getOrDefault(false)
 
 /**
+ * 逐段写文件：[chunks] 一段一段地来，落盘时首尾相接。
+ *
+ * 与 [writeTextFile] 的分工在「内容在哪」：那个要求内容**已经全在手里**（编辑框里的一段文本），
+ * 这个给「边算边出」的场合——导出整张表时若先把几十万行拼成一个巨型字符串，文件还没写完，内存
+ * 先撑不住。`Sequence` 是惰性的，拉一段、写一段。
+ */
+internal fun writeTextFileChunks(path: String, chunks: Sequence<String>): Boolean = runCatching {
+    SystemFileSystem.sink(Path(path)).buffered().use { sink ->
+        chunks.forEach { sink.writeString(it) }
+    }
+    true
+}.getOrDefault(false)
+
+/**
  * 把一个文件的**原始字节**读进内存；读不了时返回 `null`。
  *
  * 与 [readTextFileOrNull] 的分工：那个给「要当文本用」的工具（JSON / XML / 数学），会拒掉二进制；

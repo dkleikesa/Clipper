@@ -89,4 +89,64 @@ class SqliteFormatTest {
         assertFalse("/tmp/photo.png".looksLikeSqlitePath())
         assertFalse("/tmp/database".looksLikeSqlitePath())
     }
+
+    /** 表头与正文拆开写（导出整表要一页页往后追加），但合起来必须与 `toCsv` 一模一样。 */
+    @Test
+    fun csvHeaderAndBodyJoinBackIntoTheWhole() {
+        val rows = SqliteRows(
+            columns = listOf("a", "b"),
+            rows = listOf(listOf("1", "x,y"), listOf(null, "")),
+            truncated = false,
+        )
+        assertEquals("a,b", rows.toCsvHeaderLine())
+        assertEquals("1,\"x,y\"\n,\n", rows.toCsvBody())
+        assertEquals(rows.toCsvHeaderLine() + "\n" + rows.toCsvBody(), rows.toCsv())
+    }
+
+    /** 状态栏展示的那条：分页值内联，人一眼读得出在查第几页、每页多少行。 */
+    @Test
+    fun pageSqlInlinesPaging() {
+        assertEquals(
+            "SELECT * FROM \"clips\" LIMIT 200 OFFSET 400",
+            sqlitePageSql(
+                table = "clips",
+                limit = 200,
+                offset = 400,
+                orderColumn = null,
+                ascending = true,
+                filter = null,
+            ),
+        )
+    }
+
+    @Test
+    fun pageSqlCarriesOrderAndFilter() {
+        assertEquals(
+            "SELECT * FROM \"clips\" WHERE \"kind\" = 'text' ORDER BY \"created_at\" DESC LIMIT 200 OFFSET 0",
+            sqlitePageSql(
+                table = "clips",
+                limit = 200,
+                offset = 0,
+                orderColumn = "created_at",
+                ascending = false,
+                filter = SqliteFilter("kind", "text"),
+            ),
+        )
+    }
+
+    /** 列名照转义、`NULL` 走 `IS NULL`——展示的语句与执行的那条得是同一个形状。 */
+    @Test
+    fun pageSqlQuotesIdentifiersAndNullFilter() {
+        assertEquals(
+            "SELECT * FROM \"a\"\"b\" WHERE \"col\" IS NULL LIMIT 50 OFFSET 100",
+            sqlitePageSql(
+                table = "a\"b",
+                limit = 50,
+                offset = 100,
+                orderColumn = null,
+                ascending = true,
+                filter = SqliteFilter("col", null),
+            ),
+        )
+    }
 }
