@@ -13,3 +13,6 @@ import androidx.compose.ui.input.pointer.PointerIcon
  * 是按模块可见的，会把跨模块的调用方挡在外面；这条指针本来就是「分隔条通用」的图形词汇。
  */
 expect val HorizontalResizePointerIcon: PointerIcon
+
+/** 上下拖拽（垂直调整尺寸）时用的鼠标指针，形状是 ↕。 */
+expect val VerticalResizePointerIcon: PointerIcon

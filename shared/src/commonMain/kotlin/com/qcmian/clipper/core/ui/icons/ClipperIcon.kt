@@ -122,6 +122,14 @@ enum class ClipperIconKind {
     CLOCK,
     /** 一上一下两个箭头，格式转换用。 */
     SWAP,
+    /**
+     * 一对上下相对的实心三角，表头里「这一列可以排序」的默认态。
+     *
+     * 与 [SWAP] 分开：那个说的是「交换」（两条横线加两个线框箭头），这个说的是「排序」。而升 /
+     * 降序用的 [ARROW_UP] / [ARROW_DOWN] 是**细线**箭头——默认态要是也用细线，一眼分不出
+     * 「还没排」与「正在排」。
+     */
+    SORT,
     /** 钥匙，随机密码生成用。 */
     KEY,
     /** 一枚指纹，Hash 摘要用。 */
@@ -616,6 +624,28 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
             drawCircle(color, 8.5f * g, p(12f, 12f), style = st)
             line(12f, 7f, 12f, 12.3f); line(12f, 12.3f, 16f, 14.3f)
             
+        }
+        ClipperIconKind.SORT -> {
+            // 一对上下相对的实心三角。两者之间留 2 个网格单位：贴到一起缩到 13dp 会糊成一个
+            // 菱形，那就跟「排序」这个动作对不上了。
+            drawPath(
+                Path().apply {
+                    moveTo(12f * g, 5.5f * g)
+                    lineTo(17.6f * g, 11f * g)
+                    lineTo(6.4f * g, 11f * g)
+                    close()
+                },
+                color, style = Fill,
+            )
+            drawPath(
+                Path().apply {
+                    moveTo(12f * g, 18.5f * g)
+                    lineTo(17.6f * g, 13f * g)
+                    lineTo(6.4f * g, 13f * g)
+                    close()
+                },
+                color, style = Fill,
+            )
         }
         ClipperIconKind.SWAP -> {
             line(4f, 9f, 19f, 9f); line(4f, 15f, 19f, 15f)
