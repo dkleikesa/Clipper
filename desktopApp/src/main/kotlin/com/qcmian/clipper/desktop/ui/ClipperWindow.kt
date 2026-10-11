@@ -25,6 +25,8 @@ import com.qcmian.clipper.host.WindowController
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.awt.Dimension
+import java.awt.event.ComponentAdapter
+import java.awt.event.ComponentEvent
 import java.awt.event.WindowEvent
 import java.awt.event.WindowFocusListener
 
@@ -123,6 +125,21 @@ fun ApplicationScope.ClipperWindow(
             }
             window.addWindowFocusListener(listener)
             onDispose { window.removeWindowFocusListener(listener) }
+        }
+
+        // 面板**真正显示出来**之后补一次窗口几何。
+        //
+        // 首次显示时「窗口显示」与「按真实偏好算出的几何」谁先到位并不确定——偏好还在读盘，
+        // 配置文件常常比窗口慢一拍；程序在显示前设下的 bounds 会被原生窗口用它建出来时的
+        // 尺寸顶掉，而这一次之后几何不会被重算（窗口尺寸不在观察范围内），窗口就停在旧尺寸
+        // 上：预览展开时表现为预览盖住主列表，收起一次才由下一次几何把它纠正回来。
+        // 见 `WindowGeometryController.reapplyBounds`。
+        DisposableEffect(window, viewModel) {
+            val listener = object : ComponentAdapter() {
+                override fun componentShown(e: ComponentEvent?) = viewModel.onWindowShown()
+            }
+            window.addComponentListener(listener)
+            onDispose { window.removeComponentListener(listener) }
         }
 
         // 「按住热键循环」的状态机完全由 ViewModel 自己驱动（见 `observeHotKeyHold`）：

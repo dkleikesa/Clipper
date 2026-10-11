@@ -141,6 +141,15 @@ class DesktopShellViewModel(
         _uiState.update { it.copy(minimumHeight = height) }
     }
 
+    /**
+     * 面板窗口**真正显示出来**之后由宿主调一次：把窗口几何再落一次。
+     *
+     * 「显示」与「按真实偏好算出的几何」谁先到位并不确定——首次显示时偏好还在读盘，
+     * 配置文件常常比窗口慢一拍，显示前设下的 bounds 可能被顶掉。见
+     * [WindowGeometryController.reapplyBounds]。
+     */
+    fun onWindowShown() = geometry.reapplyBounds()
+
     /** 退出：应用「退出时清空历史」偏好，落盘并关闭数据库，然后请求宿主结束进程。 */
     fun quit() {
         panel.quit()

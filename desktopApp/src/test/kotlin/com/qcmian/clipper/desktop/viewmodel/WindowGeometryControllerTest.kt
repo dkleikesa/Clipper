@@ -61,6 +61,45 @@ class WindowGeometryControllerTest {
     }
 
     @Test
+    fun `the window size before the panel is ever shown is not treated as a user drag`() = runTest {
+        // 面板还没显示过时，窗口那条尺寸通知是它自己建出来的初值，不是用户拖出来的。
+        // 误当成拖动会按「初值 − 滑出宽度」写回主列表宽度——预览开着时那个差值正好落在
+        // 划分下限上，首次显示于是被挤窄（见 `observeUserResize`）。
+        val f = fixture(
+            settings = AppSettings(popupPosition = PopupPosition.SCREEN_CENTER, previewOpen = true),
+            state = DesktopShellUiState(
+                windowVisible = false,
+                preferredHeight = 400.dp,
+                minimumHeight = 100.dp,
+            ),
+        )
+        startGeometry(f)
+        backgroundScope.launch { f.controller.observeUserResize() }
+        runCurrent()
+
+        assertTrue(f.repository.settingsWrites.isEmpty(), "面板还没显示过，不该往偏好里写自定义尺寸")
+        assertFalse(f.state.value.userResizing, "也不该报「用户正在拖窗口」")
+
+        advanceTimeBy(RESIZE_SETTLE_MILLIS + 1)
+        runCurrent()
+        assertTrue(f.repository.settingsWrites.isEmpty(), "静默期走完仍不该落盘")
+    }
+
+    @Test
+    fun `reapplying after the window is shown pushes the same bounds again`() = runTest {
+        val f = fixture()
+        startGeometry(f)
+        assertEquals(1, f.applied.size)
+
+        // 首次显示时原生窗口可能拿它建出来时的尺寸把显示前设的 bounds 顶掉；窗口真的显示
+        // 出来之后由宿主再落一次，去重不该把这次补正挡下（见 `reapplyBounds`）。
+        f.controller.reapplyBounds()
+
+        assertEquals(2, f.applied.size, "补正必须真的落到原生窗口上")
+        assertEquals(f.applied[0], f.applied[1], "补的是同一组几何")
+    }
+
+    @Test
     fun `a geometry recomputation that lands on the same rect is not pushed again`() = runTest {
         val f = fixture()
         startGeometry(f)

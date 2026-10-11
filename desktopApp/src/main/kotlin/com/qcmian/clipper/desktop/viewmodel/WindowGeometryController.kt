@@ -78,6 +78,14 @@ internal class WindowGeometryController(
     /** 应用自己最后设定过的窗口几何（位置 + 尺寸），用来跳过重复的原生调用。 */
     private var lastAppliedBounds: Rectangle? = null
 
+    /**
+     * 程序是否已经往原生窗口落过至少一次几何（面板显示过一次）。
+     *
+     * 它把「窗口自己建出来时的那条尺寸通知」和「用户拖出来的尺寸」分开：只有前者会出现在
+     * 面板显示之前，而那时候程序一个 bounds 都还没落过（见 [observeUserResize]）。
+     */
+    private var hasAppliedGeometry = false
+
     /** 同 [lastAppliedBounds]，针对原生窗口的下限尺寸。 */
     private var lastAppliedMinimumSize: DpSize? = null
 
@@ -383,6 +391,20 @@ internal class WindowGeometryController(
     }
 
     /**
+     * 把当前算出的几何再落一次到原生窗口上，忽略「和上次一样就跳过」的去重。
+     *
+     * 首次显示时窗口刚从隐藏变为可见：程序在显示**之前**设下的 bounds 会被原生窗口用它建
+     * 出来时的尺寸顶掉（那正是「配置文件比窗口慢一拍」时最容易踩到的那一次），而这一次之后
+     * 几何不会被重算——窗口尺寸不在观察范围内，[applyWindowBounds] 又会按去重跳过。窗口于是
+     * 停在旧尺寸上，预览展开时就表现为预览盖住主列表。宿主在窗口**真正显示之后**调一次这里，
+     * 把这笔账补上。平时（窗口已经可见）落到同一个几何上，是一次看不出来的空操作。
+     */
+    fun reapplyBounds() {
+        lastAppliedBounds = null
+        applyGeometryNow()
+    }
+
+    /**
      * 把摆窗口的产物发布给界面：预览停靠在哪一侧、这一侧还能给多宽。
      *
      * 它们是「窗口整个放不放得进屏幕」的结论，界面自己算不出；但它们**不**表示「预览该不该在
@@ -422,6 +444,7 @@ internal class WindowGeometryController(
      * （见 [observeUserResize]）。
      */
     private fun applyNativeBounds(bounds: Rectangle) {
+        hasAppliedGeometry = true
         applyBounds(bounds.x, bounds.y, bounds.width, bounds.height)
         val size = DpSize(bounds.width.dp, bounds.height.dp)
         rememberAppliedSize(size)
@@ -452,6 +475,10 @@ internal class WindowGeometryController(
     suspend fun observeUserResize() {
         snapshotFlow { windowState.size }
             .collectLatest { size ->
+                // 面板还没显示过：这条通知是窗口建出来时的初值，不是用户拖出来的。误判成
+                // 拖动会按「初值 − 滑出宽度」把主列表宽度写进偏好——预览开着时那个差值正好
+                // 落在划分下限上，首次显示于是被挤窄。
+                if (!hasAppliedGeometry) return@collectLatest
                 // 这条通知是程序自己造成的（见 [recentAppliedSizes]），忽略。
                 if (wasAppliedByProgram(size)) return@collectLatest
 
