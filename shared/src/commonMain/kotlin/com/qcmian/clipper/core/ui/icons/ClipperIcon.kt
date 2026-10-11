@@ -81,6 +81,19 @@ enum class ClipperIconKind {
     /** 一摞圆盘，SQL 格式化用。与 [DATABASE] 形状相近但**不是同一个**：那个表「存储」，这个表
      * 「SQL 语句」，各自跟着自己的设计稿走，合并了将来任一边调形状都会牵连另一边。 */
     SQL,
+    /**
+     * 一张带网格线的表格，数据库对象树里的「表」用。
+     *
+     * 与 [DATABASE]（圆柱，那里的「库」）刻意分开：两者在那棵树里上下相邻，形状必须一眼能分。
+     */
+    TABLE,
+    /**
+     * 一个圆角方框、内部左侧一条竖线，数据库对象树里的「列」用。
+     *
+     * 与 [TABLE]（整张网格）刻意分开：树里「表」与「列」是上下相邻的两层，图标必须一眼能分。
+     * 列上还会按约束换成 [KEY]（主键）/ [LINK]（外键）/ [SEARCH]（索引）。
+     */
+    COLUMN,
     /** 相框里一座山与一轮太阳，Base64 图片编解码用。与 [TYPE_IMAGE] 的关系同 [SQL] 与 [DATABASE]。 */
     PICTURE,
     /** 文稿右侧带一个向外的箭头；Base64 改用 [BASE64] 之后暂无人用，作为「导出文稿」的图形词汇留着。 */
@@ -456,6 +469,38 @@ private fun DrawScope.drawClipperIcon(kind: ClipperIconKind, color: Color) {
             )
             }
             
+        }
+        ClipperIconKind.TABLE -> {
+            // 路径逐字搬自设计稿 SVG（`viewBox 0 0 1024 1024` 的单条 `fill` 路径）：一张带外框与
+            // 内部网格线的表格，这种密图形手工近似必然走样，照设计稿画最省事——做法与
+            // [ClipperIconKind.BINARY]、[ClipperIconKind.FINGERPRINT] 一样，按包围盒等比缩放并居中。
+            val bounds = TableBounds
+            val extent = maxOf(bounds.width, bounds.height)
+            if (extent > 0f) {
+                val scale = s * TableExtentRatio / extent
+                withTransform({
+                    // 画布变换按书写顺序左乘：先绕原点等比缩放，再平移到画布中心。
+                    translate(
+                        left = s / 2f - bounds.center.x * scale,
+                        top = s / 2f - bounds.center.y * scale,
+                    )
+                    scale(scaleX = scale, scaleY = scale, pivot = Offset.Zero)
+                }) {
+                    drawPath(TablePath, color, style = Fill)
+                }
+            }
+        }
+        ClipperIconKind.COLUMN -> {
+            // 一个圆角方框 + 左侧一条竖线：与「表」的整张网格区分开——这个只说「一列」。
+            // 几何简单，直接按 24 网格上的坐标画，不必去搬设计稿。
+            drawRoundRect(
+                color = color,
+                topLeft = p(3.5f, 4.5f),
+                size = Size(17f * g, 15f * g),
+                cornerRadius = CornerRadius(2.5f * g),
+                style = st,
+            )
+            line(9.2f, 5.5f, 9.2f, 18.5f)
         }
         ClipperIconKind.PICTURE -> {
             drawRoundRect(
@@ -988,6 +1033,38 @@ private val BinaryBounds: Rect by lazy { BinaryPath.getBounds() }
 
 /** 图标在画布中占的比例：设计稿铺满它的 viewBox，留一点内边距才与其它图标等重。 */
 private const val BinaryExtentRatio = 0.92f
+
+/**
+ * 「表」图标的路径：**逐字**搬自设计稿 SVG（`viewBox 0 0 1024 1024` 的单条 `fill` 路径）。
+ *
+ * 一张带外框与内部网格线的表格，数据库对象树里挂在「表」这一类节点上（与库的圆柱
+ * [ClipperIconKind.DATABASE] 区分开——两者在那棵树里上下相邻，形状必须一眼能分）。
+ */
+private const val TablePathData =
+    "M959.825022 384.002258V191.939717C959.825022 121.2479 902.517291 63.940169 831.825474 63.940169" +
+        "H191.939717C121.2479 63.940169 63.940169 121.2479 63.940169 191.939717v639.885757" +
+        "C63.940169 902.517291 121.2479 959.825022 191.939717 959.825022h639.885757" +
+        "c70.691817 0 127.999548-57.307731 127.999548-127.999548V384.002258z" +
+        "M146.66502 146.66502a63.737872 63.737872 0 0 1 45.336109-18.784682h639.997742" +
+        "A63.961844 63.961844 0 0 1 895.884854 192.001129V320.062089H127.880338V192.001129" +
+        "A63.737872 63.737872 0 0 1 146.66502 146.66502z" +
+        "m269.1267 461.308451v-223.971213h192.181751v223.971213h-192.181751z" +
+        "m192.181751 63.940169v223.971214h-192.181751v-223.971214h192.181751z" +
+        "m-256.12192-63.940169H127.880338v-223.971213h223.971213v223.971213z" +
+        "m-205.186531 269.235073a63.466939 63.466939 0 0 1-18.784682-45.209673V671.91364h223.971213" +
+        "v223.971214H192.001129a63.625887 63.625887 0 0 1-45.336109-18.67631z" +
+        "m749.219834-45.209673A63.763159 63.763159 0 0 1 831.998871 895.884854H671.91364v-223.971214" +
+        "h223.971214v160.085231z" +
+        "m0-224.0254h-223.971214v-223.971213h223.971214v223.971213z"
+
+/** 解析一次即可：路径是常量，绘制时只做一次画布变换。 */
+private val TablePath: Path by lazy { PathParser().parsePathString(TablePathData).toPath() }
+
+/** [TablePath] 的包围盒：用来把 1024 见方的设计稿等比缩放并居中到图标画布。 */
+private val TableBounds: Rect by lazy { TablePath.getBounds() }
+
+/** 「表」在图标画布中占的比例：与 [BinaryExtentRatio] 取同一个值，两者视觉重量一致。 */
+private const val TableExtentRatio = 0.92f
 
 /**
  * Android 机器人的路径：**逐字**搬自设计稿 SVG（`viewBox 0 0 1024 1024` 的单条 `fill` 路径）。
