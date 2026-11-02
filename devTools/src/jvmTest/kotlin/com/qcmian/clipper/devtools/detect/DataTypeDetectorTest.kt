@@ -115,6 +115,13 @@ class DataTypeDetectorTest {
         assertTrue(CertFileTypeDetector.matches("/Users/me/leaf.der"))
         assertTrue(CertFileTypeDetector.matches("/Users/me/chain.CER"))
         assertFalse(CertFileTypeDetector.matches("/tmp/x.p12"))
+
+        // 数据库的四种常见扩展名都认，非库文件不认。
+        listOf("app.db", "app.sqlite", "app.sqlite3", "app.DB3").forEach { name ->
+            assertTrue(SqliteFileTypeDetector.matches("/tmp/$name"), name)
+        }
+        assertFalse(SqliteFileTypeDetector.matches("/tmp/notes.txt"))
+        assertFalse(SqliteFileTypeDetector.matches("/tmp/db"))
     }
 
     @Test
@@ -136,5 +143,9 @@ class DataTypeDetectorTest {
         val der = registry.detectTypes("", listOf("/Users/me/leaf.der"))
         assertEquals(listOf(DataTypes.CERT), der)
         assertEquals("cert", registry.rankedTools(der).first().metadata.id)
+
+        val db = registry.detectTypes("", listOf("/tmp/app.db"))
+        assertEquals(listOf(DataTypes.SQLITE), db)
+        assertEquals("sqlite", registry.rankedTools(db).first().metadata.id)
     }
 }

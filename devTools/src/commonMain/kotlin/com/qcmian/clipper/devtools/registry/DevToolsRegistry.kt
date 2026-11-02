@@ -103,8 +103,8 @@ class DevToolsRegistry(
                 BarcodeDevTool,
                 ApkSignDevTool,
                 CertDevTool,
-                // SQLite 浏览 / 编辑：不参与自动选中（`.db` 是二进制，探测器只看文本），
-                // 入口在侧边栏「其它」组，打开时若剪贴板条目是个 `.db` 文件会自动载入。
+                // SQLite 浏览 / 编辑：`.db` 是二进制，由文件探测器按扩展名认（`sqlite`），
+                // 复制一个库文件打开工具时会直接选中它并载入；入口也在侧边栏「其它」组。
                 SqliteDevTool,
                 // RegexDevTool,
             ),

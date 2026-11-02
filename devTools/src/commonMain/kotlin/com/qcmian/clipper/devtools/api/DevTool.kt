@@ -48,6 +48,13 @@ object DataTypes {
     const val KEYSTORE = "keystore"
 
     /**
+     * 一个 SQLite 数据库文件（`.db` / `.sqlite` / `.sqlite3` / `.db3`）。
+     *
+     * 与 [APK] 同一条口径：只按扩展名认，容器里是什么由工具打开后自己看（文件头 / `sqlite_master`）。
+     */
+    const val SQLITE = "sqlite"
+
+    /**
      * 一段数学表达式：复制一个式子再打开工具，计算器应当已经在等它。
      *
      * 判据刻意收紧到「既像算式、又真算得出结果」——只有数字的、日期 / 版本号 / IP 那种「长得像

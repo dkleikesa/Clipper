@@ -51,6 +51,7 @@ import com.qcmian.clipper.core.ui.components.TreeView
 import com.qcmian.clipper.core.ui.components.TreeNode
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
+import com.qcmian.clipper.devtools.api.DataTypes
 import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
@@ -75,8 +76,9 @@ import kotlinx.coroutines.withContext
  *
  *  - **默认只读**。工具默认打开的是用户的真实库，误改的代价远大于「不能改」。要写必须由用户
  *    显式关掉「只读」开关，那时才以读写模式重开一次连接（SQL 页签里的写语句因此才生效）。
- *  - **通用输入，不参与自动选中**。`.db` 是二进制，探测器（只看文本）认不出它；打开工具时若
- *    剪贴板条目恰好是个 `.db` 文件就自动载入，否则由用户在工具栏里自行打开一个文件。
+ *  - **吃 `sqlite` 这一档**。`.db` 是二进制，文本探测器认不出它，因此由**文件探测器**按扩展名认
+ *    （见 `SqliteFileTypeDetector`）：复制一个 `.db` 打开开发者工具，它会排在推荐位并被自动选中，
+ *    打开时直接把那个文件载入。其它时候由用户在工具栏里自行打开一个文件。
  *
  * 左侧是一棵**懒加载**的对象树（用 `TreeView`，见 `SqliteTree.kt` 与 `core/ui/components`）：
  * 展开哪张表才去查哪张表的列 / 键 / 索引。右侧分「数据 / 结构 / SQL」三块。平台那一层（JDBC）
@@ -91,6 +93,8 @@ internal object SqliteDevTool : DevTool {
         group = DevToolGroup.OTHER,
         icon = ClipperIconKind.SQL,
     )
+
+    override val acceptedDataTypes: Set<String> = setOf(DataTypes.SQLITE)
 
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {

@@ -5,6 +5,7 @@ import com.qcmian.clipper.devtools.tools.base64.Base64Format
 import com.qcmian.clipper.devtools.tools.cert.CertFormat
 import com.qcmian.clipper.devtools.tools.json.JsonFormat
 import com.qcmian.clipper.devtools.tools.math.MathFormat
+import com.qcmian.clipper.devtools.tools.sqlite.looksLikeSqlitePath
 import com.qcmian.clipper.devtools.tools.timestamp.TimestampConvert
 import com.qcmian.clipper.devtools.tools.xml.isWellFormedXml
 
@@ -215,6 +216,17 @@ internal object KeyStoreFileTypeDetector : FileTypeDetector {
 }
 
 /**
+ * SQLite 数据库：判据交给 `looksLikeSqlitePath`，与工具「打开时该不该自动载入」共用同一把尺子
+ * ——否则会出现「按扩展名推荐了工具、工具却不认这个文件」的错位（与 JSON / 时间戳同一条规矩）。
+ */
+internal object SqliteFileTypeDetector : FileTypeDetector {
+    override val typeName: String = DataTypes.SQLITE
+    override val specificity: Int = 75
+
+    override fun matches(path: String): Boolean = path.looksLikeSqlitePath()
+}
+
+/**
  * 证书类**文件**：只有二进制的那几种才需要它——PEM 是可读文本，[CertDataTypeDetector] 按内容就认
  * 得出来。`.p12` / `.pfx` 留给 [KeyStoreFileTypeDetector]：开发机上这两样多半是签名用的密钥库，
  * 交给签名工具比交给证书查看更贴近实际用法。
@@ -269,11 +281,12 @@ val BuiltInDataTypeDetectors: List<DataTypeDetector> = listOf(
 /**
  * 内置的文件探测器集合。与 [BuiltInDataTypeDetectors] 同一份约定：顺序不参与排序。
  *
- * 只收「二进制、且扩展名足够说明问题」的几档（APK / 密钥库 / DER 证书）。图片、SQLite 库没有
- * 放进来：前者剪贴板会给图片表示、不必看路径，后者按包内注释暂不参与自动选中。
+ * 只收「二进制、且扩展名足够说明问题」的几档（APK / 密钥库 / DER 证书 / SQLite 库）。图片没有
+ * 放进来：剪贴板会给图片表示，不必看路径。
  */
 val BuiltInFileTypeDetectors: List<FileTypeDetector> = listOf(
     ApkFileTypeDetector,
     KeyStoreFileTypeDetector,
     CertFileTypeDetector,
+    SqliteFileTypeDetector,
 )
