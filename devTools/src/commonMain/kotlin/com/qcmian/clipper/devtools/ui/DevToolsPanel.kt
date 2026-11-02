@@ -142,11 +142,14 @@ fun DevToolsPanel(
     //
     // `null` 表示**还没探完**：这期间不自动选工具（先按声明顺序显示第一个），切换到推荐工具发生在
     // 结果回来之后——通常快到看不见，内容很大时也只是一个可用的窗口等一下，而不是整个卡住。
+    // 文件类条目还要额外按**路径**认一次：APK 与密钥库是二进制，`devToolText` 只会给出路径，
+    // 而路径本身当文本看什么都判不出来（见 `FileTypeDetector`）。
     var detected by remember(item) { mutableStateOf<List<String>?>(null) }
     LaunchedEffect(item) {
         detected = null
+        val paths = item?.files.orEmpty()
         val text = withContext(Dispatchers.Default) { item?.devToolText().orEmpty() }
-        detected = withContext(Dispatchers.Default) { registry.detectTypes(text) }
+        detected = withContext(Dispatchers.Default) { registry.detectTypes(text, paths) }
     }
 
     var selectedId by remember { mutableStateOf<String?>(null) }

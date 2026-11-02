@@ -35,6 +35,7 @@ import com.qcmian.clipper.core.ui.code.DevToolCodeField
 import com.qcmian.clipper.core.ui.code.scanPlain
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
+import com.qcmian.clipper.devtools.api.DataTypes
 import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
@@ -162,9 +163,9 @@ private class KeyStoreSession {
  * 指纹是本工具真正的高频用途（拿去各平台注册），因此那几行在结果列表里标成 `primary`：整行可点
  * 即复制，五种写法一行一种，不必先去别处转一次格式。
  *
- * 与其它工具一样**不吃某一种数据类型**（[acceptedDataTypes] 留空）：密钥库与 APK 都是二进制，而
- * 现有的探测类型里没有「文件」这一档。路径有三条来路，都由工具自己接：拖进卡片、打开对话框、
- * 剪贴板里的**文件条目**（`ClipItem.files`，见 `Content` 里那个 `LaunchedEffect`）。
+ * 它吃 `apk` 与 `keystore` 两档（见 `DataTypes`）：这两档由**文件探测器**按扩展名给出，命中时
+ * 面板把这条记录直接交给它、并把它排在推荐位。路径另有三条来路，都由工具自己接：拖进卡片、
+ * 打开对话框、剪贴板里的**文件条目**（`ClipItem.files`，见 `Content` 里那个 `LaunchedEffect`）。
  */
 internal object ApkSignDevTool : DevTool {
 
@@ -176,6 +177,8 @@ internal object ApkSignDevTool : DevTool {
         group = DevToolGroup.GENERATOR,
         icon = ClipperIconKind.ANDROID,
     )
+
+    override val acceptedDataTypes: Set<String> = setOf(DataTypes.APK, DataTypes.KEYSTORE)
 
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {

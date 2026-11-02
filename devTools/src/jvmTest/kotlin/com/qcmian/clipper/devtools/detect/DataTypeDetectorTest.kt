@@ -1,6 +1,7 @@
 package com.qcmian.clipper.devtools.detect
 
 import com.qcmian.clipper.devtools.api.DataTypes
+import com.qcmian.clipper.devtools.registry.DevToolsRegistry
 import com.qcmian.clipper.devtools.tools.base64.Base64Format
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -67,5 +68,73 @@ class DataTypeDetectorTest {
         val json = """{"a":1}"""
         assertTrue(DataTypes.JSON in BuiltInDataTypeDetectors.detectTypes(json))
         assertFalse(Base64DataTypeDetector.matches(json))
+    }
+
+    @Test
+    fun `a math expression is recognised`() {
+        listOf("1+2", "2^10", "(1+2)/3", "sqrt(2)*10", "10 % 3", "100-20", "2*pi", "1/3").forEach {
+            assertTrue(MathDataTypeDetector.matches(it), it)
+        }
+        assertEquals(DataTypes.MATH, MathDataTypeDetector.typeName)
+    }
+
+    @Test
+    fun `plain numbers dates and ordinary text are not mistaken for math`() {
+        // 一个数不是算式：单看 `42` 无从知道用户想不想算它。
+        assertFalse(MathDataTypeDetector.matches("42"))
+        assertFalse(MathDataTypeDetector.matches("1700000000"))
+        // 日期 / 版本号 / IP 也「算得出」一个数，但那不是用户要的东西。
+        assertFalse(MathDataTypeDetector.matches("2024-01-01"))
+        assertFalse(MathDataTypeDetector.matches("2024/01/01"))
+        assertFalse(MathDataTypeDetector.matches("1.2.3"))
+        assertFalse(MathDataTypeDetector.matches("192.168.1.1"))
+        // 开头的负号不算运算，`-5` 仍然只是个数。
+        assertFalse(MathDataTypeDetector.matches("-5"))
+        // 普通文本与代码：有数字也有字母，但算不出结果。
+        assertFalse(MathDataTypeDetector.matches("Hello 2024"))
+        assertFalse(MathDataTypeDetector.matches("user1"))
+        assertFalse(MathDataTypeDetector.matches("""{"a":1}"""))
+        assertFalse(MathDataTypeDetector.matches("  "))
+    }
+
+    @Test
+    fun `apk and keystore files are recognised by extension`() {
+        assertTrue(ApkFileTypeDetector.matches("/tmp/out/app-release.apk"))
+        assertTrue(ApkFileTypeDetector.matches("/tmp/out/APP.APK"))
+        assertTrue(KeyStoreFileTypeDetector.matches("/Users/me/.android/debug.keystore"))
+        assertTrue(KeyStoreFileTypeDetector.matches("/Users/me/release.JKS"))
+        assertTrue(KeyStoreFileTypeDetector.matches("/Users/me/upload.p12"))
+
+        // 名字里带 apk 的目录、备份名、没有扩展名的，都不算。
+        assertFalse(ApkFileTypeDetector.matches("/Users/me/apk/app"))
+        assertFalse(ApkFileTypeDetector.matches("/Users/me/app.apk.bak"))
+        assertFalse(ApkFileTypeDetector.matches("/Users/me/report.txt"))
+        assertFalse(KeyStoreFileTypeDetector.matches("/Users/me/notes.md"))
+
+        // DER 证书是二进制，只能按扩展名认；`.p12` 归密钥库那一档。
+        assertTrue(CertFileTypeDetector.matches("/Users/me/leaf.der"))
+        assertTrue(CertFileTypeDetector.matches("/Users/me/chain.CER"))
+        assertFalse(CertFileTypeDetector.matches("/tmp/x.p12"))
+    }
+
+    @Test
+    fun `closing a file recommends the tool that eats it`() {
+        val registry = DevToolsRegistry.builtIn()
+
+        val apk = registry.detectTypes("", listOf("/tmp/out/app-release.apk"))
+        assertEquals(listOf(DataTypes.APK), apk)
+        assertEquals("apk-sign", registry.rankedTools(apk).first().metadata.id)
+
+        val keyStore = registry.detectTypes("", listOf("/Users/me/debug.keystore"))
+        assertEquals(listOf(DataTypes.KEYSTORE), keyStore)
+        assertEquals("apk-sign", registry.rankedTools(keyStore).first().metadata.id)
+
+        val math = registry.detectTypes("1+2*3")
+        assertEquals(listOf(DataTypes.MATH, DataTypes.TEXT), math)
+        assertEquals("math", registry.rankedTools(math).first().metadata.id)
+
+        val der = registry.detectTypes("", listOf("/Users/me/leaf.der"))
+        assertEquals(listOf(DataTypes.CERT), der)
+        assertEquals("cert", registry.rankedTools(der).first().metadata.id)
     }
 }

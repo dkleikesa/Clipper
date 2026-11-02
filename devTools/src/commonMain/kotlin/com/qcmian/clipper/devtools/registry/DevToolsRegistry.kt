@@ -2,8 +2,11 @@ package com.qcmian.clipper.devtools.registry
 
 import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.detect.BuiltInDataTypeDetectors
+import com.qcmian.clipper.devtools.detect.BuiltInFileTypeDetectors
 import com.qcmian.clipper.devtools.detect.DataTypeDetector
+import com.qcmian.clipper.devtools.detect.FileTypeDetector
 import com.qcmian.clipper.devtools.detect.detectTypes
+import com.qcmian.clipper.devtools.detect.rankDetectedTypes
 import com.qcmian.clipper.devtools.tools.apksign.ApkSignDevTool
 import com.qcmian.clipper.devtools.tools.base64.Base64DevTool
 import com.qcmian.clipper.devtools.tools.cert.CertDevTool
@@ -32,13 +35,27 @@ class DevToolsRegistry(
     /** 全部工具，声明顺序即侧边栏里同组内的顺序。 */
     val tools: List<DevTool>,
     val detectors: List<DataTypeDetector> = BuiltInDataTypeDetectors,
+    /** 只按扩展名认的探测器：APK / 密钥库这类二进制文件没有文本可读。 */
+    val fileDetectors: List<FileTypeDetector> = BuiltInFileTypeDetectors,
 ) {
     private val toolsById: Map<String, DevTool> = tools.associateBy { it.metadata.id }
 
     fun tool(id: String): DevTool? = toolsById[id]
 
-    /** 探测 [text] 命中的所有类型，最具体的在前；无内容时为空列表。 */
-    fun detectTypes(text: String): List<String> = detectors.detectTypes(text)
+    /**
+     * 探测这条记录命中的所有类型，最具体的在前；无内容时为空列表。
+     *
+     * [filePaths] 是记录自带的文件（`ClipItem.files`）。二进制文件（APK / 密钥库）没有文本可读，
+     * 只能按扩展名认，因此探测分两条路：内容看 [detectors]，路径看 [fileDetectors]，结果合在一起
+     * 按具体程度排序。
+     */
+    fun detectTypes(text: String, filePaths: List<String> = emptyList()): List<String> =
+        rankDetectedTypes(
+            detectors.filter { it.matches(text) }.map { it.specificity to it.typeName } +
+                fileDetectors
+                    .filter { detector -> filePaths.any { detector.matches(it) } }
+                    .map { it.specificity to it.typeName }
+        )
 
     /**
      * 按与 [detectedTypes] 的匹配程度给工具排序：**能直接吃下最具体的那种类型的排在前面**，

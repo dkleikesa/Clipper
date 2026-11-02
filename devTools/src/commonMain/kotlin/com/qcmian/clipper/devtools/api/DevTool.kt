@@ -31,6 +31,29 @@ object DataTypes {
      * PEM），区分它们要真解析一遍——那是工具的事，不是探测器的事。判据见 `CertDataTypeDetector`。
      */
     const val CERT = "cert"
+
+    /**
+     * 一个 Android 安装包文件（`.apk`）。
+     *
+     * 只按**文件**认：APK 是二进制，剪贴板给得出的只有路径，因此这一档由 `FileTypeDetector` 看
+     * 扩展名判定，文本探测器不参与（路径本身是一段普通文本，按文本判会与「随便一句以 .apk 结尾
+     * 的话」混淆）。
+     */
+    const val APK = "apk"
+
+    /**
+     * 一个密钥库文件（`.jks` / `.keystore` / `.bks` / `.p12` / `.pfx`）：Android 签名工具的另一半
+     * 输入。与 [APK] 同一取舍——只看扩展名，容器到底是 PKCS#12 还是 JKS 由工具自己读文件头判。
+     */
+    const val KEYSTORE = "keystore"
+
+    /**
+     * 一段数学表达式：复制一个式子再打开工具，计算器应当已经在等它。
+     *
+     * 判据刻意收紧到「既像算式、又真算得出结果」——只有数字的、日期 / 版本号 / IP 那种「长得像
+     * 算式」的一律不算（见 `MathDataTypeDetector`）。
+     */
+    const val MATH = "math"
 }
 
 /** 工具在侧边栏里的分组。枚举顺序就是分组在侧边栏里的先后。 */

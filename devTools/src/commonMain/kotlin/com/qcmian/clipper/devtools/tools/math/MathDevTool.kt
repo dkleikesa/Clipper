@@ -48,6 +48,7 @@ import com.qcmian.clipper.core.ui.components.VerticalScrollbarWidth
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.core.ui.theme.hintColor
+import com.qcmian.clipper.devtools.api.DataTypes
 import com.qcmian.clipper.devtools.api.DevTool
 import com.qcmian.clipper.devtools.api.DevToolGroup
 import com.qcmian.clipper.devtools.api.DevToolHost
@@ -111,9 +112,9 @@ private data class MathHistoryEntry(val expression: String, val value: Double)
 /**
  * 数学表达式计算器。
  *
- * 与 JSON / XML 工具不同，它不吃某一种「数据类型」——任何文本都可能是表达式，所以
- * [acceptedDataTypes] 留空：它不会因为剪贴板里是一段文本就被自动选中，只能从侧边栏手动进去。
- * （若声明 `text`，打开任意一段文字都会默认跳到计算器，那不是我们想要的。）
+ * 它只吃 `math` 这一档：探测器除了「看着像算式」，还要求**真能算出结果**才认（见
+ * `MathDataTypeDetector`），因此打开一段普通文字不会跳到计算器——那正是最讨厌的一种误判。
+ * 手动从侧边栏进来时输入区留空，与 JSON / XML 这些只吃一种格式的工具同一条口径。
  *
  * 交互是「实时算」而不是「按一下算」：正文停下 150ms 就重算，中间态不闪。结果卡里另给整数结果
  * 的其它进制——开发者要十六进制时，多半不想为它专门选一次进制。
@@ -127,6 +128,8 @@ internal object MathDevTool : DevTool {
         group = DevToolGroup.CALCULATION,
         icon = ClipperIconKind.CALCULATOR,
     )
+
+    override val acceptedDataTypes: Set<String> = setOf(DataTypes.MATH)
 
     @Composable
     override fun Content(input: ClipItem?, host: DevToolHost) {
