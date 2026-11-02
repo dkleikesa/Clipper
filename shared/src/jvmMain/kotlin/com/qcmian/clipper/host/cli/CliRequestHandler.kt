@@ -220,7 +220,7 @@ internal class CliRequestHandler(
                 "平台表示不了它的表示集合（例如某些只在粘贴板里声明、没有载荷的类型）",
             )
             // `COPY` 不粘贴，走不到；真走到了说明用例语义变了，如实报出来。
-            SelectResult.PASTING -> CliCodec.failure(
+            SelectResult.PASTING, SelectResult.PASTE_BLOCKED -> CliCodec.failure(
                 CliErrorCode.INTERNAL,
                 "写回剪贴板时意外触发了粘贴",
                 null,

@@ -22,6 +22,12 @@ enum class SelectResult {
 
     /** 条目已放入剪贴板，并已安排粘贴按键（多条时是逐条粘贴）。 */
     PASTING,
+
+    /**
+     * 条目已放入剪贴板，但**没**合成粘贴按键：系统没给粘贴所需的权限（macOS 上是
+     * 「辅助功能」）。面板留在原地，状态栏里已写明去哪儿授权。
+     */
+    PASTE_BLOCKED,
 }
 
 /**
@@ -56,6 +62,15 @@ class SelectClipUseCase(
         val removeFormatting = action.stripsFormatting
         val pasting = action.pastes
 
+        // 合成 ⌘V 要系统授权（macOS 上是「辅助功能」）；没有它按键会被静默丢弃。缺权限只影响
+        // **合不合成**，不影响写剪贴板——内容照样进剪贴板，用户手动 ⌘V 一样能用。
+        val synthesizing = pasting && platform.requestPastePermission()
+        if (pasting && !synthesizing) {
+            repository.setStatusMessage(
+                "自动粘贴没生效：请在「系统设置 → 隐私与安全性 → 辅助功能」里重新授权 Clipper"
+            )
+        }
+
         // 一次写回，以及它代表的那几条条目。多条复制是**一份**合并快照，两者不是一一对应。
         val batch = if (pasting) {
             items.map { Write(listOf(it.id), snapshotFor(it, removeFormatting)) }
@@ -64,11 +79,12 @@ class SelectClipUseCase(
         }
 
         // 面板只让开一次：后面每一条都是同一个目标应用、同一个焦点。目标 pid 也在这里交给
-        // 平台层（见 `MacKeyboard.pasteTargetPid`）。
-        onHidePanel()
+        // 平台层（见 `MacKeyboard.pasteTargetPid`）。粘不出去时**不收起**：提示要让人看见，
+        // 授权之后也能原地重试。
+        if (!pasting || synthesizing) onHidePanel()
 
         // 单条粘贴绝不补回车：那是最常用的操作，而 `↵` 在 Finder 这类应用里是重命名。
-        val trailingReturn = pasting && batch.size > 1 && settings.pressReturnAfterPaste
+        val trailingReturn = synthesizing && batch.size > 1 && settings.pressReturnAfterPaste
 
         val written = ArrayList<String>(items.size)
         var firstWriteFailed = false
@@ -83,7 +99,8 @@ class SelectClipUseCase(
                     }
                     written += write.ids
 
-                    if (!pasting) break
+                    // 不合成按键（纯复制，或没有粘贴权限）时，写完这一份就结束。
+                    if (!synthesizing) break
 
                     // 第一条等面板让开、焦点回到目标应用；之后每条都要等目标应用把上一次的
                     // `⌘V` 读完，否则换掉剪贴板时上一条还没被取走。
@@ -117,7 +134,11 @@ class SelectClipUseCase(
             repository.setStatusMessage("This platform can't copy that kind of content")
             return SelectResult.UNSUPPORTED
         }
-        return if (pasting) SelectResult.PASTING else SelectResult.COPIED
+        return when {
+            synthesizing -> SelectResult.PASTING
+            pasting -> SelectResult.PASTE_BLOCKED
+            else -> SelectResult.COPIED
+        }
     }
 
     /**

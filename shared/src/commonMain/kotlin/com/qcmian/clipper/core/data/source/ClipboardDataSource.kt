@@ -32,6 +32,14 @@ interface ClipboardDataSource {
     fun pressReturn(): Boolean = false
 
     /**
+     * 合成粘贴按键所需的系统权限（macOS 上是「辅助功能」）。
+     *
+     * 返回 `false` 表示**这次合成必然会被系统丢弃**；平台会顺带请求一次授权（次数由平台自己
+     * 管，重复调用不会反复骚扰）。不需要授权的平台恒为 `true`。
+     */
+    fun requestPastePermission(): Boolean = true
+
+    /**
      * 检查剪贴板的频率，单位毫秒。
      * 依赖变更通知的平台会忽略它。
      */

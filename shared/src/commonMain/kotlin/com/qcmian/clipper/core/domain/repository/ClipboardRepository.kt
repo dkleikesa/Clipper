@@ -236,6 +236,14 @@ interface ClipboardPlatform {
      */
     fun pressReturn(): Boolean
 
+    /**
+     * 合成粘贴按键所需的系统权限是否具备；不具备时平台会顺带请求一次授权。
+     *
+     * 与 [paste] 的区别是它**不发事件**：调用方用它在收起面板之前就知道这一下粘不出去，
+     * 从而把「权限没给」和「平台不支持」区分开。不需要授权的平台恒为 `true`。
+     */
+    fun requestPastePermission(): Boolean = true
+
     fun applicationIcon(bundleId: String?): String?
 
     /** 在图片中识别出的文字，用作图片条目的标题。 */

@@ -133,6 +133,9 @@ internal class MacClipboardDataSource : ClipboardDataSource {
     /** 向此前聚焦的应用按一次裸回车；与 [paste] 同一条投递路径，只是事件上不带 `⌘`。 */
     override fun pressReturn(): Boolean = MacKeyboard.available && MacKeyboard.sendReturn()
 
+    /** 合成按键要「辅助功能」授权；没授权时请求一次系统授权框（每进程最多一次）。 */
+    override fun requestPastePermission(): Boolean = MacKeyboard.promptAccessibility()
+
     private fun readSnapshot(): ClipboardSnapshot {
         // 原生一次读出全部类型：后续每个字段都从它派生。不值得留存的类型（动态标记、密码
         // 管理器声明的类型等）只收集名字、不读字节——那些字节本来就要丢，读它只是白拷一遍。

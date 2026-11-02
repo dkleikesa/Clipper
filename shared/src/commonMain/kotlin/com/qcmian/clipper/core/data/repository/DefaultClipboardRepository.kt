@@ -422,6 +422,8 @@ class DefaultClipboardRepository(
 
     override fun pressReturn(): Boolean = clipboard.pressReturn()
 
+    override fun requestPastePermission(): Boolean = clipboard.requestPastePermission()
+
     override fun applicationIcon(bundleId: String?): String? =
         runCatching { native.applicationIcon(bundleId) }.getOrNull()
 

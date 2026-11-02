@@ -157,8 +157,12 @@ object MacKeyboard {
      * 合成一次 [keyCode] 的按下与抬起；[command] 决定事件上写不写 `⌘`。成功投递返回 `true`。
      */
     fun sendKey(keyCode: Int, command: Boolean): Boolean {
-        // 没授权时合成事件会被系统静默丢弃：与其让粘贴无声失败，不如当场弹授权提示。
-        if (!accessibilityTrusted()) promptAccessibility()
+        // 没授权时系统会静默丢弃合成事件：如实返回失败，别让调用方以为按键已经送达。
+        // 顺带把授权框弹出来（已节流，见 [promptAccessibility]）。
+        if (!accessibilityTrusted()) {
+            promptAccessibility()
+            return false
+        }
         val create = createKeyboardEvent ?: return false
         val setFlags = setEventFlags ?: return false
         val post = postEvent ?: return false
