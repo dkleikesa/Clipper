@@ -51,7 +51,10 @@ private val SettingsWindowMinimumSize = Dimension(640, 420)
  * 而这些在一个被面板窗口夹住的层里做不到。原先的形态是「400dp 宽的面板里塞七个分区，
  * 纵向滚到底」，找任何一项都得先滚一遍。
  *
- * 显隐完全由状态决定（见 `ClipboardUiState.settingsOpen`）：标题栏的关闭按钮只是把意图发回
+ * 窗口外壳交给系统：带标题栏的普通窗口，红绿灯、圆角、投影、拖动与边缘缩放全由 AppKit 负责，
+ * 标题栏上不再有任何自绘控件——`Esc` / `⌘W` 仍然自己接（本应用是 `LSUIElement`，没有菜单栏）。
+ *
+ * 显隐完全由状态决定（见 `ClipboardUiState.settingsOpen`）：红灯（或 `⌘W`）只是把意图发回
  * 状态持有者，状态一变窗口才消失——与面板的显隐是同一种单向数据流。
  *
  * 窗口只隐藏、不销毁：下次打开时尺寸、位置、选中的分区都还在原处——唯一的例外是它跑到别的
@@ -84,15 +87,9 @@ fun ApplicationScope.ClipperSettingsWindow(
         title = SETTINGS_WINDOW_TITLE,
         icon = rememberVectorPainter(ClipperAppIcon),
         state = windowState,
-        // 自绘标题栏：系统标题栏的底色由 AppKit 决定，既不跟主题走、也和本应用的配色对不上
-        // （深色模式的窗口顶着一条浅色标题栏尤其突兀）。无边框之后，标题、关闭按钮与可拖拽区
-        // 全在设置页自己手里（见 `PreferencesTitleBar`），窗口的圆角与描边也一并自绘。
-        //
-        // 透明是必需的：圆角之外必须能透出桌面，否则那四个角会被窗口底色填成方块。
-        // 无边框窗口的**边缘拖拽缩放**由框架负责（`UndecoratedWindowResizer`），它按
-        // `window.minimumSize` 拦下过小的尺寸。
-        undecorated = true,
-        transparent = true,
+        // 用**系统标题栏**：这是一个普通文档式窗口，红绿灯、圆角、投影、双击缩放、全屏与
+        // 边缘拖拽缩放都由 AppKit 提供，观感与别家 macOS 应用一致（自绘那套换来的是一副
+        // 和系统对不上的外壳）。代价是那条约 28pt 的标题栏归系统独占，内容不再铺进去。
     ) {
         // 窗口内容里才收整份状态：这里组合只随窗口内容重组，不影响上面的应用作用域。
         val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -106,14 +103,10 @@ fun ApplicationScope.ClipperSettingsWindow(
         // ——表现为「刚打开设置、什么都还没点，Esc 没反应」，点一下内部之后才恢复。
         var keyboardFocusToken by remember { mutableStateOf(0) }
 
-        // 尺寸下限交给框架：无边框窗口的拖边缩放由 `UndecoratedWindowResizer` 实现，
-        // 它读的正是 `minimumSize`。
+        // 尺寸下限交给框架：系统的拖边缩放读的正是 `minimumSize`。
         LaunchedEffect(Unit) {
             window.minimumSize = SettingsWindowMinimumSize
         }
-
-        // 拖动自绘标题栏移动窗口（手势本身与解锁窗共用，见 `rememberTitleBarDragModifier`）。
-        val dragTitleBar = rememberTitleBarDragModifier(window)
 
         // 每次成为 key window 都把键盘焦点补到内容组件上：点过标题栏、从别的应用切回来之后，
         // AWT 的焦点所有者会退回窗口框架，不补一次按键就又收不到了（见 [focusKeyboardTarget]）。
@@ -179,7 +172,6 @@ fun ApplicationScope.ClipperSettingsWindow(
             onAction = viewModel::onAction,
             captureShortcutKey = viewModel::captureShortcutKey,
             darkTheme = rememberClipperDarkTheme(state.settings.themeMode, host.systemDark),
-            titleBarDragModifier = dragTitleBar,
             focusRequestToken = keyboardFocusToken,
         )
     }

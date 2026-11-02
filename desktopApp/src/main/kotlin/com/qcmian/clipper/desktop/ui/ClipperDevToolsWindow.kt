@@ -59,10 +59,13 @@ import kotlin.math.roundToInt
 /**
  * 开发者工具窗口（View 层）：一个独立窗口，内容由 [DevToolsPanel] 渲染。
  *
- * 与设置窗口同构——一个**独立窗口**、无边框 + 透明、自绘标题栏，显隐完全由状态
- * （[com.qcmian.clipper.feature.history.state.ClipboardUiState.devToolsOpen]）决定：标题栏的关闭
- * 按钮只把意图发回状态持有者。之所以不做成面板里的一层：工具需要「左栏清单 + 右栏一大片编辑区」
- * 这种横向空间，塞进 400dp 宽的面板里只能用一次滚一次的窄条。
+ * 与设置窗口同构——一个**独立窗口**，显隐完全由状态
+ * （[com.qcmian.clipper.feature.history.state.ClipboardUiState.devToolsOpen]）决定：红灯（或 `⌘W`）
+ * 只把意图发回状态持有者。窗口外壳用**系统标题栏**：红绿灯、圆角、投影、拖动与边缘缩放都归
+ * AppKit，标题栏上写的是当前工具名（由面板回传，见 [DevToolsPanel] 的 `onTitleChange`）。
+ *
+ * 之所以不做成面板里的一层：工具需要「左栏清单 + 右栏一大片编辑区」这种横向空间，塞进 400dp
+ * 宽的面板里只能用一次滚一次的窄条。
  *
  * 窗口只隐藏、不销毁：切去别的工具再切回来，尺寸与位置都还在原处——唯一的例外是它跑到别的
  * 屏幕上去了（多屏下鼠标换了一块屏），那时才会被挪回鼠标所在屏幕的中央（见下面那个
@@ -98,6 +101,9 @@ fun ApplicationScope.ClipperDevToolsWindow(
     // 是否已经摆过一次位置：首次显示一律居中，之后只在窗口跑到别的屏幕上时才挪（见下面）。
     var placed by remember { mutableStateOf(false) }
 
+    // 窗口标题：面板会随当前工具报到；还没报到之前先给一句通用名字（与面板的兜底一致）。
+    var windowTitle by remember { mutableStateOf(DEVTOOLS_WINDOW_TITLE) }
+
     // 粘贴的落点：按键在窗口层接（理由见下面 `onPreviewKeyEvent`），处理交给当前工具的输入区
     // ——只有它知道剪贴板里的文件 / 图片该怎么安置（见 `DevToolPasteKey`）。
     val pasteKey = remember { DevToolPasteKey() }
@@ -116,19 +122,18 @@ fun ApplicationScope.ClipperDevToolsWindow(
         // 关闭请求不自己去藏窗口：把意图发回状态持有者，由状态决定窗口的存亡。
         onCloseRequest = { viewModel.onAction(ClipboardUiAction.CloseDevTools) },
         visible = visible,
-        title = DEVTOOLS_WINDOW_TITLE,
+        title = windowTitle,
         icon = appIcon,
         state = windowState,
-        // 自绘标题栏：系统标题栏的底色由 AppKit 决定，既不跟主题走也和本应用配色对不上。
-        // 透明是必需的：圆角之外要能透出桌面，否则四个角会被窗口底色填成方块。
-        undecorated = true,
-        transparent = true,
-        // 窗口级快捷键：自绘标题栏之后就没有系统菜单了，`⌘W` 得自己接上。放在窗口层而不是
-        // 内容根节点上——内容里有没有 Compose 焦点节点取决于用户点没点过编辑区，靠焦点链会让
-        // 这个键时灵时不灵。
+        // 用**系统标题栏**：这是一个普通文档式窗口，红绿灯、圆角、投影、双击缩放、全屏与边缘
+        // 拖拽缩放都由 AppKit 提供，观感与别家 macOS 应用一致（自绘那套换来的是一副和系统对
+        // 不上的外壳）。代价是那条约 28pt 的标题栏归系统独占，内容不再铺进去。
+        // 窗口级快捷键：本应用是菜单栏应用（LSUIElement），没有系统菜单，`⌘W` 不会自动生效。
+        // 放在窗口层而不是内容根节点上——内容里有没有 Compose 焦点节点取决于用户点没点过编辑区，
+        // 靠焦点链会让这个键时灵时不灵。
         //
         // `Esc` 有意**不**关窗（与设置窗口不同）：工具里大半时间都在编辑区里反复试，一次 `Esc`
-        // 就把整扇窗收掉代价太大；要关就 `⌘W` 或点标题栏的关闭按钮。
+        // 就把整扇窗收掉代价太大；要关就 `⌘W` 或点标题栏上那个红灯。
         //
         // `⌘B` 跟着一起放在这里，理由同上：它要能随时切换侧边栏，而不必先点一下编辑区。
         //
@@ -163,7 +168,7 @@ fun ApplicationScope.ClipperDevToolsWindow(
         // 系统外观从宿主投影里取：与面板、设置窗口用同一个原始值解析主题，三个窗口不会深浅不一。
         val host by windowController.hostUiState.collectAsStateWithLifecycle()
 
-        // 尺寸下限交给框架：无边框窗口的拖边缩放由 `UndecoratedWindowResizer` 实现，读的正是它。
+        // 尺寸下限交给框架：系统的拖边缩放读的正是 `minimumSize`。
         LaunchedEffect(Unit) {
             val minimum = minimumDevToolsWindowSize(screenBounds(index = 0))
             window.minimumSize = Dimension(minimum.width.value.roundToInt(), minimum.height.value.roundToInt())
@@ -194,9 +199,6 @@ fun ApplicationScope.ClipperDevToolsWindow(
                     )
                 }
         }
-
-        // 拖动自绘标题栏移动窗口（与设置窗口共用同一个手势）。
-        val dragTitleBar = rememberTitleBarDragModifier(window)
 
         // 每次成为 key window 都把 AWT 焦点补到内容组件上：否则从别的应用切回来之后，
         // 工具里的编辑区收不到键盘输入（见 [focusKeyboardTarget]）。
@@ -305,7 +307,6 @@ fun ApplicationScope.ClipperDevToolsWindow(
             DevToolsPanel(
                 registry = registry,
                 item = state.devToolsItem,
-                onClose = { viewModel.onAction(ClipboardUiAction.CloseDevTools) },
                 onCopyToClipboard = viewModel::copyToClipboardFromDevTools,
                 // 图片那一路（条码工具的码图）走单独的入口：它写回的是图片表示，不是一段文本。
                 onCopyImageToClipboard = viewModel::copyImageToClipboardFromDevTools,
@@ -326,7 +327,8 @@ fun ApplicationScope.ClipperDevToolsWindow(
                 onClipboardImage = ::clipboardImage,
                 // 粘贴的按键在窗口层接（见上面那段说明），处理落在当前工具的输入区上。
                 pasteKey = pasteKey,
-                titleBarDragModifier = dragTitleBar,
+                // 当前工具名进系统标题栏（见 [DevToolsPanel] 的 `onTitleChange`）。
+                onTitleChange = { windowTitle = it },
             )
         }
     }

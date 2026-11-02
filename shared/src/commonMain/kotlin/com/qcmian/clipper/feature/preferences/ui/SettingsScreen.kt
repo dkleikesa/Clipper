@@ -26,8 +26,6 @@ fun SettingsScreen(
     onAction: (ClipboardUiAction) -> Unit,
     captureShortcutKey: (KeyEvent) -> Boolean,
     darkTheme: Boolean,
-    /** 标题栏上「按住拖动窗口」的手势，由宿主注入（见 [PreferencesScreen] 的同名参数）。 */
-    titleBarDragModifier: Modifier = Modifier,
     /** 每次窗口显示都由宿主自增（见 [PreferencesScreen] 的同名参数）。 */
     focusRequestToken: Int = 0,
     modifier: Modifier = Modifier,
@@ -78,7 +76,6 @@ fun SettingsScreen(
                 hasConfirmation = state.confirmation != null,
             ),
             actions = actions,
-            titleBarDragModifier = titleBarDragModifier,
             focusRequestToken = focusRequestToken,
             modifier = modifier.fillMaxSize(),
         )
@@ -86,10 +83,15 @@ fun SettingsScreen(
         // 确认框属于**当前在场的那个窗口**：设置窗口开着时它在这里画，面板那边同时不作声
         // （见 `HistoryDialogs`），因此不会冒出两个一模一样的框。
         state.confirmation?.let { request ->
+            // 设置页两个按钮各自定好了范围（见上面 `onClearUnpinned` / `onClearAll`），因此这里
+            // 只画一个确定按钮；两档并列的那个框在面板上（见 `HistoryDialogs`）。万一范围是空的
+            // （不该发生），退回「只清未置顶」——两档里危险较小的那个。
             ConfirmDialog(
                 message = request.message,
                 comment = request.comment,
-                onConfirm = { onAction(ClipboardUiAction.ConfirmClear) },
+                onConfirm = {
+                    onAction(ClipboardUiAction.ConfirmClear(all = request.all ?: false))
+                },
                 onDismiss = { onAction(ClipboardUiAction.DismissClear) },
             )
         }

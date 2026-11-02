@@ -46,7 +46,6 @@ class DevToolsPasteRoutingTest {
                     registry = DevToolsRegistry.builtIn(),
                     // 一段 Base64：探测器据此把 Base64 工具推荐出来（只有它吃 base64）。
                     item = ClipItem(id = "id0", text = HELLO_BASE64),
-                    onClose = {},
                     onCopyToClipboard = {},
                     pasteKey = pasteKey,
                     onClipboardImage = {
@@ -83,7 +82,6 @@ class DevToolsPasteRoutingTest {
                 DevToolsPanel(
                     registry = DevToolsRegistry.builtIn(),
                     item = ClipItem(id = "id0", files = listOf(opened)),
-                    onClose = {},
                     onCopyToClipboard = {},
                     pasteKey = pasteKey,
                     onClipboardFilePaths = { clipboardFiles },

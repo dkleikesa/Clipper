@@ -345,7 +345,6 @@ class KodemirrorCodeFieldTest {
                 DevToolsPanel(
                     registry = DevToolsRegistry.builtIn(),
                     item = ClipItem(id = "id0", text = text),
-                    onClose = {},
                     onCopyToClipboard = {},
                 )
             }

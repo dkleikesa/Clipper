@@ -1,6 +1,5 @@
 package com.qcmian.clipper.feature.preferences.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -48,7 +46,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.settings.ShortcutSlot
-import com.qcmian.clipper.core.ui.components.ClipperTitleBar
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
 import com.qcmian.clipper.feature.history.state.EncryptionPrompt
@@ -134,11 +131,11 @@ internal enum class PreferencesSection(val title: String, val icon: ClipperIconK
 }
 
 /**
- * 偏好设置窗口的完整内容：自绘标题栏 + 左栏分区导航 + 右栏当前分区。
+ * 偏好设置窗口的完整内容：左栏分区导航 + 右栏当前分区。
  *
- * 标题栏是自绘的（宿主把窗口设成无边框，见 `ClipperSettingsWindow`）：系统标题栏的底色
- * 由 AppKit 决定，既不跟主题走，也和本应用的配色对不上——一个深色模式的窗口顶着一条浅色
- * 标题栏尤其突兀。自绘之后，标题、关闭按钮、可拖拽区都在我们手里。
+ * 窗口外壳（标题栏、红绿灯、圆角、投影）**不再自绘**：宿主持有一个带标题栏的普通窗口
+ * （见 `ClipperSettingsWindow`），标题由系统画，关闭就是那个红灯，拖动标题栏也由 AppKit 负责。
+ * 这里因此只铺一层不透明底色，并把页面从窗口内容区的左上角排起。
  *
  * 换成两栏形态的原因是**分区之间不该互相挤**：原先七个分区竖着排成一条长列表，卡片又只有
  * 约 376dp 宽（被面板窗口夹着），越往下的分区越难找到——「设置很长」因此并不只是长的问题。
@@ -151,14 +148,11 @@ internal enum class PreferencesSection(val title: String, val icon: ClipperIconK
  * 各分区的内容不在这个文件里：普通分区见 [StorageSection] 所在的那个文件，快捷键分区见
  * [ShortcutsSection]（它单独一份，因为它是全页最长的一处）。
  *
- * @param titleBarDragModifier 标题栏上「按住拖动窗口」的手势。共享代码里没有窗口概念
- *   （`java.awt` 只存在于 jvmMain），因此这里只留一个挂点，由宿主注入。
  */
 @Composable
 fun PreferencesScreen(
     data: PreferencesUiData,
     actions: PreferencesActions,
-    titleBarDragModifier: Modifier = Modifier,
     /** 每次窗口显示都由宿主自增；变化时把 Compose 焦点抢回根节点。 */
     focusRequestToken: Int = 0,
     modifier: Modifier = Modifier,
@@ -208,7 +202,7 @@ fun PreferencesScreen(
                 true
             }
 
-            // 自绘标题栏之后就没有系统菜单了，⌘W 得自己接上，否则这个窗口只能用鼠标关。
+            // 本应用是菜单栏应用（LSUIElement），窗口没有系统菜单，⌘W 不会自动生效，得自己接上。
             // 排在录制之后：录制期间用户想录 ⌘W 就该录进去。
             event.type == KeyEventType.KeyDown && event.isMetaPressed && event.key == Key.W -> {
                 actions.onDismiss()
@@ -219,11 +213,9 @@ fun PreferencesScreen(
         }
     }
 
-    // 圆角 + 描边是窗口自己的外形：宿主把窗口设成透明无边框，这里画的才是用户看到的那一块。
+    // 只铺底色：圆角、描边与投影都在系统窗口那一层（宿主用的是带标题栏的普通窗口）。
     Surface(
-        shape = RoundedCornerShape(10.dp),
         color = colors.background,
-        border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.4f)),
         modifier = modifier.fillMaxSize(),
     ) {
         Column(
@@ -233,15 +225,6 @@ fun PreferencesScreen(
                 .focusRequester(rootFocus)
                 .focusable(),
         ) {
-            PreferencesTitleBar(
-                dragModifier = titleBarDragModifier,
-                onClose = actions.onDismiss,
-            )
-            HorizontalDivider(
-                thickness = 1.dp,
-                color = colors.outline.copy(alpha = 0.3f),
-            )
-
             Row(Modifier.weight(1f)) {
                 PreferencesSidebar(selected = section, onSelect = { section = it })
                 // 用一条竖线分开两栏，而不是靠底色差值——深色模式下那两个颜色本来就挨得很近。
@@ -275,26 +258,6 @@ fun PreferencesScreen(
             }
         }
     }
-}
-
-// ---------------------------------------------------------------------------------
-// 标题栏与侧边栏
-// ---------------------------------------------------------------------------------
-
-/**
- * 设置窗口的标题栏。
- *
- * 外形与交互都在共享的 [ClipperTitleBar] 里（解锁窗用的是同一个），这里只负责给出本窗口的
- * 文案与关闭含义。
- */
-@Composable
-private fun PreferencesTitleBar(dragModifier: Modifier, onClose: () -> Unit) {
-    ClipperTitleBar(
-        title = "设置",
-        closeTooltip = "关闭设置",
-        onClose = onClose,
-        dragModifier = dragModifier,
-    )
 }
 
 // ---------------------------------------------------------------------------------

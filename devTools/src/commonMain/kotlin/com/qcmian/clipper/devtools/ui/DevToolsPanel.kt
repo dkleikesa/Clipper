@@ -1,7 +1,6 @@
 package com.qcmian.clipper.devtools.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -45,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcmian.clipper.core.domain.model.ClipItem
 import com.qcmian.clipper.core.settings.DevToolsSidebar
-import com.qcmian.clipper.core.ui.components.ClipperTitleBar
 import com.qcmian.clipper.core.ui.components.HoverTooltip
 import com.qcmian.clipper.core.ui.icons.ClipperIcon
 import com.qcmian.clipper.core.ui.icons.ClipperIconKind
@@ -77,32 +75,34 @@ private const val STATUS_DURATION_MILLIS = 1_600L
  * 它自己不认识任何具体工具——工具清单、分组、推荐顺序都来自 [registry]，界面则交给
  * [DevTool.Content]。
  *
- * **窗口的纵向空间分成三层，各司其职**：
- *  - 顶部一条 [ClipperTitleBar]：侧边栏开关 + **当前工具名** + 关闭。工具名只出现在这里，
- *    工具内部因此不再需要一行标题。
- *  - 中间整块给工具（工具栏 + 编辑区），由工具自己排。
- *  - 底部一条 [ToolStatusBar]：工具报告的一行常驻状态（行数 / 字符数 / 命中数…），
- *    外加一闪而过的提示。它**只在内容区下面**，不横跨侧边栏——侧边栏因此一直铺到窗口底边。
+ * **窗口外壳不再自绘**：宿主用的是带标题栏的普通窗口（`undecorated = false`），标题栏、红绿
+ * 灯、圆角与投影都由 macOS 画。于是这三样东西离开了这里——
+ *  - 当前工具名进**系统标题栏**（[onTitleChange] 报给宿主，面板自己不画标题）；
+ *  - 侧边栏开关落到侧边栏顶部（两种形态下都在那儿，仍是一次点击）；
+ *  - 关闭按钮就是系统的那个红灯（`⌘W` 由宿主接，应用没有菜单栏）。
+ *
+ * 剩下的纵向空间分成两块：上面整块给「侧边栏 + 当前工具」（工具栏 + 编辑区，由工具自己排），
+ * 底部一条 [ToolStatusBar]：工具报告的一行常驻状态（行数 / 字符数 / 命中数…），外加一闪而过的
+ * 提示。它**只在内容区下面**，不横跨侧边栏——侧边栏因此一直铺到窗口底边。
  *
  * 「动作在上、状态在下」这条分工是刻意的：工具栏那一行的高度由按钮决定，把字符数摆进去省不下
  * 任何空间，反而让右端随着识别结果忽宽忽窄。
  *
  * @param item 打开时带过来的那条剪贴板记录；`null` 表示这次没有输入（用户从侧边栏点进来，或历史
  *   为空）。工具拿到的是整条记录，按需取正文 / 图片 / 附加表示。
- * @param onClose 关闭窗口（由宿主决定窗口存亡，见 `ClipperDevToolsWindow`）。
  * @param sidebar 左侧工具清单的形态（展开 / 收起）。由宿主持有并持久化。
  * @param onSidebarChange 用户切换了侧边栏形态。
  * @param onPickFileToOpen 弹「打开」对话框并返回路径；`null` 表示取消。工具那边用
  *   `readTextFileOrNull` 读内容——面板不碰文件内容。
  * @param onPickFileToSave 弹「保存」对话框并返回路径；`null` 表示取消。
  * @param onDroppedFilePaths 从一次拖放里取出文件路径；由宿主解析平台载荷（见 [DevToolHost]）。
- * @param titleBarDragModifier 「按住标题栏拖动窗口」的手势，由宿主注入。
+ * @param onTitleChange 当前工具变了：宿主据此改**系统标题栏**上的字。没有可用工具时给
+ *   「开发者工具」。
  */
 @Composable
 fun DevToolsPanel(
     registry: DevToolsRegistry,
     item: ClipItem?,
-    onClose: () -> Unit,
     onCopyToClipboard: (String) -> Unit,
     /** 把一张 PNG 图片写回系统剪贴板；见 [DevToolHost.copyImageToClipboard]。 */
     onCopyImageToClipboard: (ByteArray) -> Unit = {},
@@ -125,7 +125,7 @@ fun DevToolsPanel(
      */
     pasteKey: DevToolPasteKey? = null,
     modifier: Modifier = Modifier,
-    titleBarDragModifier: Modifier = Modifier,
+    onTitleChange: (String) -> Unit = {},
 ) {
     // 类型探测在这里做，而不是在剪贴板那边：只有面板关心结果——它决定默认打开哪个工具、状态栏
     // 写什么类型。剪贴板只管把记录交过来，因此完全不必知道工具的存在。
@@ -181,6 +181,11 @@ fun DevToolsPanel(
     }
     val groups = remember(tools) { groupTools(tools) }
     val selectedTool = effectiveSelectedId?.let(registry::tool)
+
+    // 标题进**系统**标题栏：工具名只出现在那一处，内容区因此不必再留一行标题。还原成
+    // `null`（还没有可用工具）时给一句通用名字，免得系统标题栏空着。
+    val windowTitle = selectedTool?.metadata?.name ?: "开发者工具"
+    LaunchedEffect(windowTitle) { onTitleChange(windowTitle) }
 
     // 剪贴板内容只交给「吃这一口」的工具，而不是无脑灌进当前选中的那个：
     //  - [DevTool.acceptsAnyInput] 的工具（通用输入、双向编解码）照旧拿原样内容；
@@ -274,38 +279,22 @@ fun DevToolsPanel(
         status.value = null
     }
 
-    // 圆角 + 描边是**窗口自己的外形**：宿主把窗口设成透明无边框，这里画的才是用户看到的那一块。
-    // 与设置窗口同一口径（都是 10dp 圆角 + 40% 描边），两个窗口因此不会一个圆一个方。
-    val windowShape = RoundedCornerShape(10.dp)
+    // 窗口的圆角、描边与投影都归系统标题栏那一套管，这里只铺一层不透明底色：标题栏之下
+    // 必须是纯色，否则（窗口默认背景）会在主题切换的那一帧露出来。
     Column(
         modifier
             .fillMaxSize()
-            .clip(windowShape)
-            .background(MaterialTheme.colorScheme.background)
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                shape = windowShape,
-            ),
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        ClipperTitleBar(
-            // 工具名当窗口标题：这个窗口的内容就是它，侧边栏里还高亮着同一个词，再在内容区顶部
-            // 重复一行是白占地方。没有可用工具时才退回窗口自己的名字。
-            title = selectedTool?.metadata?.name ?: "开发者工具",
-            onClose = onClose,
-            closeTooltip = "关闭",
-            dragModifier = titleBarDragModifier,
-            leading = { SidebarToggle(sidebar, onSidebarChange) },
-        )
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
-
-        Row(Modifier.weight(1f).fillMaxWidth()) {
+        Row(Modifier.fillMaxSize()) {
             when (sidebar) {
                 DevToolsSidebar.EXPANDED -> {
                     ToolSidebar(
                         groups = groups,
                         selectedId = effectiveSelectedId,
                         recommendedId = recommendedId,
+                        sidebar = sidebar,
+                        onSidebarChange = onSidebarChange,
                         onSelect = {
                             pickedByUser = true
                             selectedId = it
@@ -320,6 +309,8 @@ fun DevToolsPanel(
                         tools = tools,
                         selectedId = effectiveSelectedId,
                         recommendedId = recommendedId,
+                        sidebar = sidebar,
+                        onSidebarChange = onSidebarChange,
                         onSelect = {
                             pickedByUser = true
                             selectedId = it
@@ -351,9 +342,17 @@ fun DevToolsPanel(
     }
 }
 
-/** 标题栏左侧的侧边栏开关：两档循环，图标跟着当前形态走。 */
+/**
+ * 侧边栏开关：两档循环，图标跟着当前形态走。
+ *
+ * 它原先挂在自绘标题栏的左端。窗口改用系统标题栏之后，那里归 macOS 的红绿灯，开关挪到了
+ * 侧边栏（展开时在清单顶上，收起时在图标栏顶上）——两种形态下位置都一致，仍是一次点击。
+ */
 @Composable
-private fun SidebarToggle(sidebar: DevToolsSidebar, onChange: (DevToolsSidebar) -> Unit) {
+private fun SidebarToggle(
+    sidebar: DevToolsSidebar,
+    onChange: (DevToolsSidebar) -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
@@ -388,16 +387,21 @@ private fun SidebarToggle(sidebar: DevToolsSidebar, onChange: (DevToolsSidebar) 
     }
 }
 
-/** 侧边栏：按分组排列的工具清单。 */
+/** 侧边栏：顶部一个形态开关，下面是按分组排列的工具清单。 */
 @Composable
 private fun ToolSidebar(
     groups: List<Pair<DevToolGroup, List<DevToolMetadata>>>,
     selectedId: String?,
     recommendedId: String?,
+    sidebar: DevToolsSidebar,
+    onSidebarChange: (DevToolsSidebar) -> Unit,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.padding(vertical = 6.dp)) {
+        Box(Modifier.padding(start = 10.dp, bottom = 4.dp)) {
+            SidebarToggle(sidebar, onSidebarChange)
+        }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             groups.forEach { (group, tools) ->
                 Text(
@@ -497,6 +501,8 @@ private fun ToolRail(
     tools: List<DevTool>,
     selectedId: String?,
     recommendedId: String?,
+    sidebar: DevToolsSidebar,
+    onSidebarChange: (DevToolsSidebar) -> Unit,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -505,6 +511,13 @@ private fun ToolRail(
         modifier.padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // 开关固定在顶上，与展开态的侧边栏同一个动作、同一个图标。
+        SidebarToggle(sidebar, onSidebarChange)
+        Box(
+            Modifier.padding(vertical = 6.dp).width(20.dp).height(1.dp)
+                .background(colors.outline.copy(alpha = 0.5f))
+        )
+
         var previousGroup: DevToolGroup? = null
         tools.forEach { tool ->
             val metadata = tool.metadata
