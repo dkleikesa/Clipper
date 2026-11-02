@@ -127,8 +127,16 @@ sealed interface ClipboardUiAction {
      * 不收回它系统级热键会一直哑着。
      */
     data object CancelShortcutRecording : ClipboardUiAction
+    /**
+     * 请求清除历史，并先弹确认框。
+     *
+     * [all] 定好了清哪一档（设置页两个按钮各发一条）；面板页脚的「清除」不预设，走 `ChooseClear`，
+     * 由用户在框里挑。
+     */
     data class RequestClear(val all: Boolean, val hidePanel: Boolean = true) : ClipboardUiAction
-    data object ConfirmClear : ClipboardUiAction
+
+    /** 用户在确认框里选定了哪一档。 */
+    data class ConfirmClear(val all: Boolean) : ClipboardUiAction
     data object DismissClear : ClipboardUiAction
 
     // ------------------------------------------------------------------ 开发者工具

@@ -39,7 +39,8 @@ data class FooterEntry(
 
 /**
  * 页脚按钮行：三个等宽按钮。
- * 「清除」只删除未置顶的条目（清空全部数据请到设置里操作）。
+ *
+ * 「清除」不预设范围：点开之后由确认框给出「清除未置顶」与「全部清除」两档（见 `HistoryDialogs`）。
  */
 @Composable
 fun FooterRows(

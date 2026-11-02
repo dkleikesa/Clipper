@@ -30,7 +30,13 @@ enum class DeepSearchState {
 data class ClearConfirmation(
     val message: String,
     val comment: String? = null,
-    val all: Boolean,
+    /**
+     * 已经定好的范围：`true` 连置顶一起清，`false` 只清未置顶。
+     *
+     * `null` 表示**还没定**——面板页脚的「清除」不预设范围，确认框里同时给出两档让用户挑
+     * （设置页那两个按钮各自定好一档，见 `ClipboardUiAction.RequestClear`）。
+     */
+    val all: Boolean?,
     val hidePanel: Boolean,
 )
 

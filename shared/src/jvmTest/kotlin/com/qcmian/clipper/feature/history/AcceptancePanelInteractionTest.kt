@@ -14,6 +14,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyPress
 import androidx.compose.ui.test.runComposeUiTest
 import com.qcmian.clipper.core.testutil.InProcessCluster
@@ -246,6 +247,28 @@ class AcceptancePanelInteractionTest {
      * 按传入顺序落条目：列表默认按「最后复制」降序，因此时间戳要**递减**，`id0` 才能排在第一条
      * （光标默认落在内容区第一条）。
      */
+    @Test
+    fun `页脚的清除给出两档 全部清除连置顶一起删`() = runComposeUiTest {
+        seed("普通的", "置顶的")
+        runBlocking { cluster.repository.setPinned(listOf("id0"), true) }
+        val viewModel = viewModel()
+        render(viewModel)
+        waitUntil { viewModel.uiState.value.results.size == 2 }
+
+        // 点页脚的「清除」：先弹出确认框，两档并列——不是一上来就按某一档清掉。
+        onNodeWithText("清除").performClick()
+        waitUntil { viewModel.uiState.value.confirmation != null }
+        assertEquals(null, viewModel.uiState.value.confirmation?.all, "范围还没定，交给用户选")
+        onNodeWithText("清除未置顶").assertIsDisplayed()
+        onNodeWithText("全部清除").assertIsDisplayed()
+
+        onNodeWithText("全部清除").performClick()
+
+        waitUntil { cluster.repository.pinned.value.isEmpty() }
+        assertEquals(0, cluster.historySize, "全部清除连置顶项一起清")
+        assertEquals(null, viewModel.uiState.value.confirmation, "选完即收起确认框")
+    }
+
     private fun seed(vararg texts: String) = runBlocking {
         cluster.start()
         texts.forEachIndexed { index, text ->

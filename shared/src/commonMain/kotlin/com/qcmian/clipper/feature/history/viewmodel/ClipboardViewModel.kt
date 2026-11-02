@@ -339,7 +339,7 @@ class ClipboardViewModel(
             ClipboardUiAction.CancelShortcutRecording -> shortcutRecorder.cancel()
 
             is ClipboardUiAction.RequestClear -> requestClear(action.all, action.hidePanel)
-            ClipboardUiAction.ConfirmClear -> confirmClear()
+            is ClipboardUiAction.ConfirmClear -> confirmClear(action.all)
             ClipboardUiAction.DismissClear -> _uiState.update { it.copy(confirmation = null) }
 
             ClipboardUiAction.OpenDevTools -> openDevTools()
@@ -578,19 +578,29 @@ class ClipboardViewModel(
 
     private fun runFooter(action: FooterAction) {
         when (action) {
-            FooterAction.CLEAR -> requestClear(all = false)
+            FooterAction.CLEAR -> requestClear()
             FooterAction.PREFERENCES -> _uiState.update { it.copy(settingsOpen = true) }
 
             FooterAction.QUIT -> onQuitRequest()
         }
     }
 
-    /** 清除历史前总是先确认。 */
-    private fun requestClear(all: Boolean, hidePanel: Boolean = true) {
+    /**
+     * 清除历史前总是先确认。
+     *
+     * [all] 为空表示**范围还没定**：面板页脚的「清除」不预设，确认框里同时给出「清除未置顶」与
+     * 「全部清除」两档；设置页那两个按钮各自定好一档，框里于是只留一个确定按钮。
+     */
+    private fun requestClear(all: Boolean? = null, hidePanel: Boolean = true) {
         _uiState.update {
             it.copy(
                 confirmation = ClearConfirmation(
-                    message = "确定要清除历史记录吗？",
+                    message = if (all == null) "清除历史记录" else "确定要清除历史记录吗？",
+                    comment = when (all) {
+                        null -> "置顶的条目只在「全部清除」时被删。"
+                        false -> "只清除未置顶的条目。"
+                        true -> "置顶条目也会一起清除，无法撤销。"
+                    },
                     all = all,
                     hidePanel = hidePanel,
                 ),
@@ -598,9 +608,9 @@ class ClipboardViewModel(
         }
     }
 
-    private fun confirmClear() {
+    private fun confirmClear(all: Boolean) {
         val confirmation = _uiState.value.confirmation ?: return
-        viewModelScope.launch { useCases.clearHistory(confirmation.all) }
+        viewModelScope.launch { useCases.clearHistory(all) }
         if (confirmation.hidePanel) onRequestHideWindow()
         _uiState.update { it.copy(confirmation = null) }
     }

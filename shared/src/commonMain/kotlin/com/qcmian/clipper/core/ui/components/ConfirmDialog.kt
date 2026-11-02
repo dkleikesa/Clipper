@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,11 +24,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 
 /**
- * 清除历史前显示的确认框。
+ * 确认框里的另一个破坏性动作（与确定并排）。
  *
- * 视觉：与应用的紧凑面板风格一致——10dp 圆角、260dp 宽、`surface` 底色 + 6dp tonal
+ * 存在的原因是有些操作有两档、又都不可撤销：与其让用户先选一遍再确认一遍，不如在同一个框里
+ * 把两档并列出来（见 `HistoryDialogs` 的「清除未置顶 / 全部清除」）。
+ */
+data class ConfirmAlternative(val label: String, val onClick: () -> Unit)
+
+/**
+ * 破坏性操作前的确认框。
+ *
+ * 视觉：与应用的紧凑面板风格一致——10dp 圆角、300dp 宽、`surface` 底色 + 6dp tonal
  * elevation；确认按钮是破坏性操作，用 `error` 色与取消按钮区分。
  * 底部按钮边距用 15dp（比 M3 AlertDialog 默认的 24dp 更紧凑）。
+ *
+ * 高度只给下限：说明文字长一点时让它自己长高，而不是把最后一行挤没。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,11 +47,15 @@ fun ConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     comment: String? = null,
+    /** 确定按钮上的字。默认「确定」；要写清后果时（如「清除未置顶」）由调用方给。 */
+    confirmLabel: String = "确定",
+    /** 与确定并排的**第二个**破坏性动作，如「全部清除」；`null` 表示只有一个确定。 */
+    alternative: ConfirmAlternative? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     BasicAlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.width(300.dp).height(140.dp),
+        modifier = Modifier.width(300.dp).heightIn(min = 140.dp),
         properties = DialogProperties(),
     ) {
         Surface(
@@ -73,11 +88,19 @@ fun ConfirmDialog(
                     TextButton(onClick = onDismiss) {
                         Text("取消")
                     }
+                    alternative?.let { extra ->
+                        TextButton(
+                            onClick = extra.onClick,
+                            colors = ButtonDefaults.textButtonColors(contentColor = colors.error),
+                        ) {
+                            Text(extra.label)
+                        }
+                    }
                     TextButton(
                         onClick = onConfirm,
                         colors = ButtonDefaults.textButtonColors(contentColor = colors.error),
                     ) {
-                        Text("确定", fontWeight = FontWeight.SemiBold)
+                        Text(confirmLabel, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
