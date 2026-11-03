@@ -19,17 +19,32 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.window.ApplicationScope
 import com.qcmian.clipper.core.platform.macos.MacStatusItem
+import com.qcmian.clipper.feature.history.state.ClipboardUiState
+import com.qcmian.clipper.feature.history.viewmodel.ClipboardViewModel
 import com.qcmian.clipper.host.WindowController
 import java.awt.SystemTray
 import java.awt.TrayIcon
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /** 原生菜单栏图标在菜单栏里的边长（pt）。 */
 private const val TRAY_ICON_POINT_SIZE = 18.0
 
+/** 托盘外观只看这两位：图标该不该在、要不要因为暂停记录而变灰。 */
+private data class TrayAppearance(val visible: Boolean, val disabled: Boolean)
+
+private fun ClipboardUiState.trayAppearance() =
+    TrayAppearance(visible = settings.showInStatusBar, disabled = isStatusItemDisabled)
+
 /**
- * 菜单栏 / 托盘图标（View 层）：从 [WindowController] 读取要显示的投影状态。
+ * 菜单栏 / 托盘图标（View 层）：窗口级状态读 [WindowController] 的投影，外观读 [ClipboardViewModel]。
+ *
+ * 外观（显示开关、置灰）**直读状态持有者**，不走 `HostUiState`：那份投影由面板窗口里的 `App`
+ * 用 `SideEffect` 写入，面板收起时它的更新跟着不可见窗口的重绘节奏走（系统会对不可见窗口降频），
+ * 开关要等一会儿才落到菜单栏上；面板从未显示过时更是完全不更新。同样的坑见
+ * `WindowGeometryController.observeWindowGeometry` 与 `GlobalHotKeyController.observeShortcut`。
  *
  * macOS 上用 AppKit 的 `NSStatusItem`（原生高亮 / 原生内边距 / 真正的左右键），
  * 其它平台退回 AWT 托盘。图标是 [clipperTrayIcon] 单色线稿，固定用深色模式的样式，
@@ -38,16 +53,22 @@ private const val TRAY_ICON_POINT_SIZE = 18.0
 @Composable
 fun ApplicationScope.ClipperTray(
     windowController: WindowController,
+    viewModel: ClipboardViewModel,
 ) {
-    val host by windowController.hostUiState.collectAsState()
-    if (!host.settings.showInStatusBar) return
+    // 只订阅决定外观的两位，而不是整份界面状态：后者每复制一条内容、每敲一个搜索键都会变。
+    val appearance by remember(viewModel) {
+        viewModel.uiState.map { it.trayAppearance() }.distinctUntilChanged()
+    }.collectAsState(initial = viewModel.uiState.value.trayAppearance())
 
+    if (!appearance.visible) return
+
+    val host by windowController.hostUiState.collectAsState()
     val tooltip = "Clipper — 剪贴板历史记录"
 
     if (MacStatusItem.isSupported) {
         NativeTray(
             active = host.isStatusItemActive,
-            disabled = host.isStatusItemDisabled,
+            disabled = appearance.disabled,
             tooltip = tooltip,
             onPrimaryClick = { windowController.requestToggle() },
             windowVisible = host.isWindowVisible,
@@ -55,7 +76,7 @@ fun ApplicationScope.ClipperTray(
     } else {
         FallbackTray(
             active = host.isStatusItemActive,
-            disabled = host.isStatusItemDisabled,
+            disabled = appearance.disabled,
             tooltip = tooltip,
             onPrimaryClick = { windowController.requestToggle() },
         )

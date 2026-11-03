@@ -138,7 +138,7 @@ private fun ApplicationScope.ClipperApplication() {
     ClipperWindow(windowState, container, windowController, hotkeyController, clipboardViewModel)
     ClipperSettingsWindow(clipboardViewModel, windowController)
     ClipperDevToolsWindow(clipboardViewModel, devTools, windowController)
-    ClipperTray(windowController)
+    ClipperTray(windowController, clipboardViewModel)
 }
 
 /**

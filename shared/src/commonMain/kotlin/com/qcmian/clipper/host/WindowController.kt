@@ -1,6 +1,5 @@
 package com.qcmian.clipper.host
 
-import com.qcmian.clipper.core.settings.AppSettings
 import com.qcmian.clipper.core.util.currentTimeMillis
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,17 +11,12 @@ import kotlinx.coroutines.flow.asStateFlow
  *
  * `App` 会一次性从 `ClipboardUiState` 写入它，因此这里是单个不可变值，而不是十几个可变字段——
  * 控制器只是镜像状态持有者，永远不会成为第二个数据源。
+ *
+ * **只装窗口级事实**（显隐、模态框、录制态）。偏好与「是否暂停记录」这类内容级状态刻意不放进来：
+ * 这份投影由面板窗口里的 `App` 写入，面板收起时它的更新跟着不可见窗口的重绘节奏走，把外观偏好
+ * 放在这里，改设置到菜单栏图标跟上就会慢半拍。需要它们的宿主直读状态持有者（见 `ClipperTray`）。
  */
 data class HostUiState(
-    /** 偏好设置，便于宿主遵循窗口尺寸、屏幕与快捷键。 */
-    val settings: AppSettings = AppSettings(),
-
-    /**
-     * `AppDelegate.isStatusItemDisabled`：记录被暂停时托盘图标变灰，
-     * 存储偏好中把所有内容类型都关掉时同样如此。
-     */
-    val isStatusItemDisabled: Boolean = false,
-
     /**
      * 面板当前是否可见。可见时托盘图标画出按下态背景，对应菜单栏项的 `highlighted`。
      * 只有桌面宿主有这个概念，其它平台保持默认值。

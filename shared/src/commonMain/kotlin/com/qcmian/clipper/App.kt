@@ -120,12 +120,11 @@ fun App(
         }
 
         // 用一个投影取代十几个镜像字段：面向宿主的那部分状态以单个不可变值交给控制器，
-        // 因此它只有一个数据源。
+        // 因此它只有一个数据源。只装窗口级事实——偏好这类内容级状态由宿主直读状态持有者，
+        // 否则面板收起时它们会跟着不可见窗口的重绘节奏慢半拍（见 `HostUiState`）。
         SideEffect {
             windowController?.setHostUiState(
                 HostUiState(
-                    settings = state.settings,
-                    isStatusItemDisabled = state.isStatusItemDisabled,
                     isStatusItemActive = statusItemActive,
                     isWindowVisible = panelVisible,
                     isModalOpen = state.isModalOpen,
