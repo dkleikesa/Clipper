@@ -1,3 +1,5 @@
+import java.nio.file.FileSystems
+import java.nio.file.Files
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
@@ -113,6 +115,33 @@ compose.desktop {
             }
             linux {
                 iconFile.set(project.file("icons/clipper.png"))
+            }
+        }
+    }
+}
+
+/**
+ * 剥掉 ProGuard 输出 jar 里的签名文件。
+ *
+ * BouncyCastle（bcprov / bcpkix / bcutil）是签名 jar（`META-INF/BCRSA204.SF/.RSA`）。ProGuard
+ * 会重写其中的 class，却把签名文件原样拷过去，于是 JVM 首次加载其中的类时校验摘要失败，抛
+ * `SecurityException: SHA-256 digest error for org/bouncycastle/...`——表现为 release 包里一用
+ * 证书 / 密钥库 / APK 工具就崩，而 `gradlew run` 不经 ProGuard、无法复现。keep 规则救不了：
+ * 类即便全保留也会被重新写出，摘要照样对不上。去掉 `.SF` 后 jar 按未签名处理即可。
+ */
+tasks.matching { it.name == "proguardReleaseJars" }.configureEach {
+    val proguardOutputs = outputs.files
+    doLast {
+        val signatureFile = Regex("""META-INF/[^/]+\.(SF|RSA|DSA|EC)""", RegexOption.IGNORE_CASE)
+        proguardOutputs.asFileTree.matching { include("**/*.jar") }.forEach { jar ->
+            FileSystems.newFileSystem(jar.toPath()).use { fs ->
+                val metaInf = fs.getPath("/META-INF")
+                if (!Files.isDirectory(metaInf)) return@use
+                Files.list(metaInf).use { entries ->
+                    entries.toList()
+                        .filter { signatureFile.matches(it.toString().removePrefix("/")) }
+                        .forEach { Files.delete(it) }
+                }
             }
         }
     }
