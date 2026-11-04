@@ -13,6 +13,7 @@ import com.qcmian.clipper.devtools.tools.cert.CertDevTool
 import com.qcmian.clipper.devtools.tools.hash.HashDevTool
 import com.qcmian.clipper.devtools.tools.hex.HexDevTool
 import com.qcmian.clipper.devtools.tools.json.JsonDevTool
+import com.qcmian.clipper.devtools.tools.logviewer.LogViewerDevTool
 import com.qcmian.clipper.devtools.tools.barcode.BarcodeDevTool
 import com.qcmian.clipper.devtools.tools.math.MathDevTool
 // 正则工具先不挂出来（见 [DevToolsRegistry.builtIn] 的说明）；放开时把这一行与那里的登记一起取消注释。
@@ -106,6 +107,8 @@ class DevToolsRegistry(
                 // SQLite 浏览 / 编辑：`.db` 是二进制，由文件探测器按扩展名认（`sqlite`），
                 // 复制一个库文件打开工具时会直接选中它并载入；入口也在侧边栏「其它」组。
                 SqliteDevTool,
+                // 日志查看：行渲染与过滤来自独立项目 LogViewer（见 `:logViewer`），这里只是一个插件外壳。
+                LogViewerDevTool,
                 // RegexDevTool,
             ),
         )

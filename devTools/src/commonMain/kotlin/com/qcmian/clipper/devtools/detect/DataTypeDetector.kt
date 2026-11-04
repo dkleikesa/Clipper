@@ -196,6 +196,58 @@ internal object MathDataTypeDetector : DataTypeDetector {
     }
 }
 
+/**
+ * 一段日志。
+ *
+ * 判据是**行头**而不是内容关键词：一行里出现 "error" 太常见（散文、代码、JSON 里都有），
+ * 而「时间戳 + 级别」或 logcat 的行头基本只出现在日志里。为了不让一条堆栈打印、一段命令输出
+ * 漏掉（它们有行头，但中间夹着没有行头的续行），只要求样本里**够比例**的行带行头。
+ *
+ * 具体程度压在文本类探测器之下（`url` 是 40）：一段日志里常常就嵌着 URL 与时间戳，
+ * 那些类型更具体，该排在前面。
+ */
+internal object LogDataTypeDetector : DataTypeDetector {
+    override val typeName: String = DataTypes.LOG
+    override val specificity: Int = 30
+
+    /** 只看开头这么多行：再往后翻对判断没有帮助，长日志还会白白花时间。 */
+    private const val SAMPLE_LINES = 60
+
+    /** 少于这么多行就不是「一段日志」，一段两三行的错误信息照样能按行看。 */
+    private const val MIN_LINES = 3
+
+    /** 带行头的行至少占这个比例。堆栈、多行消息这类续行因此不会把整段判掉。 */
+    private const val MIN_RATIO = 0.4
+
+    /** logcat：`08-14 12:00:00.123  1234  5678 I Tag: msg`。 */
+    private val logcatLine =
+        Regex("""^\s*\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}[.,]\d{3}\s+\d+\s+\d+\s+[VDIWEFA]\s""")
+
+    /** 行首时间戳（日期 + 时分秒），`2024-08-14 12:00:00` / `[2024/08/14 12:00:00.123]` 都算。 */
+    private val timestampPrefix = Regex("""^\s*\[?\d{2,4}[-/:.]\d{1,2}[-/:.]\d{1,4}[ T]\d{1,2}:\d{2}""")
+
+    /** 单独成词（或成段）的级别。 */
+    private val levelWord = Regex(
+        """(?:^|[\s\[|])(?:TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|FATAL|VERBOSE|SEVERE)(?:$|[\s\]|:])""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    override fun matches(text: String): Boolean {
+        if (text.isEmpty()) return false
+        val lines = text.lineSequence()
+            .filter { it.isNotBlank() }
+            .take(SAMPLE_LINES)
+            .toList()
+        if (lines.size < MIN_LINES) return false
+        val headed = lines.count(::hasLogHeader)
+        return headed >= MIN_LINES && headed.toFloat() / lines.size >= MIN_RATIO
+    }
+
+    private fun hasLogHeader(line: String): Boolean =
+        logcatLine.containsMatchIn(line) ||
+            (timestampPrefix.containsMatchIn(line) && levelWord.containsMatchIn(line))
+}
+
 /** APK：只看扩展名。文件里是什么，交给签名工具自己读（ZIP 头）。 */
 internal object ApkFileTypeDetector : FileTypeDetector {
     override val typeName: String = DataTypes.APK
@@ -269,6 +321,7 @@ internal object TextDataTypeDetector : DataTypeDetector {
  */
 val BuiltInDataTypeDetectors: List<DataTypeDetector> = listOf(
     CertDataTypeDetector,
+    LogDataTypeDetector,
     JsonDataTypeDetector,
     XmlDataTypeDetector,
     TimestampDataTypeDetector,

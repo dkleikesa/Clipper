@@ -61,6 +61,14 @@ object DataTypes {
      * 算式」的一律不算（见 `MathDataTypeDetector`）。
      */
     const val MATH = "math"
+
+    /**
+     * 一段日志：多行，且相当一部分行带「时间戳 + 级别」或 logcat 行头（见 `LogDataTypeDetector`）。
+     *
+     * 只用来**推荐**日志查看工具：任何多行文本都能按行看，因此该工具不靠这个类型把关
+     * （见 `LogViewerDevTool.acceptsAnyInput`）。
+     */
+    const val LOG = "log"
 }
 
 /** 工具在侧边栏里的分组。枚举顺序就是分组在侧边栏里的先后。 */

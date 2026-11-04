@@ -12,3 +12,8 @@
 
 # macOS 原生层将 Kotlin 回调注册到 Objective-C 运行时；回调方法由 JNA 反射发现。
 -keep class com.qcmian.clipper.core.platform.macos.** { *; }
+
+# 日志工具的规则集合（`FilterSet` / `FilterConfig`）走 kotlinx.serialization：反序列化依赖
+# 编译器生成的 `serializer()` 与 `Companion`，而 release 走 ProGuard。整组保留——这个包的类
+# 只有十几个字段，留下它们换掉「规则导入在发行包里静默失败」这种只在打包后才复现的问题。
+-keep class com.qcmian.logviewer.core.model.** { *; }

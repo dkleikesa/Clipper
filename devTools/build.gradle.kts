@@ -23,6 +23,11 @@ kotlin {
             // 它只把一条 `ClipItem` 放进状态里（见 `ClipboardUiState.devToolsItem`）。
             api(project(":shared"))
 
+            // 日志查看工具就是独立项目 LogViewer 的工作台整体（多标签、打开/重载、过滤、查找、
+            // 跳转、导出），按源码搬进 `:logViewer`。它只依赖 compose 与 kotlinx，不认识宿主，
+            // 因此 `:devTools -> :logViewer` 不成环。
+            implementation(project(":logViewer"))
+
             // 代码框（KodeMirror）的直接依赖：渲染那一套在 `:shared`，但本模块的 `jvmTest`
             // （`GutterLineNumberGuardTest`）要直接触到 KodeMirror 的节点，所以这里显式声明。
             // 用 `implementation` 而不是 `api`：工程对外暴露的类型上没有它。
